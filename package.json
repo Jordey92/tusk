@@ -1,0 +1,57 @@
+{
+  "name": "@jordey92/tusk",
+  "version": "0.1.0",
+  "description": "Simple PostgreSQL migration tool with Elysia support",
+  "author": "Jordan Dey",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jordey92/tusk.git"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "keywords": [
+    "postgres",
+    "postgresql",
+    "migration",
+    "database",
+    "sql",
+    "elysia",
+    "bun"
+  ],
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "module": "dist/index.js",
+  "type": "module",
+  "bin": {
+    "tusk": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "bun test",
+    "prepublishOnly": "bun run build"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^24.6.2",
+    "@types/pg": "^8.15.5",
+    "elysia": "^1.4.9",
+    "pg": "^8.16.3",
+    "typescript": "^5.9.3"
+  },
+  "peerDependencies": {
+    "pg": ">=8.0.0",
+    "elysia": ">=1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "elysia": {
+      "optional": true
+    }
+  }
+}

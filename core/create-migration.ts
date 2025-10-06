@@ -1,0 +1,21 @@
+import { writeFile } from "fs/promises";
+import { resolve } from "path";
+import { downTemplate, upTemplate } from "../templates/migrationContent";
+
+export const createMigrationFile = async (
+  migrationsPath: string,
+  filename: string
+): Promise<{ upFile: string; downFile: string }> => {
+  const timestamp = Date.now();
+  const upFilename = `${timestamp}_${filename}.up.sql`;
+  const downFilename = `${timestamp}_${filename}.down.sql`;
+
+  const path = resolve(migrationsPath);
+  const upPath = resolve(path, upFilename);
+  const downPath = resolve(path, downFilename);
+
+  await writeFile(upPath, upTemplate(filename));
+  await writeFile(downPath, downTemplate(filename));
+
+  return { upFile: upFilename, downFile: downFilename };
+};
