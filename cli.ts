@@ -8,6 +8,7 @@ import {
   getExecutedMigrations,
 } from "./core/track-migrations";
 import { createMigrationFile } from "./core/create-migration";
+import { createInitialMigration } from "./core/init-migration";
 import { logger } from "./utils/logger";
 import { createConfigurationError, createValidationError, formatTuskError, isTuskError } from "./utils/errors";
 import { readFileSync } from "fs";
@@ -72,6 +73,7 @@ Usage: tusk <command> [options]
 
 Commands:
   create <name>   Create a new migration with the given name
+  init            Generate initial migration from existing database schema
   up              Run all pending migrations
   down [n]        Rollback last n migrations (defaults to all if n not specified)
   status          Show migration status
@@ -95,6 +97,7 @@ Environment variables:
 
 Examples:
   tusk create add_user_table
+  tusk init
   tusk up
   tusk down
   tusk down 3
@@ -104,7 +107,7 @@ Examples:
 };
 
 const validateCommand = (command: string, arg?: string) => {
-  const validCommands = ["create", "up", "down", "status", "version", "help"];
+  const validCommands = ["create", "init", "up", "down", "status", "version", "help"];
 
   if (!validCommands.includes(command)) {
     const tuskError = createValidationError(
@@ -167,6 +170,15 @@ const run = async () => {
         console.log(`✓ Created ${files.upFile}`);
         console.log(`✓ Created ${files.downFile}`);
         logger.info("Migration files created successfully", files);
+        break;
+
+      case "init":
+        logger.info("Generating initial migration from database");
+        const initResult = await createInitialMigration(adapter, migrationsPath);
+        console.log(`✓ Created ${initResult.upFile}`);
+        console.log(`✓ Created ${initResult.downFile}`);
+        console.log(`✓ Introspected ${initResult.tableCount} table(s)`);
+        logger.info("Initial migration created successfully", initResult);
         break;
 
       case "up":
