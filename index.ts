@@ -14,6 +14,7 @@ export type {
   TableInfo,
   IntrospectedSchema,
 } from "./types/schema";
+export type { MigrationRecord } from "./core/track-migrations";
 
 export { runUp, runDown } from "./core/run-migrations";
 export { readMigrations } from "./core/read-migrations";
@@ -21,8 +22,6 @@ export {
   ensureMigrationsTable,
   getExecutedMigrations,
   getLastExecutedMigrations,
-  markAsExecuted,
-  markAsRolledBack,
 } from "./core/track-migrations";
 export { createInitialMigration } from "./core/init-migration";
 

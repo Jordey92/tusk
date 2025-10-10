@@ -11,7 +11,6 @@ import type {
 export interface Migration {
   filename: string;
   timestamp: string;
-  name: string;
   sql: string;
 }
 

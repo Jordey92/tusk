@@ -47,18 +47,6 @@ export const extractTimestampFromFilename = (filename: string): string => {
   return timestamp;
 };
 
-export const extractNameFromFilename = (filename: string): string => {
-  if (!filename.match(UP_DOWN_REGEX)) {
-    const tuskError = createMigrationFileError(filename, "Filename must end with .up.sql or .down.sql");
-    throw new Error(formatTuskError(tuskError));
-  }
-
-  const [timestamp, ...nameParts] = filename
-    .replace(UP_DOWN_REGEX, "")
-    .split("_");
-  return nameParts.join("_");
-};
-
 export const readSqlFile = async (path: string, filename: string) => {
   const absolutePath = resolve(path, filename);
   const sql = await readFile(absolutePath, "utf-8");
@@ -84,9 +72,8 @@ export const readMigrations = async (
   const migrations = await Promise.all(
     sortedMigrations.map(async (filename) => {
       const timestamp = extractTimestampFromFilename(filename);
-      const name = extractNameFromFilename(filename);
       const sql = await readSqlFile(path, filename);
-      return { filename, timestamp, name, sql };
+      return { filename, timestamp, sql };
     })
   );
 

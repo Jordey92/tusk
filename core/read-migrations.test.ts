@@ -4,7 +4,6 @@ import {
   getFilesFromDirectory,
   getSqlFilesFromList,
   extractTimestampFromFilename,
-  extractNameFromFilename,
   readSqlFile,
   sortMigrationsByTimestamp,
 } from "./read-migrations";
@@ -163,50 +162,6 @@ describe("extractTimestampFromFilename", () => {
     expect(() => extractTimestampFromFilename("")).toThrow(
       "Filename must end with .up.sql or .down.sql"
     );
-  });
-});
-
-describe("extractNameFromFilename", () => {
-  test("should throw error for invalid filename format", () => {
-    expect(() => extractNameFromFilename("1759531351_test_file_1.sql")).toThrow(
-      "Filename must end with .up.sql or .down.sql"
-    );
-  });
-
-  test("should return name from .up.sql filename", () => {
-    const name = extractNameFromFilename("1759531351_test_file_1.up.sql");
-    expect(name).toBe("test_file_1");
-  });
-
-  test("should return name from .down.sql filename", () => {
-    const name = extractNameFromFilename("1759531351_test_file_1.down.sql");
-    expect(name).toBe("test_file_1");
-  });
-
-  test("should return empty string when no name part exists", () => {
-    const name = extractNameFromFilename("1759531351_.up.sql");
-    expect(name).toBe("");
-  });
-
-  test("should handle names with multiple underscores", () => {
-    const name = extractNameFromFilename("1759531351_create_user_table_with_indexes.up.sql");
-    expect(name).toBe("create_user_table_with_indexes");
-  });
-
-  test("should handle names with special characters", () => {
-    const name = extractNameFromFilename("1759531351_add-user-emails@2024.up.sql");
-    expect(name).toBe("add-user-emails@2024");
-  });
-
-  test("should handle very long names", () => {
-    const longName = "a".repeat(200);
-    const name = extractNameFromFilename(`1759531351_${longName}.up.sql`);
-    expect(name).toBe(longName);
-  });
-
-  test("should handle names with numbers", () => {
-    const name = extractNameFromFilename("1759531351_migrate_from_v1_to_v2.up.sql");
-    expect(name).toBe("migrate_from_v1_to_v2");
   });
 });
 
@@ -370,14 +325,12 @@ describe("readMigrations", () => {
     expect(upMigrations.length).toBeGreaterThan(0);
     expect(upMigrations[0]).toHaveProperty("filename");
     expect(upMigrations[0]).toHaveProperty("timestamp");
-    expect(upMigrations[0]).toHaveProperty("name");
     expect(upMigrations[0]).toHaveProperty("sql");
   });
 
   test("should have correct types", () => {
     expect(typeof upMigrations[0].filename).toBe("string");
     expect(typeof upMigrations[0].timestamp).toBe("string");
-    expect(typeof upMigrations[0].name).toBe("string");
     expect(typeof upMigrations[0].sql).toBe("string");
   });
 
@@ -456,7 +409,6 @@ describe("readMigrations", () => {
       expect(migrations.length).toBe(1);
       expect(migrations[0].filename).toBe("1234567890_valid.up.sql");
       expect(migrations[0].timestamp).toBe("1234567890");
-      expect(migrations[0].name).toBe("valid");
       expect(migrations[0].sql).toBe("CREATE TABLE test();");
     } finally {
       await unlink(validFile);
