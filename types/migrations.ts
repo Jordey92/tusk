@@ -30,6 +30,10 @@ export interface DatabaseAdapter {
     callback: (client: TransactionClient) => Promise<T>
   ): Promise<T>;
 
+  // Migration safety
+  acquireMigrationLock(): Promise<void>;
+  releaseMigrationLock(): Promise<void>;
+
   // Introspection capabilities
   introspectDatabase(schema?: string): Promise<IntrospectedSchema>;
   introspectTable(tableName: string): Promise<TableInfo>;

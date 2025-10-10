@@ -57,7 +57,7 @@ describe("track migrations", () => {
         ORDER BY ordinal_position
       `);
 
-      expect(result.rows).toHaveLength(3);
+      expect(result.rows).toHaveLength(4);
       expect(result.rows[0]).toMatchObject({
         column_name: "id",
         data_type: "integer",
@@ -70,6 +70,11 @@ describe("track migrations", () => {
       });
       expect(result.rows[2]).toMatchObject({
         column_name: "executed_at",
+        is_nullable: "YES"
+      });
+      expect(result.rows[3]).toMatchObject({
+        column_name: "checksum",
+        data_type: "character varying",
         is_nullable: "YES"
       });
     });

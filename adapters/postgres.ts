@@ -96,6 +96,39 @@ export const createPostgresAdapter = (pool: Pool): DatabaseAdapter => {
       }
     },
 
+    // Migration safety
+    acquireMigrationLock: async () => {
+      const MIGRATION_LOCK_ID = 123456789; // Arbitrary unique ID for Tusk migrations
+      logger.debug("Attempting to acquire migration lock");
+
+      const result = await executeQuery(
+        "SELECT pg_try_advisory_lock($1) as acquired",
+        [MIGRATION_LOCK_ID]
+      );
+
+      if (!result.rows[0].acquired) {
+        logger.warn("Migration lock acquisition failed - another process is running migrations");
+        throw new Error(
+          "Another migration process is currently running. " +
+          "Please wait for it to complete before running migrations again."
+        );
+      }
+
+      logger.info("Migration lock acquired successfully");
+    },
+
+    releaseMigrationLock: async () => {
+      const MIGRATION_LOCK_ID = 123456789;
+      logger.debug("Releasing migration lock");
+
+      await executeQuery(
+        "SELECT pg_advisory_unlock($1)",
+        [MIGRATION_LOCK_ID]
+      );
+
+      logger.debug("Migration lock released successfully");
+    },
+
     // Introspection methods
     getTableNames: async (schema: string = "public"): Promise<string[]> => {
       logger.debug("Getting table names", { schema });

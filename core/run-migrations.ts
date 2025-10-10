@@ -5,12 +5,14 @@
 import type { DatabaseAdapter, RunResult } from "../types/migrations";
 import { getCorrespondingFilename } from "../utils/filename";
 import { logger } from "../utils/logger";
-import { createDatabaseError, createMigrationExecutionError, createRollbackError, formatTuskError } from "../utils/errors";
+import { createDatabaseError, createMigrationExecutionError, createRollbackError, formatTuskError, createValidationError } from "../utils/errors";
 import { readMigrations } from "./read-migrations";
+import { calculateChecksum } from "../utils/checksum";
 import {
   ensureMigrationsTable,
   getExecutedMigrations,
   getLastExecutedMigrations,
+  getExecutedMigrationsWithChecksums,
   markAsExecuted,
   markAsRolledBack,
 } from "./track-migrations";
@@ -21,10 +23,14 @@ export const runUp = async (
 ): Promise<RunResult> => {
   logger.info("Starting migration up process", { migrationsPath });
 
+  // Acquire migration lock to prevent concurrent migrations
+  await adapter.acquireMigrationLock();
+
   try {
     await ensureMigrationsTable(adapter);
     logger.debug("Migrations table ensured");
   } catch (error) {
+    await adapter.releaseMigrationLock();
     const tuskError = createDatabaseError(
       "Failed to ensure migrations table exists. Check database connection.",
       error instanceof Error ? error : new Error(String(error))
@@ -33,48 +39,93 @@ export const runUp = async (
     throw new Error(formatTuskError(tuskError));
   }
 
-  const migrationsFromDirectoy = await readMigrations(migrationsPath, "up");
-  const migrationsFromDb = await getExecutedMigrations(adapter);
+  try {
+    // Read all migrations from directory
+    const migrationsFromDirectory = await readMigrations(migrationsPath, "up");
 
-  const migrationsToRun = migrationsFromDirectoy.filter(
-    (migration) =>
-      !migrationsFromDb.has(migration.filename) &&
-      migration.filename.endsWith(".up.sql")
-  );
+    // Get executed migrations with checksums
+    const executedMigrations = await getExecutedMigrationsWithChecksums(adapter);
+    const executedFilenames = new Set(executedMigrations.map(m => m.filename));
 
-  logger.info("Found migrations to execute", {
-    total: migrationsFromDirectoy.length,
-    toExecute: migrationsToRun.length,
-    alreadyExecuted: migrationsFromDb.size
-  });
+    // Verify checksums of already-executed migrations
+    for (const executedMigration of executedMigrations) {
+      if (!executedMigration.checksum) {
+        // Migration executed before checksums were added, skip verification
+        continue;
+      }
 
-  let pending = migrationsToRun.length;
-
-  for (const migration of migrationsToRun) {
-    logger.debug("Executing migration", { filename: migration.filename });
-
-    try {
-      await adapter.transaction(async (client) => {
-        await client.query(migration.sql);
-        await markAsExecuted(client, migration.filename);
-        pending--;
-        logger.info("Migration executed successfully", { filename: migration.filename });
-      });
-    } catch (error) {
-      const tuskError = createMigrationExecutionError(
-        migration.filename,
-        error instanceof Error ? error : new Error(String(error))
+      const migrationFile = migrationsFromDirectory.find(
+        m => m.filename === executedMigration.filename
       );
-      logger.error("Migration execution failed", {
-        filename: migration.filename,
-        error: formatTuskError(tuskError)
-      });
-      throw new Error(formatTuskError(tuskError));
-    }
-  }
 
-  logger.info("Migration up process completed", { executed: migrationsToRun.length });
-  return { executed: migrationsToRun.length, pending };
+      if (migrationFile) {
+        const currentChecksum = calculateChecksum(migrationFile.sql);
+        if (currentChecksum !== executedMigration.checksum) {
+          await adapter.releaseMigrationLock();
+          const tuskError = createValidationError(
+            `Migration file ${executedMigration.filename} has been modified after execution. ` +
+            `This is not allowed. Original checksum: ${executedMigration.checksum}, ` +
+            `current checksum: ${currentChecksum}`,
+            { filename: executedMigration.filename }
+          );
+          logger.error("Migration checksum mismatch", { error: formatTuskError(tuskError) });
+          throw new Error(formatTuskError(tuskError));
+        }
+      }
+    }
+
+    logger.debug("Migration checksums verified");
+
+    // Find migrations that haven't been executed yet
+    const migrationsToRun = migrationsFromDirectory.filter(
+      (migration) =>
+        !executedFilenames.has(migration.filename) &&
+        migration.filename.endsWith(".up.sql")
+    );
+
+    logger.info("Found migrations to execute", {
+      total: migrationsFromDirectory.length,
+      toExecute: migrationsToRun.length,
+      alreadyExecuted: executedFilenames.size
+    });
+
+    let pending = migrationsToRun.length;
+
+    // Execute pending migrations
+    for (const migration of migrationsToRun) {
+      logger.debug("Executing migration", { filename: migration.filename });
+
+      try {
+        const checksum = calculateChecksum(migration.sql);
+
+        await adapter.transaction(async (client) => {
+          await client.query(migration.sql);
+          await markAsExecuted(client, migration.filename, checksum);
+          pending--;
+          logger.info("Migration executed successfully", {
+            filename: migration.filename,
+            checksum
+          });
+        });
+      } catch (error) {
+        const tuskError = createMigrationExecutionError(
+          migration.filename,
+          error instanceof Error ? error : new Error(String(error))
+        );
+        logger.error("Migration execution failed", {
+          filename: migration.filename,
+          error: formatTuskError(tuskError)
+        });
+        throw new Error(formatTuskError(tuskError));
+      }
+    }
+
+    logger.info("Migration up process completed", { executed: migrationsToRun.length });
+    return { executed: migrationsToRun.length, pending };
+  } finally {
+    // Always release the lock, even if an error occurred
+    await adapter.releaseMigrationLock();
+  }
 };
 
 export const runDown = async (
@@ -84,49 +135,57 @@ export const runDown = async (
 ): Promise<RunResult> => {
   logger.info("Starting migration down process", { migrationsPath, count });
 
-  await ensureMigrationsTable(adapter);
-  const migrationsFromDirectory = await readMigrations(migrationsPath, "down");
+  // Acquire migration lock to prevent concurrent migrations
+  await adapter.acquireMigrationLock();
 
-  const lastExecuted = await getLastExecutedMigrations(adapter, count);
-  const lastExecutedSet = new Set(lastExecuted);
+  try {
+    await ensureMigrationsTable(adapter);
+    const migrationsFromDirectory = await readMigrations(migrationsPath, "down");
 
-  const migrationsToRollback = migrationsFromDirectory.filter((migration) => {
-    const upFilename = getCorrespondingFilename(migration.filename, "up");
-    return lastExecutedSet.has(upFilename);
-  });
+    const lastExecuted = await getLastExecutedMigrations(adapter, count);
+    const lastExecutedSet = new Set(lastExecuted);
 
-  logger.info("Found migrations to rollback", {
-    total: migrationsFromDirectory.length,
-    toRollback: migrationsToRollback.length,
-    requestedCount: count
-  });
+    const migrationsToRollback = migrationsFromDirectory.filter((migration) => {
+      const upFilename = getCorrespondingFilename(migration.filename, "up");
+      return lastExecutedSet.has(upFilename);
+    });
 
-  let pending = migrationsToRollback.length;
+    logger.info("Found migrations to rollback", {
+      total: migrationsFromDirectory.length,
+      toRollback: migrationsToRollback.length,
+      requestedCount: count
+    });
 
-  for (const migration of migrationsToRollback) {
-    logger.debug("Rolling back migration", { filename: migration.filename });
+    let pending = migrationsToRollback.length;
 
-    try {
-      await adapter.transaction(async (client) => {
-        await client.query(migration.sql);
-        const upFilename = getCorrespondingFilename(migration.filename, "up");
-        await markAsRolledBack(client, upFilename);
-        pending--;
-        logger.info("Migration rolled back successfully", { filename: migration.filename });
-      });
-    } catch (error) {
-      const tuskError = createRollbackError(
-        migration.filename,
-        error instanceof Error ? error : new Error(String(error))
-      );
-      logger.error("Migration rollback failed", {
-        filename: migration.filename,
-        error: formatTuskError(tuskError)
-      });
-      throw new Error(formatTuskError(tuskError));
+    for (const migration of migrationsToRollback) {
+      logger.debug("Rolling back migration", { filename: migration.filename });
+
+      try {
+        await adapter.transaction(async (client) => {
+          await client.query(migration.sql);
+          const upFilename = getCorrespondingFilename(migration.filename, "up");
+          await markAsRolledBack(client, upFilename);
+          pending--;
+          logger.info("Migration rolled back successfully", { filename: migration.filename });
+        });
+      } catch (error) {
+        const tuskError = createRollbackError(
+          migration.filename,
+          error instanceof Error ? error : new Error(String(error))
+        );
+        logger.error("Migration rollback failed", {
+          filename: migration.filename,
+          error: formatTuskError(tuskError)
+        });
+        throw new Error(formatTuskError(tuskError));
+      }
     }
-  }
 
-  logger.info("Migration down process completed", { executed: migrationsToRollback.length });
-  return { executed: migrationsToRollback.length, pending };
+    logger.info("Migration down process completed", { executed: migrationsToRollback.length });
+    return { executed: migrationsToRollback.length, pending };
+  } finally {
+    // Always release the lock, even if an error occurred
+    await adapter.releaseMigrationLock();
+  }
 };
