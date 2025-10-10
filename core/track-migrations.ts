@@ -1,6 +1,17 @@
 import type { DatabaseAdapter, TransactionClient } from "../types/migrations";
 import { logger } from "../utils/logger";
 
+// Row types for database queries
+interface MigrationRow {
+  filename: string;
+}
+
+interface MigrationRowWithChecksum {
+  filename: string;
+  checksum: string | null;
+  executed_at: Date;
+}
+
 export const ensureMigrationsTable = async (adapter: DatabaseAdapter) => {
   // Create table if it doesn't exist
   await adapter.query(`
@@ -31,11 +42,11 @@ export const ensureMigrationsTable = async (adapter: DatabaseAdapter) => {
 export const getExecutedMigrations = async (
   adapter: DatabaseAdapter
 ): Promise<Set<string>> => {
-  const result = await adapter.query(`
+  const result = await adapter.query<MigrationRow>(`
     SELECT filename FROM _migrations
   `);
 
-  return new Set(result.rows.map((row: any) => row.filename));
+  return new Set(result.rows.map((row) => row.filename));
 };
 
 export const getLastExecutedMigrations = async (
@@ -43,11 +54,11 @@ export const getLastExecutedMigrations = async (
   count?: number
 ): Promise<string[]> => {
   const limit = count ?? Number.MAX_SAFE_INTEGER;
-  const result = await adapter.query(
+  const result = await adapter.query<MigrationRow>(
     `SELECT filename FROM _migrations ORDER BY id DESC LIMIT $1`,
     [limit]
   );
-  return result.rows.map((row: any) => row.filename);
+  return result.rows.map((row) => row.filename);
 };
 
 export const markAsExecuted = async (
@@ -86,13 +97,13 @@ export interface MigrationRecord {
 export const getExecutedMigrationsWithChecksums = async (
   adapter: DatabaseAdapter
 ): Promise<MigrationRecord[]> => {
-  const result = await adapter.query(`
+  const result = await adapter.query<MigrationRowWithChecksum>(`
     SELECT filename, checksum, executed_at
     FROM _migrations
     ORDER BY id ASC
   `);
 
-  return result.rows.map((row: any) => ({
+  return result.rows.map((row) => ({
     filename: row.filename,
     checksum: row.checksum,
     executed_at: row.executed_at,

@@ -12,21 +12,21 @@ import { createInitialMigration } from "./core/init-migration";
 import { readMigrations } from "./core/read-migrations";
 import { logger } from "./utils/logger";
 import { createConfigurationError, createValidationError, formatTuskError, isTuskError } from "./utils/errors";
+import { getCurrentDir } from "./utils/runtime";
 import { readFileSync } from "fs";
-import { resolve, dirname } from "path";
-import { fileURLToPath } from "url";
+import { resolve } from "path";
 
-// Runtime-agnostic directory resolution
-const getDir = () => {
-  // Bun
-  if (typeof import.meta.dir !== 'undefined') {
-    return import.meta.dir;
-  }
-  // Node.js
-  return dirname(fileURLToPath(import.meta.url));
-};
+// Database configuration interface
+interface DatabaseConfig {
+  connectionString?: string;
+  host?: string;
+  port?: number;
+  database?: string;
+  user?: string;
+  password?: string;
+}
 
-const validateDatabaseConfig = (config: any) => {
+const validateDatabaseConfig = (config: DatabaseConfig) => {
   if (config.connectionString) {
     return;
   }
@@ -46,12 +46,12 @@ const validateDatabaseConfig = (config: any) => {
   }
 };
 
-const loadDatabaseConfig = () => {
+const loadDatabaseConfig = (): DatabaseConfig => {
   if (process.env.DATABASE_URL) {
     return { connectionString: process.env.DATABASE_URL };
   }
 
-  const config = {
+  const config: DatabaseConfig = {
     host: process.env.DB_HOST || "localhost",
     port: parseInt(process.env.DB_PORT || "5432"),
     database: process.env.DB_NAME,
@@ -65,7 +65,7 @@ const loadDatabaseConfig = () => {
 
 const getVersion = () => {
   try {
-    const packagePath = resolve(getDir(), "./package.json");
+    const packagePath = resolve(getCurrentDir(), "./package.json");
     const packageJson = JSON.parse(readFileSync(packagePath, "utf-8"));
     return packageJson.version;
   } catch {
@@ -190,7 +190,11 @@ const run = async () => {
         console.log(`✓ Created ${initResult.upFile}`);
         console.log(`✓ Created ${initResult.downFile}`);
         console.log(`✓ Introspected ${initResult.tableCount} table(s)`);
-        logger.info("Initial migration created successfully", initResult);
+        logger.info("Initial migration created successfully", {
+          upFile: initResult.upFile,
+          downFile: initResult.downFile,
+          tableCount: initResult.tableCount
+        });
         break;
 
       case "up":

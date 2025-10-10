@@ -1,7 +1,8 @@
-import { Pool } from "pg";
+import { Pool, QueryResultRow } from "pg";
 import type {
   DatabaseAdapter,
   TransactionClient,
+  QueryParam,
 } from "../types/migrations";
 import type {
   ColumnInfo,
@@ -14,12 +15,62 @@ import type {
 } from "../types/schema";
 import { logger } from "../utils/logger";
 
+// Row type interfaces for database queries
+interface TableNameRow extends QueryResultRow {
+  table_name: string;
+}
+
+interface ColumnRow extends QueryResultRow {
+  column_name: string;
+  data_type: string;
+  is_nullable: string;
+  column_default: string | null;
+  character_maximum_length: number | null;
+  numeric_precision: number | null;
+  numeric_scale: number | null;
+  udt_name: string;
+}
+
+interface PrimaryKeyRow extends QueryResultRow {
+  column_name: string;
+  ordinal_position: number;
+}
+
+interface ForeignKeyRow extends QueryResultRow {
+  column_name: string;
+  foreign_table_name: string;
+  foreign_column_name: string;
+  update_rule: string;
+  delete_rule: string;
+  constraint_name: string;
+}
+
+interface UniqueConstraintRow extends QueryResultRow {
+  constraint_name: string;
+  column_names: string[] | string;
+}
+
+interface IndexRow extends QueryResultRow {
+  indexname: string;
+  indexdef: string;
+}
+
+interface LockRow extends QueryResultRow {
+  acquired: boolean;
+}
+
+// Migration lock ID for PostgreSQL advisory locks
+const MIGRATION_LOCK_ID = 123456789;
+
+// Transaction timeout in milliseconds (5 minutes)
+const TRANSACTION_TIMEOUT_MS = 300000;
+
 export const createPostgresAdapter = (pool: Pool): DatabaseAdapter => {
   // Helper function to execute queries
-  const executeQuery = async (sql: string, params?: any[]) => {
+  const executeQuery = async <T extends QueryResultRow = QueryResultRow>(sql: string, params?: QueryParam[]) => {
     try {
       logger.debug("Executing query", { sql: sql.substring(0, 100), paramCount: params?.length });
-      return await pool.query(sql, params);
+      return await pool.query<T>(sql, params);
     } catch (error) {
       logger.error("Query execution failed", {
         sql: sql.substring(0, 100),
@@ -42,15 +93,15 @@ export const createPostgresAdapter = (pool: Pool): DatabaseAdapter => {
         await client.query("BEGIN");
         transactionStarted = true;
 
-        // Set statement timeout to prevent hanging migrations (5 minutes)
-        await client.query("SET LOCAL statement_timeout = '300000'");
-        logger.debug("Transaction timeout set to 5 minutes");
+        // Set statement timeout to prevent hanging migrations
+        await client.query(`SET LOCAL statement_timeout = '${TRANSACTION_TIMEOUT_MS}'`);
+        logger.debug(`Transaction timeout set to ${TRANSACTION_TIMEOUT_MS}ms`);
 
         const transactionClient: TransactionClient = {
-          query: async (sql: string, params?: any[]) => {
+          query: async <T extends QueryResultRow = QueryResultRow>(sql: string, params?: QueryParam[]) => {
             try {
               logger.debug("Executing transaction query", { sql: sql.substring(0, 100) });
-              return await client.query(sql, params);
+              return await client.query<T>(sql, params);
             } catch (error) {
               logger.error("Transaction query failed", {
                 sql: sql.substring(0, 100),
@@ -102,15 +153,15 @@ export const createPostgresAdapter = (pool: Pool): DatabaseAdapter => {
 
     // Migration safety
     acquireMigrationLock: async () => {
-      const MIGRATION_LOCK_ID = 123456789; // Arbitrary unique ID for Tusk migrations
       logger.debug("Attempting to acquire migration lock");
 
-      const result = await executeQuery(
+      const result = await executeQuery<LockRow>(
         "SELECT pg_try_advisory_lock($1) as acquired",
         [MIGRATION_LOCK_ID]
       );
 
-      if (!result.rows[0].acquired) {
+      const lockResult = result.rows[0];
+      if (!lockResult || !lockResult.acquired) {
         logger.warn("Migration lock acquisition failed - another process is running migrations");
         throw new Error(
           "Another migration process is currently running. " +
@@ -122,7 +173,6 @@ export const createPostgresAdapter = (pool: Pool): DatabaseAdapter => {
     },
 
     releaseMigrationLock: async () => {
-      const MIGRATION_LOCK_ID = 123456789;
       logger.debug("Releasing migration lock");
 
       await executeQuery(
@@ -137,7 +187,7 @@ export const createPostgresAdapter = (pool: Pool): DatabaseAdapter => {
     getTableNames: async (schema: string = "public"): Promise<string[]> => {
       logger.debug("Getting table names", { schema });
 
-      const result = await executeQuery(
+      const result = await executeQuery<TableNameRow>(
         `
         SELECT table_name
         FROM information_schema.tables
@@ -158,7 +208,7 @@ export const createPostgresAdapter = (pool: Pool): DatabaseAdapter => {
     getTableColumns: async (tableName: string): Promise<ColumnInfo[]> => {
       logger.debug("Getting columns for table", { tableName });
 
-      const result = await executeQuery(
+      const result = await executeQuery<ColumnRow>(
         `
         SELECT
           column_name,
@@ -196,7 +246,7 @@ export const createPostgresAdapter = (pool: Pool): DatabaseAdapter => {
     getPrimaryKeys: async (tableName: string): Promise<PrimaryKeyInfo[]> => {
       logger.debug("Getting primary keys for table", { tableName });
 
-      const result = await executeQuery(
+      const result = await executeQuery<PrimaryKeyRow>(
         `
         SELECT kcu.column_name, kcu.ordinal_position
         FROM information_schema.table_constraints tc
@@ -224,7 +274,7 @@ export const createPostgresAdapter = (pool: Pool): DatabaseAdapter => {
     getForeignKeys: async (tableName: string): Promise<ForeignKeyInfo[]> => {
       logger.debug("Getting foreign keys for table", { tableName });
 
-      const result = await executeQuery(
+      const result = await executeQuery<ForeignKeyRow>(
         `
         SELECT
           kcu.column_name,
@@ -267,7 +317,7 @@ export const createPostgresAdapter = (pool: Pool): DatabaseAdapter => {
     getUniqueConstraints: async (tableName: string): Promise<UniqueConstraintInfo[]> => {
       logger.debug("Getting unique constraints for table", { tableName });
 
-      const result = await executeQuery(
+      const result = await executeQuery<UniqueConstraintRow>(
         `
         SELECT
           tc.constraint_name,
@@ -289,7 +339,7 @@ export const createPostgresAdapter = (pool: Pool): DatabaseAdapter => {
         // depending on the driver configuration
         const columnNames = Array.isArray(row.column_names)
           ? row.column_names
-          : row.column_names.replace(/[{}]/g, "").split(",");
+          : (row.column_names as string).replace(/[{}]/g, "").split(",");
 
         return {
           constraintName: row.constraint_name,
@@ -305,7 +355,7 @@ export const createPostgresAdapter = (pool: Pool): DatabaseAdapter => {
     getIndexes: async (tableName: string): Promise<IndexInfo[]> => {
       logger.debug("Getting indexes for table", { tableName });
 
-      const result = await executeQuery(
+      const result = await executeQuery<IndexRow>(
         `
         SELECT indexname, indexdef
         FROM pg_indexes

@@ -7,6 +7,7 @@ import {
   readSqlFile,
   sortMigrationsByTimestamp,
 } from "./read-migrations";
+import type { Migration } from "../types/migrations";
 
 const MIGRATION_TEST_FILE_NAME = "1759531351_test_file_1.up.sql";
 
@@ -313,8 +314,8 @@ describe("sortMigrationsByTimestamp", () => {
 });
 
 describe("readMigrations", () => {
-  let upMigrations: any[];
-  let downMigrations: any[];
+  let upMigrations: Migration[];
+  let downMigrations: Migration[];
 
   beforeAll(async () => {
     upMigrations = await readMigrations("./fixtures/migrations", "up");

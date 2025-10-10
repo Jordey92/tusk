@@ -9,7 +9,7 @@ describe("createMigrationFile", () => {
     const { join } = await import("path");
 
     const tempDir = await mkdtemp(join(tmpdir(), "tusk-test-create-"));
-    let result: any;
+    let result: { upFile: string; downFile: string };
 
     try {
       result = await createMigrationFile(tempDir, "test_migration");
@@ -45,7 +45,7 @@ describe("createMigrationFile", () => {
     const { join } = await import("path");
 
     const tempDir = await mkdtemp(join(tmpdir(), "tusk-test-content-"));
-    let result: any;
+    let result: { upFile: string; downFile: string };
 
     try {
       result = await createMigrationFile(tempDir, "content_test");
@@ -80,7 +80,7 @@ describe("createMigrationFile", () => {
     const { join } = await import("path");
 
     const tempDir = await mkdtemp(join(tmpdir(), "tusk-test-timestamp-"));
-    let results: any[] = [];
+    let results: { upFile: string; downFile: string }[] = [];
 
     try {
       // Create multiple migrations rapidly
@@ -126,7 +126,7 @@ describe("createMigrationFile", () => {
     const { join } = await import("path");
 
     const tempDir = await mkdtemp(join(tmpdir(), "tusk-test-special-"));
-    let result: any;
+    let result: { upFile: string; downFile: string };
 
     try {
       const specialName = "add_user_emails-v2@2024";
@@ -154,7 +154,7 @@ describe("createMigrationFile", () => {
     const { join } = await import("path");
 
     const tempDir = await mkdtemp(join(tmpdir(), "tusk-test-long-"));
-    let result: any;
+    let result: { upFile: string; downFile: string };
 
     try {
       const longName = "a".repeat(100);
@@ -180,7 +180,7 @@ describe("createMigrationFile", () => {
     const { join, relative } = await import("path");
 
     const tempDir = await mkdtemp(join(tmpdir(), "tusk-test-relative-"));
-    let result: any;
+    let result: { upFile: string; downFile: string };
 
     try {
       // Use relative path
@@ -214,7 +214,7 @@ describe("createMigrationFile", () => {
     const { join } = await import("path");
 
     const tempDir = await mkdtemp(join(tmpdir(), "tusk-test-empty-"));
-    let result: any;
+    let result: { upFile: string; downFile: string };
 
     try {
       result = await createMigrationFile(tempDir, "");
@@ -240,7 +240,8 @@ describe("createMigrationFile", () => {
     const { join } = await import("path");
 
     const tempDir = await mkdtemp(join(tmpdir(), "tusk-test-sequential-"));
-    let result1: any, result2: any;
+    let result1: { upFile: string; downFile: string };
+    let result2: { upFile: string; downFile: string };
 
     try {
       result1 = await createMigrationFile(tempDir, "first");
@@ -280,7 +281,7 @@ describe("createMigrationFile", () => {
 
     const tempDir = await mkdtemp(join(tmpdir(), "tusk-test-nested-"));
     const nestedDir = join(tempDir, "nested", "migrations");
-    let result: any;
+    let result: { upFile: string; downFile: string };
 
     try {
       await mkdir(nestedDir, { recursive: true });

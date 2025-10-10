@@ -3,6 +3,10 @@ import { resolve } from "path";
 import type { DatabaseAdapter } from "../types/migrations";
 import { logger } from "../utils/logger";
 
+// Initial migration uses timestamp 0 to ensure it runs first
+const INITIAL_MIGRATION_TIMESTAMP = "0000000000000";
+const INITIAL_MIGRATION_NAME = "initial";
+
 export interface InitMigrationResult {
   upFile: string;
   downFile: string;
@@ -31,9 +35,9 @@ export const createInitialMigration = async (
   const upSQL = adapter.generateUpMigration(introspectedSchema);
   const downSQL = adapter.generateDownMigration(introspectedSchema);
 
-  // Create migration filenames with timestamp 0
-  const upFilename = "0000000000000_initial.up.sql";
-  const downFilename = "0000000000000_initial.down.sql";
+  // Create migration filenames
+  const upFilename = `${INITIAL_MIGRATION_TIMESTAMP}_${INITIAL_MIGRATION_NAME}.up.sql`;
+  const downFilename = `${INITIAL_MIGRATION_TIMESTAMP}_${INITIAL_MIGRATION_NAME}.down.sql`;
 
   // Ensure migrations directory exists
   const path = resolve(migrationsPath);

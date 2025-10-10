@@ -1,3 +1,4 @@
+import type { QueryResultRow } from "pg";
 import type {
   TableInfo,
   IntrospectedSchema,
@@ -14,17 +15,21 @@ export interface Migration {
   sql: string;
 }
 
-export interface QueryResult<T = any> {
+// Valid PostgreSQL query parameter types
+export type QueryParam = string | number | boolean | Date | null;
+
+export interface QueryResult<T = QueryResultRow> {
   rows: T[];
   rowCount: number | null;
 }
+
 export interface TransactionClient {
-  query(sql: string, params?: any[]): Promise<QueryResult>;
+  query<T extends QueryResultRow = QueryResultRow>(sql: string, params?: QueryParam[]): Promise<QueryResult<T>>;
 }
 
 export interface DatabaseAdapter {
   // Core database operations
-  query(sql: string, params?: any[]): Promise<QueryResult>;
+  query<T extends QueryResultRow = QueryResultRow>(sql: string, params?: QueryParam[]): Promise<QueryResult<T>>;
   transaction<T>(
     callback: (client: TransactionClient) => Promise<T>
   ): Promise<T>;

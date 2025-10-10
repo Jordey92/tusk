@@ -11,14 +11,14 @@ export interface TuskError {
   code: TuskErrorCode;
   message: string;
   cause?: Error;
-  context?: Record<string, any>;
+  context?: Record<string, unknown>;
 }
 
 export const createTuskError = (
   code: TuskErrorCode,
   message: string,
   cause?: Error,
-  context?: Record<string, any>
+  context?: Record<string, unknown>
 ): TuskError => ({
   code,
   message,
@@ -26,7 +26,7 @@ export const createTuskError = (
   context,
 });
 
-export const createDatabaseError = (message: string, cause?: Error, context?: Record<string, any>): TuskError =>
+export const createDatabaseError = (message: string, cause?: Error, context?: Record<string, unknown>): TuskError =>
   createTuskError("DATABASE_CONNECTION_FAILED", message, cause, context);
 
 export const createMigrationDirectoryError = (path: string, cause?: Error): TuskError =>
@@ -61,10 +61,10 @@ export const createRollbackError = (filename: string, cause?: Error): TuskError 
     { filename }
   );
 
-export const createValidationError = (message: string, context?: Record<string, any>): TuskError =>
+export const createValidationError = (message: string, context?: Record<string, unknown>): TuskError =>
   createTuskError("VALIDATION_ERROR", message, undefined, context);
 
-export const createConfigurationError = (message: string, context?: Record<string, any>): TuskError =>
+export const createConfigurationError = (message: string, context?: Record<string, unknown>): TuskError =>
   createTuskError("CONFIGURATION_ERROR", message, undefined, context);
 
 export const formatTuskError = (error: TuskError): string => {
@@ -81,6 +81,6 @@ export const formatTuskError = (error: TuskError): string => {
   return message;
 };
 
-export const isTuskError = (error: any): error is TuskError => {
-  return error && typeof error === 'object' && 'code' in error && 'message' in error;
+export const isTuskError = (error: unknown): error is TuskError => {
+  return error !== null && typeof error === 'object' && 'code' in error && 'message' in error;
 };
