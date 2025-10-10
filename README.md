@@ -6,12 +6,12 @@ Simple PostgreSQL migration tool for Node.js and Bun.
 
 **With npm:**
 ```bash
-npm install @jordey92/tusk pg
+npm install @bydey/tusk pg
 ```
 
 **With Bun:**
 ```bash
-bun add @jordey92/tusk pg
+bun add @bydey/tusk pg
 ```
 
 ## Usage
@@ -90,7 +90,7 @@ DROP TABLE users;
 **Running migrations programmatically:**
 ```typescript
 import { Pool } from 'pg';
-import { createPostgresAdapter, runUp, runDown } from '@jordey92/tusk';
+import { createPostgresAdapter, runUp, runDown } from '@bydey/tusk';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = createPostgresAdapter(pool);
@@ -105,7 +105,7 @@ await runDown(adapter, './migrations', 1);
 **Generating initial migration from existing database:**
 ```typescript
 import { Pool } from 'pg';
-import { createPostgresAdapter, createInitialMigration } from '@jordey92/tusk';
+import { createPostgresAdapter, createInitialMigration } from '@bydey/tusk';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = createPostgresAdapter(pool);
@@ -114,10 +114,10 @@ const result = await createInitialMigration(adapter, './migrations');
 console.log(`Created migration for ${result.tableCount} tables`);
 ```
 
-**Using with Elysia:**
+**Using with Elysia (official plugin):**
 ```typescript
 import { Elysia } from 'elysia';
-import { migrate } from '@jordey92/tusk';
+import { migrate } from '@bydey/tusk';
 
 const app = new Elysia()
   .use(migrate({
@@ -126,6 +126,8 @@ const app = new Elysia()
   }))
   .listen(3000);
 ```
+
+**See [Framework Integration Examples](./docs/integrations.md)** for Express, Fastify, Hono, Koa, NestJS, Next.js, Remix, and more.
 
 ## Architecture
 
