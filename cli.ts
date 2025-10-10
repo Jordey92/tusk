@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 
 import { Pool } from "pg";
 import { createPostgresAdapter } from "./adapters/postgres";

@@ -1,34 +1,67 @@
 # Tusk
 
-Simple PostgreSQL migration tool for Bun.
+Simple PostgreSQL migration tool for Node.js and Bun.
 
 ## Install
 
+**With npm:**
+```bash
+npm install @jordey92/tusk pg
+```
+
+**With Bun:**
 ```bash
 bun add @jordey92/tusk pg
 ```
 
 ## Usage
 
+**With npm:**
 ```bash
-# Create migration
-bunx tusk create add_users_table
+# Generate initial migration from existing database
+npx tusk init
+
+# Create new migration
+npx tusk create add_users_table
 
 # Run migrations
-bunx tusk up
+npx tusk up
 
 # Rollback migrations
-bunx tusk down
+npx tusk down
+
+# Rollback last n migrations
+npx tusk down 2
 
 # Show status
+npx tusk status
+```
+
+**With Bun:**
+```bash
+bunx tusk init
+bunx tusk create add_users_table
+bunx tusk up
+bunx tusk down
 bunx tusk status
 ```
 
-## Environment
+## Environment Variables
 
 ```bash
+# Database connection (choose one method)
 DATABASE_URL=postgresql://user:pass@localhost:5432/db
-MIGRATIONS_PATH=./migrations  # optional
+
+# OR individual variables:
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=mydb
+DB_USER=postgres
+DB_PASSWORD=secret
+
+# Optional settings
+MIGRATIONS_PATH=./migrations  # default: ./migrations
+LOG_LEVEL=info                # debug, info, warn, error
 ```
 
 ## Migration Files
@@ -54,15 +87,54 @@ DROP TABLE users;
 
 ## Programmatic API
 
+**Running migrations programmatically:**
 ```typescript
 import { Pool } from 'pg';
-import { createPostgresAdapter, runUp } from '@jordey92/tusk';
+import { createPostgresAdapter, runUp, runDown } from '@jordey92/tusk';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = createPostgresAdapter(pool);
 
+// Run all pending migrations
 await runUp(adapter, './migrations');
+
+// Rollback last migration
+await runDown(adapter, './migrations', 1);
 ```
+
+**Generating initial migration from existing database:**
+```typescript
+import { Pool } from 'pg';
+import { createPostgresAdapter, createInitialMigration } from '@jordey92/tusk';
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const adapter = createPostgresAdapter(pool);
+
+const result = await createInitialMigration(adapter, './migrations');
+console.log(`Created migration for ${result.tableCount} tables`);
+```
+
+**Using with Elysia:**
+```typescript
+import { Elysia } from 'elysia';
+import { migrate } from '@jordey92/tusk';
+
+const app = new Elysia()
+  .use(migrate({
+    connectionString: process.env.DATABASE_URL,
+    migrationsPath: './migrations'
+  }))
+  .listen(3000);
+```
+
+## Architecture
+
+Tusk uses a **Fat Adapter Pattern** to support multiple databases. All database-specific logic (introspection queries, DDL generation) lives in the adapter, making it easy to add support for new databases.
+
+**Current adapters:**
+- PostgreSQL (via `createPostgresAdapter`)
+
+**For contributors:** To add support for a new database (MySQL, SQLite, etc.), implement the `DatabaseAdapter` interface in `types/migrations.ts`. See `adapters/postgres.ts` for a reference implementation.
 
 ## License
 

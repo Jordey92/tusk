@@ -1,16 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createPostgresAdapter } from "../adapters/postgres";
 import { cleanupMigrations, createTestPool } from "../utils/test-helper";
-import {
-  getTableNames,
-  getTableColumns,
-  getPrimaryKeys,
-  getForeignKeys,
-  getUniqueConstraints,
-  getIndexes,
-  introspectTable,
-  introspectDatabase,
-} from "./introspect-schema";
 
 const createTestTables = async (pool) => {
   await pool.query(`
@@ -65,7 +55,7 @@ describe("introspect schema", () => {
 
   describe("getTableNames", () => {
     test("should return list of user tables excluding tusk_migrations", async () => {
-      const tables = await getTableNames(adapter, "public");
+      const tables = await adapter.getTableNames("public");
 
       expect(Array.isArray(tables)).toBe(true);
       expect(tables.length).toBeGreaterThan(0);
@@ -77,7 +67,7 @@ describe("introspect schema", () => {
     });
 
     test("should return tables in alphabetical order", async () => {
-      const tables = await getTableNames(adapter, "public");
+      const tables = await adapter.getTableNames("public");
 
       const sorted = [...tables].sort();
       expect(tables).toEqual(sorted);
@@ -86,7 +76,7 @@ describe("introspect schema", () => {
 
   describe("getTableColumns", () => {
     test("should return column information for users table", async () => {
-      const columns = await getTableColumns(adapter, "users");
+      const columns = await adapter.getTableColumns("users");
 
       expect(columns.length).toBeGreaterThan(0);
 
@@ -109,14 +99,14 @@ describe("introspect schema", () => {
     });
 
     test("should return columns in ordinal position order", async () => {
-      const columns = await getTableColumns(adapter, "users");
+      const columns = await adapter.getTableColumns("users");
 
       expect(columns[0].name).toBe("id");
       expect(columns[1].name).toBe("email");
     });
 
     test("should handle different column types in posts table", async () => {
-      const columns = await getTableColumns(adapter, "posts");
+      const columns = await adapter.getTableColumns("posts");
 
       const timestampColumn = columns.find((c) => c.name === "published_at");
       expect(timestampColumn).toBeDefined();
@@ -126,7 +116,7 @@ describe("introspect schema", () => {
 
   describe("getPrimaryKeys", () => {
     test("should return primary key for users table", async () => {
-      const pks = await getPrimaryKeys(adapter, "users");
+      const pks = await adapter.getPrimaryKeys("users");
 
       expect(pks).toHaveLength(1);
       expect(pks[0].columnName).toBe("id");
@@ -134,7 +124,7 @@ describe("introspect schema", () => {
     });
 
     test("should return composite primary key for post_tags table", async () => {
-      const pks = await getPrimaryKeys(adapter, "post_tags");
+      const pks = await adapter.getPrimaryKeys("post_tags");
 
       expect(pks).toHaveLength(2);
       expect(pks[0].columnName).toBe("post_id");
@@ -152,14 +142,14 @@ describe("introspect schema", () => {
         )
       `);
 
-      const pks = await getPrimaryKeys(adapter, "temp_no_pk");
+      const pks = await adapter.getPrimaryKeys("temp_no_pk");
       expect(pks).toHaveLength(0);
     });
   });
 
   describe("getForeignKeys", () => {
     test("should return foreign keys for posts table", async () => {
-      const fks = await getForeignKeys(adapter, "posts");
+      const fks = await adapter.getForeignKeys("posts");
 
       expect(fks.length).toBeGreaterThan(0);
 
@@ -171,7 +161,7 @@ describe("introspect schema", () => {
     });
 
     test("should return multiple foreign keys for comments table", async () => {
-      const fks = await getForeignKeys(adapter, "comments");
+      const fks = await adapter.getForeignKeys("comments");
 
       expect(fks.length).toBe(2);
 
@@ -185,7 +175,7 @@ describe("introspect schema", () => {
     });
 
     test("should return empty array for table without foreign keys", async () => {
-      const fks = await getForeignKeys(adapter, "users");
+      const fks = await adapter.getForeignKeys("users");
 
       expect(fks).toHaveLength(0);
     });
@@ -193,7 +183,7 @@ describe("introspect schema", () => {
 
   describe("getUniqueConstraints", () => {
     test("should return unique constraint for users email", async () => {
-      const uniques = await getUniqueConstraints(adapter, "users");
+      const uniques = await adapter.getUniqueConstraints("users");
 
       expect(uniques.length).toBeGreaterThan(0);
 
@@ -203,7 +193,7 @@ describe("introspect schema", () => {
     });
 
     test("should return empty array for table without unique constraints", async () => {
-      const uniques = await getUniqueConstraints(adapter, "comments");
+      const uniques = await adapter.getUniqueConstraints("comments");
 
       expect(uniques).toHaveLength(0);
     });
@@ -211,7 +201,7 @@ describe("introspect schema", () => {
 
   describe("getIndexes", () => {
     test("should return indexes for comments table", async () => {
-      const indexes = await getIndexes(adapter, "comments");
+      const indexes = await adapter.getIndexes("comments");
 
       expect(indexes.length).toBeGreaterThan(0);
 
@@ -225,7 +215,7 @@ describe("introspect schema", () => {
     });
 
     test("should not return primary key indexes", async () => {
-      const indexes = await getIndexes(adapter, "users");
+      const indexes = await adapter.getIndexes("users");
 
       const pkeyIndex = indexes.find((idx) => idx.indexName.includes("_pkey"));
       expect(pkeyIndex).toBeUndefined();
@@ -234,7 +224,7 @@ describe("introspect schema", () => {
 
   describe("introspectTable", () => {
     test("should return complete table information for users", async () => {
-      const tableInfo = await introspectTable(adapter, "users");
+      const tableInfo = await adapter.introspectTable("users");
 
       expect(tableInfo.name).toBe("users");
       expect(tableInfo.columns.length).toBeGreaterThan(0);
@@ -244,7 +234,7 @@ describe("introspect schema", () => {
     });
 
     test("should return complete table information for posts with foreign keys", async () => {
-      const tableInfo = await introspectTable(adapter, "posts");
+      const tableInfo = await adapter.introspectTable("posts");
 
       expect(tableInfo.name).toBe("posts");
       expect(tableInfo.columns.length).toBeGreaterThan(0);
@@ -253,7 +243,7 @@ describe("introspect schema", () => {
     });
 
     test("should return complete table information for post_tags with composite PK", async () => {
-      const tableInfo = await introspectTable(adapter, "post_tags");
+      const tableInfo = await adapter.introspectTable("post_tags");
 
       expect(tableInfo.name).toBe("post_tags");
       expect(tableInfo.primaryKeys.length).toBe(2);
@@ -263,7 +253,7 @@ describe("introspect schema", () => {
 
   describe("introspectDatabase", () => {
     test("should return all tables in the database", async () => {
-      const schema = await introspectDatabase(adapter, "public");
+      const schema = await adapter.introspectDatabase("public");
 
       expect(schema.tables.length).toBeGreaterThan(0);
 
@@ -276,7 +266,7 @@ describe("introspect schema", () => {
     });
 
     test("should return complete information for all tables", async () => {
-      const schema = await introspectDatabase(adapter, "public");
+      const schema = await adapter.introspectDatabase("public");
 
       for (const table of schema.tables) {
         expect(table.name).toBeDefined();
@@ -289,7 +279,7 @@ describe("introspect schema", () => {
     });
 
     test("should default to public schema when schema not provided", async () => {
-      const schema = await introspectDatabase(adapter);
+      const schema = await adapter.introspectDatabase();
 
       expect(schema.tables.length).toBeGreaterThan(0);
     });

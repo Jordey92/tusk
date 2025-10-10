@@ -2,8 +2,6 @@ import { mkdir, writeFile } from "fs/promises";
 import { resolve } from "path";
 import type { DatabaseAdapter } from "../types/migrations";
 import { logger } from "../utils/logger";
-import { introspectDatabase } from "./introspect-schema";
-import { generateUpMigration, generateDownMigration } from "./generate-ddl";
 
 export interface InitMigrationResult {
   upFile: string;
@@ -22,7 +20,7 @@ export const createInitialMigration = async (
   logger.info("Creating initial migration from existing schema", { migrationsPath, schema });
 
   // Introspect the database
-  const introspectedSchema = await introspectDatabase(adapter, schema);
+  const introspectedSchema = await adapter.introspectDatabase(schema);
 
   if (introspectedSchema.tables.length === 0) {
     logger.warn("No tables found in database");
@@ -30,8 +28,8 @@ export const createInitialMigration = async (
   }
 
   // Generate UP and DOWN migrations
-  const upSQL = generateUpMigration(introspectedSchema);
-  const downSQL = generateDownMigration(introspectedSchema);
+  const upSQL = adapter.generateUpMigration(introspectedSchema);
+  const downSQL = adapter.generateDownMigration(introspectedSchema);
 
   // Create migration filenames with timestamp 0
   const upFilename = "0000000000000_initial.up.sql";

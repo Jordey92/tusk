@@ -24,24 +24,6 @@ export {
   markAsExecuted,
   markAsRolledBack,
 } from "./core/track-migrations";
-export {
-  introspectDatabase,
-  introspectTable,
-  getTableNames,
-  getTableColumns,
-  getPrimaryKeys,
-  getForeignKeys,
-  getUniqueConstraints,
-  getIndexes,
-} from "./core/introspect-schema";
-export {
-  generateUpMigration,
-  generateDownMigration,
-  generateCreateTable,
-  generateDropTable,
-  sortTablesByDependencies,
-  columnToSQL,
-} from "./core/generate-ddl";
 export { createInitialMigration } from "./core/init-migration";
 
 export { createPostgresAdapter } from "./adapters/postgres";

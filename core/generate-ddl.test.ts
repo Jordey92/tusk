@@ -1,13 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { ColumnInfo, TableInfo, IntrospectedSchema } from "../types/schema";
-import {
-  columnToSQL,
-  generateCreateTable,
-  generateDropTable,
-  sortTablesByDependencies,
-  generateUpMigration,
-  generateDownMigration,
-} from "./generate-ddl";
+import { createPostgresAdapter } from "../adapters/postgres";
+import { createTestPool } from "../utils/test-helper";
+
+const pool = createTestPool();
+const adapter = createPostgresAdapter(pool);
 
 describe("generate DDL", () => {
   describe("columnToSQL", () => {
@@ -23,7 +20,7 @@ describe("generate DDL", () => {
         udtName: "int4",
       };
 
-      const sql = columnToSQL(column);
+      const sql = adapter.columnToSQL(column);
       expect(sql).toBe("id INTEGER NOT NULL");
     });
 
@@ -39,7 +36,7 @@ describe("generate DDL", () => {
         udtName: "text",
       };
 
-      const sql = columnToSQL(column);
+      const sql = adapter.columnToSQL(column);
       expect(sql).toBe("description TEXT");
     });
 
@@ -55,7 +52,7 @@ describe("generate DDL", () => {
         udtName: "varchar",
       };
 
-      const sql = columnToSQL(column);
+      const sql = adapter.columnToSQL(column);
       expect(sql).toBe("email VARCHAR(255) NOT NULL");
     });
 
@@ -71,7 +68,7 @@ describe("generate DDL", () => {
         udtName: "bool",
       };
 
-      const sql = columnToSQL(column);
+      const sql = adapter.columnToSQL(column);
       expect(sql).toBe("is_active BOOLEAN NOT NULL DEFAULT true");
     });
 
@@ -87,7 +84,7 @@ describe("generate DDL", () => {
         udtName: "int4",
       };
 
-      const sql = columnToSQL(column);
+      const sql = adapter.columnToSQL(column);
       expect(sql).toContain("id SERIAL");
     });
 
@@ -103,7 +100,7 @@ describe("generate DDL", () => {
         udtName: "timestamptz",
       };
 
-      const sql = columnToSQL(column);
+      const sql = adapter.columnToSQL(column);
       expect(sql).toBe("created_at TIMESTAMPTZ");
     });
   });
@@ -140,7 +137,7 @@ describe("generate DDL", () => {
         indexes: [],
       };
 
-      const sql = generateCreateTable(table);
+      const sql = adapter.generateCreateTable(table);
       expect(sql).toContain("CREATE TABLE users");
       expect(sql).toContain("id SERIAL");
       expect(sql).toContain("email VARCHAR(255) NOT NULL");
@@ -182,7 +179,7 @@ describe("generate DDL", () => {
         indexes: [],
       };
 
-      const sql = generateCreateTable(table);
+      const sql = adapter.generateCreateTable(table);
       expect(sql).toContain("PRIMARY KEY (post_id, tag_name)");
     });
 
@@ -226,7 +223,7 @@ describe("generate DDL", () => {
         indexes: [],
       };
 
-      const sql = generateCreateTable(table);
+      const sql = adapter.generateCreateTable(table);
       expect(sql).toContain("FOREIGN KEY (author_id) REFERENCES users(id)");
       expect(sql).toContain("ON DELETE CASCADE");
     });
@@ -234,7 +231,7 @@ describe("generate DDL", () => {
 
   describe("generateDropTable", () => {
     test("should generate DROP TABLE statement", () => {
-      const sql = generateDropTable("users");
+      const sql = adapter.generateDropTable("users");
       expect(sql).toBe("DROP TABLE IF EXISTS users CASCADE;");
     });
   });
@@ -246,7 +243,7 @@ describe("generate DDL", () => {
         { name: "products", columns: [], primaryKeys: [], foreignKeys: [], uniqueConstraints: [], indexes: [] },
       ];
 
-      const sorted = sortTablesByDependencies(tables);
+      const sorted = adapter.sortTablesByDependencies(tables);
       expect(sorted).toHaveLength(2);
     });
 
@@ -279,7 +276,7 @@ describe("generate DDL", () => {
         },
       ];
 
-      const sorted = sortTablesByDependencies(tables);
+      const sorted = adapter.sortTablesByDependencies(tables);
       expect(sorted[0].name).toBe("users");
       expect(sorted[1].name).toBe("posts");
     });
@@ -330,7 +327,7 @@ describe("generate DDL", () => {
         },
       ];
 
-      const sorted = sortTablesByDependencies(tables);
+      const sorted = adapter.sortTablesByDependencies(tables);
       expect(sorted[0].name).toBe("users");
       expect(sorted[1].name).toBe("posts");
       expect(sorted[2].name).toBe("comments");
@@ -363,7 +360,7 @@ describe("generate DDL", () => {
         ],
       };
 
-      const sql = generateUpMigration(schema);
+      const sql = adapter.generateUpMigration(schema);
       expect(sql).toContain("CREATE TABLE users");
       expect(sql).toContain("PRIMARY KEY (id)");
     });
@@ -431,7 +428,7 @@ describe("generate DDL", () => {
         ],
       };
 
-      const sql = generateUpMigration(schema);
+      const sql = adapter.generateUpMigration(schema);
       const usersIndex = sql.indexOf("CREATE TABLE users");
       const postsIndex = sql.indexOf("CREATE TABLE posts");
       expect(usersIndex).toBeLessThan(postsIndex);
@@ -467,7 +464,7 @@ describe("generate DDL", () => {
         ],
       };
 
-      const sql = generateUpMigration(schema);
+      const sql = adapter.generateUpMigration(schema);
       expect(sql).toContain("CREATE INDEX idx_comments_post");
     });
   });
@@ -504,7 +501,7 @@ describe("generate DDL", () => {
         ],
       };
 
-      const sql = generateDownMigration(schema);
+      const sql = adapter.generateDownMigration(schema);
       const postsIndex = sql.indexOf("DROP TABLE IF EXISTS posts");
       const usersIndex = sql.indexOf("DROP TABLE IF EXISTS users");
       expect(postsIndex).toBeLessThan(usersIndex);
