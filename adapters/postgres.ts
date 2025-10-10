@@ -42,6 +42,10 @@ export const createPostgresAdapter = (pool: Pool): DatabaseAdapter => {
         await client.query("BEGIN");
         transactionStarted = true;
 
+        // Set statement timeout to prevent hanging migrations (5 minutes)
+        await client.query("SET LOCAL statement_timeout = '300000'");
+        logger.debug("Transaction timeout set to 5 minutes");
+
         const transactionClient: TransactionClient = {
           query: async (sql: string, params?: any[]) => {
             try {

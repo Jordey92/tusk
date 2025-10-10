@@ -5,10 +5,11 @@ import { createPostgresAdapter } from "./adapters/postgres";
 import { runUp, runDown } from "./core/run-migrations";
 import {
   ensureMigrationsTable,
-  getExecutedMigrations,
+  getExecutedMigrationsWithChecksums,
 } from "./core/track-migrations";
 import { createMigrationFile } from "./core/create-migration";
 import { createInitialMigration } from "./core/init-migration";
+import { readMigrations } from "./core/read-migrations";
 import { logger } from "./utils/logger";
 import { createConfigurationError, createValidationError, formatTuskError, isTuskError } from "./utils/errors";
 import { readFileSync } from "fs";
@@ -207,9 +208,47 @@ const run = async () => {
 
       case "status":
         logger.info("Checking migration status");
-        const executed = await getExecutedMigrations(adapter);
-        console.log(`Executed migrations: ${executed.size}`);
-        executed.forEach((filename) => console.log(`  ✓ ${filename}`));
+
+        // Get all migrations from directory
+        const allMigrations = await readMigrations(migrationsPath, "up");
+
+        // Get executed migrations with metadata
+        const executedMigrations = await getExecutedMigrationsWithChecksums(adapter);
+        const executedFilenames = new Set(executedMigrations.map(m => m.filename));
+
+        // Separate into executed and pending
+        const executed = allMigrations.filter(m => executedFilenames.has(m.filename));
+        const pending = allMigrations.filter(m => !executedFilenames.has(m.filename));
+
+        console.log("\nMigration Status:");
+        console.log("─".repeat(60));
+
+        if (executed.length > 0) {
+          console.log("\nExecuted:");
+          executed.forEach(migration => {
+            const record = executedMigrations.find(m => m.filename === migration.filename);
+            const date = record?.executed_at
+              ? new Date(record.executed_at).toLocaleString('en-US', {
+                  year: 'numeric',
+                  month: 'short',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit'
+                })
+              : 'unknown';
+            console.log(`  ✓ ${migration.filename} (${date})`);
+          });
+        }
+
+        if (pending.length > 0) {
+          console.log("\nPending:");
+          pending.forEach(migration => {
+            console.log(`  ⏳ ${migration.filename}`);
+          });
+        }
+
+        console.log("\n─".repeat(60));
+        console.log(`Total: ${executed.length} executed, ${pending.length} pending\n`);
         break;
 
       case "version":
