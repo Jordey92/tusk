@@ -1,4 +1,4 @@
-import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { createPostgresAdapter } from "../adapters/postgres";
 import { cleanupMigrations, createTestPool } from "../utils/test-helper";
 import {

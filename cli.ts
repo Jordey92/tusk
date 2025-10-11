@@ -1,18 +1,18 @@
 #!/usr/bin/env node
 
 import { Pool } from "pg";
-import { createPostgresAdapter } from "./adapters/postgres";
-import { runUp, runDown } from "./core/run-migrations";
+import { createPostgresAdapter } from "./adapters/postgres.js";
+import { runUp, runDown } from "./core/run-migrations.js";
 import {
   ensureMigrationsTable,
   getExecutedMigrationsWithChecksums,
-} from "./core/track-migrations";
-import { createMigrationFile } from "./core/create-migration";
-import { createInitialMigration } from "./core/init-migration";
-import { readMigrations } from "./core/read-migrations";
-import { logger } from "./utils/logger";
-import { createConfigurationError, createValidationError, formatTuskError, isTuskError } from "./utils/errors";
-import { getCurrentDir } from "./utils/runtime";
+} from "./core/track-migrations.js";
+import { createMigrationFile } from "./core/create-migration.js";
+import { createInitialMigration } from "./core/init-migration.js";
+import { readMigrations } from "./core/read-migrations.js";
+import { logger } from "./utils/logger.js";
+import { createConfigurationError, createValidationError, formatTuskError, isTuskError } from "./utils/errors.js";
+import { getCurrentDir } from "./utils/runtime.js";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 

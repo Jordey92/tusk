@@ -1,9 +1,9 @@
-import { Pool, QueryResultRow } from "pg";
+import { Pool, type QueryResultRow } from "pg";
 import type {
   DatabaseAdapter,
   TransactionClient,
   QueryParam,
-} from "../types/migrations";
+} from "../types/migrations.js";
 import type {
   ColumnInfo,
   PrimaryKeyInfo,
@@ -12,8 +12,8 @@ import type {
   IndexInfo,
   TableInfo,
   IntrospectedSchema,
-} from "../types/schema";
-import { logger } from "../utils/logger";
+} from "../types/schema.js";
+import { logger } from "../utils/logger.js";
 
 interface TableNameRow extends QueryResultRow {
   table_name: string;

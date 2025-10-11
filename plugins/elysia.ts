@@ -1,8 +1,8 @@
 import { Elysia } from "elysia";
 import { Pool } from "pg";
-import { createPostgresAdapter } from "../adapters/postgres";
-import { ensureMigrationsTable } from "../core/track-migrations";
-import { runUp } from "../core/run-migrations";
+import { createPostgresAdapter } from "../adapters/postgres.js";
+import { ensureMigrationsTable } from "../core/track-migrations.js";
+import { runUp } from "../core/run-migrations.js";
 
 export interface ElysiaMigrateConfig {
   connectionString?: string;

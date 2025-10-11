@@ -1,6 +1,6 @@
 import { writeFile } from "fs/promises";
 import { resolve } from "path";
-import { downTemplate, upTemplate } from "../templates/migrationContent";
+import { downTemplate, upTemplate } from "../templates/migrationContent.js";
 
 export const createMigrationFile = async (
   migrationsPath: string,

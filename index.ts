@@ -3,8 +3,8 @@ export type {
   TransactionClient,
   QueryResult,
   Migration,
-} from "./types/migrations";
-export type { ElysiaMigrateConfig } from "./plugins/elysia";
+} from "./types/migrations.js";
+export type { ElysiaMigrateConfig } from "./plugins/elysia.js";
 export type {
   ColumnInfo,
   PrimaryKeyInfo,
@@ -13,17 +13,17 @@ export type {
   IndexInfo,
   TableInfo,
   IntrospectedSchema,
-} from "./types/schema";
-export type { MigrationRecord } from "./core/track-migrations";
+} from "./types/schema.js";
+export type { MigrationRecord } from "./core/track-migrations.js";
 
-export { runUp, runDown } from "./core/run-migrations";
-export { readMigrations } from "./core/read-migrations";
+export { runUp, runDown } from "./core/run-migrations.js";
+export { readMigrations } from "./core/read-migrations.js";
 export {
   ensureMigrationsTable,
   getExecutedMigrations,
   getLastExecutedMigrations,
-} from "./core/track-migrations";
-export { createInitialMigration } from "./core/init-migration";
+} from "./core/track-migrations.js";
+export { createInitialMigration } from "./core/init-migration.js";
 
-export { createPostgresAdapter } from "./adapters/postgres";
-export { migrate } from "./plugins/elysia";
+export { createPostgresAdapter } from "./adapters/postgres.js";
+export { migrate } from "./plugins/elysia.js";

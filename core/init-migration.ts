@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "fs/promises";
 import { resolve } from "path";
-import type { DatabaseAdapter } from "../types/migrations";
-import { logger } from "../utils/logger";
+import type { DatabaseAdapter } from "../types/migrations.js";
+import { logger } from "../utils/logger.js";
 
 // Initial migration uses timestamp 0 to ensure it runs first
 const INITIAL_MIGRATION_TIMESTAMP = "0000000000000";

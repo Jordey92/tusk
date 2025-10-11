@@ -1,7 +1,7 @@
 import { readdir, readFile, access } from "fs/promises";
 import { resolve } from "path";
-import type { Migration } from "../types/migrations";
-import { createMigrationDirectoryError, createMigrationFileError, formatTuskError } from "../utils/errors";
+import type { Migration } from "../types/migrations.js";
+import { createMigrationDirectoryError, createMigrationFileError, formatTuskError } from "../utils/errors.js";
 
 const UP_DOWN_REGEX = /\.(up|down)\.sql$/;
 

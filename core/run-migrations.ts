@@ -1,21 +1,16 @@
-// runUp(db, options) - figures out pending migrations, runs them in transactions
-// runDown(db, count) - figures out which to rollback, runs the .down.sql files
-// Uses the functions from read and track
-
-import type { DatabaseAdapter, RunResult } from "../types/migrations";
-import { getCorrespondingFilename } from "../utils/filename";
-import { logger } from "../utils/logger";
-import { createDatabaseError, createMigrationExecutionError, createRollbackError, formatTuskError, createValidationError } from "../utils/errors";
-import { readMigrations } from "./read-migrations";
-import { calculateChecksum } from "../utils/checksum";
+import type { DatabaseAdapter, RunResult } from "../types/migrations.js";
+import { getCorrespondingFilename } from "../utils/filename.js";
+import { logger } from "../utils/logger.js";
+import { createDatabaseError, createMigrationExecutionError, createRollbackError, formatTuskError, createValidationError } from "../utils/errors.js";
+import { readMigrations } from "./read-migrations.js";
+import { calculateChecksum } from "../utils/checksum.js";
 import {
   ensureMigrationsTable,
-  getExecutedMigrations,
   getLastExecutedMigrations,
   getExecutedMigrationsWithChecksums,
   markAsExecuted,
   markAsRolledBack,
-} from "./track-migrations";
+} from "./track-migrations.js";
 
 export const runUp = async (
   adapter: DatabaseAdapter,

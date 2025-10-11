@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { getCurrentDir } from "./runtime";
-import { dirname } from "path";
 
 describe("getCurrentDir", () => {
   test("should return a valid directory path", () => {

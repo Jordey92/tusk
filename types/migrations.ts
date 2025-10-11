@@ -7,7 +7,7 @@ import type {
   ForeignKeyInfo,
   UniqueConstraintInfo,
   IndexInfo,
-} from "./schema";
+} from "./schema.js";
 
 export interface Migration {
   filename: string;

@@ -1,5 +1,5 @@
-import type { DatabaseAdapter, TransactionClient } from "../types/migrations";
-import { logger } from "../utils/logger";
+import type { DatabaseAdapter, TransactionClient } from "../types/migrations.js";
+import { logger } from "../utils/logger.js";
 
 // Row types for database queries
 interface MigrationRow {

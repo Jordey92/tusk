@@ -6,8 +6,9 @@ import { createPostgresAdapter } from "../adapters/postgres";
 import { cleanupMigrations, createTestPool } from "../utils/test-helper";
 import { getCurrentDir } from "../utils/runtime";
 import { createInitialMigration } from "./init-migration";
+import { Pool } from "pg";
 
-const createTestTables = async (pool) => {
+const createTestTables = async (pool: Pool) => {
   await pool.query(`
     CREATE TABLE users (
       id SERIAL PRIMARY KEY,
