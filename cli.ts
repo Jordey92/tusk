@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import "dotenv/config";
 import { Pool } from "pg";
 import { createPostgresAdapter } from "./adapters/postgres.js";
 import { runUp, runDown } from "./core/run-migrations.js";

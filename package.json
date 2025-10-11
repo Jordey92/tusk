@@ -1,6 +1,6 @@
 {
   "name": "@jordey92/tusk",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Simple PostgreSQL migration tool with Elysia support",
   "author": "Jordan Dey",
   "license": "MIT",
@@ -54,5 +54,8 @@
     "elysia": {
       "optional": true
     }
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3"
   }
 }
