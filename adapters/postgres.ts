@@ -15,7 +15,6 @@ import type {
 } from "../types/schema";
 import { logger } from "../utils/logger";
 
-// Row type interfaces for database queries
 interface TableNameRow extends QueryResultRow {
   table_name: string;
 }
@@ -59,14 +58,11 @@ interface LockRow extends QueryResultRow {
   acquired: boolean;
 }
 
-// Migration lock ID for PostgreSQL advisory locks
 const MIGRATION_LOCK_ID = 123456789;
 
-// Transaction timeout in milliseconds (5 minutes)
 const TRANSACTION_TIMEOUT_MS = 300000;
 
 export const createPostgresAdapter = (pool: Pool): DatabaseAdapter => {
-  // Helper function to execute queries
   const executeQuery = async <T extends QueryResultRow = QueryResultRow>(sql: string, params?: QueryParam[]) => {
     try {
       logger.debug("Executing query", { sql: sql.substring(0, 100), paramCount: params?.length });
@@ -81,7 +77,6 @@ export const createPostgresAdapter = (pool: Pool): DatabaseAdapter => {
   };
 
   return {
-    // Core database operations
     query: executeQuery,
 
     transaction: async (callback) => {
@@ -93,7 +88,6 @@ export const createPostgresAdapter = (pool: Pool): DatabaseAdapter => {
         await client.query("BEGIN");
         transactionStarted = true;
 
-        // Set statement timeout to prevent hanging migrations
         await client.query(`SET LOCAL statement_timeout = '${TRANSACTION_TIMEOUT_MS}'`);
         logger.debug(`Transaction timeout set to ${TRANSACTION_TIMEOUT_MS}ms`);
 
@@ -151,7 +145,6 @@ export const createPostgresAdapter = (pool: Pool): DatabaseAdapter => {
       }
     },
 
-    // Migration safety
     acquireMigrationLock: async () => {
       logger.debug("Attempting to acquire migration lock");
 
@@ -183,7 +176,6 @@ export const createPostgresAdapter = (pool: Pool): DatabaseAdapter => {
       logger.debug("Migration lock released successfully");
     },
 
-    // Introspection methods
     getTableNames: async (schema: string = "public"): Promise<string[]> => {
       logger.debug("Getting table names", { schema });
 
@@ -415,11 +407,8 @@ export const createPostgresAdapter = (pool: Pool): DatabaseAdapter => {
       return { tables };
     },
 
-    // DDL generation methods
     columnToSQL: (column: ColumnInfo): string => {
       let sql = column.name;
-
-      // Map PostgreSQL types to SQL types
       let type = column.type.toUpperCase();
 
       // Handle SERIAL types (integer with nextval default)
@@ -463,12 +452,10 @@ export const createPostgresAdapter = (pool: Pool): DatabaseAdapter => {
 
       const lines: string[] = [];
 
-      // Add column definitions
       table.columns.forEach((column) => {
         lines.push(`  ${this.columnToSQL(column)}`);
       });
 
-      // Add PRIMARY KEY constraint
       if (table.primaryKeys.length > 0) {
         const pkColumns = table.primaryKeys
           .sort((a, b) => a.position - b.position)
@@ -477,12 +464,10 @@ export const createPostgresAdapter = (pool: Pool): DatabaseAdapter => {
         lines.push(`  PRIMARY KEY (${pkColumns})`);
       }
 
-      // Add UNIQUE constraints
       table.uniqueConstraints.forEach((unique) => {
         lines.push(`  UNIQUE (${unique.columnNames.join(", ")})`);
       });
 
-      // Add FOREIGN KEY constraints
       table.foreignKeys.forEach((fk) => {
         let fkLine = `  FOREIGN KEY (${fk.columnName}) REFERENCES ${fk.foreignTableName}(${fk.foreignColumnName})`;
 
@@ -554,12 +539,10 @@ export const createPostgresAdapter = (pool: Pool): DatabaseAdapter => {
       const sorted = this.sortTablesByDependencies(schema.tables);
       const statements: string[] = [];
 
-      // Add CREATE TABLE statements
       sorted.forEach((table) => {
         statements.push(this.generateCreateTable(table));
       });
 
-      // Add CREATE INDEX statements
       sorted.forEach((table) => {
         table.indexes.forEach((index) => {
           // Use the full index definition from pg_indexes
@@ -580,7 +563,6 @@ export const createPostgresAdapter = (pool: Pool): DatabaseAdapter => {
       const sorted = this.sortTablesByDependencies(schema.tables);
       const statements: string[] = [];
 
-      // Drop tables in reverse dependency order
       sorted.reverse().forEach((table) => {
         statements.push(this.generateDropTable(table.name));
       });
