@@ -422,6 +422,17 @@ export const createPostgresAdapter = (pool: Pool): DatabaseAdapter => {
         type = column.characterMaximumLength
           ? `VARCHAR(${column.characterMaximumLength})`
           : "VARCHAR";
+      } else if (column.type === "numeric") {
+        // Preserve NUMERIC precision and scale
+        if (column.numericPrecision !== null) {
+          if (column.numericScale !== null && column.numericScale > 0) {
+            type = `NUMERIC(${column.numericPrecision}, ${column.numericScale})`;
+          } else {
+            type = `NUMERIC(${column.numericPrecision})`;
+          }
+        } else {
+          type = "NUMERIC";
+        }
       } else if (column.type === "timestamp with time zone") {
         type = "TIMESTAMPTZ";
       } else if (column.type === "timestamp without time zone") {
@@ -441,7 +452,19 @@ export const createPostgresAdapter = (pool: Pool): DatabaseAdapter => {
         !column.defaultValue.includes("nextval") &&
         type !== "SERIAL"
       ) {
-        sql += ` DEFAULT ${column.defaultValue}`;
+        // Uppercase boolean values and SQL functions for consistency
+        let defaultValue = column.defaultValue;
+
+        // Handle common patterns
+        if (defaultValue.toLowerCase() === "false" || defaultValue.toLowerCase() === "true") {
+          defaultValue = defaultValue.toUpperCase();
+        } else if (defaultValue.toLowerCase().includes("now()")) {
+          defaultValue = defaultValue.replace(/now\(\)/gi, "NOW()");
+        } else if (defaultValue.toLowerCase().includes("gen_random_uuid()")) {
+          defaultValue = defaultValue.replace(/gen_random_uuid\(\)/gi, "gen_random_uuid()");
+        }
+
+        sql += ` DEFAULT ${defaultValue}`;
       }
 
       return sql;
@@ -544,9 +567,48 @@ export const createPostgresAdapter = (pool: Pool): DatabaseAdapter => {
       });
 
       sorted.forEach((table) => {
+        // Filter out indexes that duplicate UNIQUE constraints
+        const uniqueColumnSets = new Set(
+          table.uniqueConstraints.map(uc => uc.columnNames.sort().join(','))
+        );
+
+        // Also track primary key columns (they're implicitly unique)
+        const pkColumns = table.primaryKeys
+          .sort((a, b) => a.position - b.position)
+          .map(pk => pk.columnName)
+          .sort()
+          .join(',');
+        if (pkColumns) {
+          uniqueColumnSets.add(pkColumns);
+        }
+
         table.indexes.forEach((index) => {
-          // Use the full index definition from pg_indexes
-          statements.push(`${index.indexDefinition};`);
+          // Extract column names from index definition to check for duplicates
+          // Parse: CREATE [UNIQUE] INDEX name ON table (col1, col2, ...)
+          const indexDefMatch = index.indexDefinition.match(/\(([^)]+)\)/);
+          if (indexDefMatch && indexDefMatch[1]) {
+            const indexColumns = indexDefMatch[1]
+              .split(',')
+              .map(col => col.trim().replace(/"/g, ''))
+              .sort()
+              .join(',');
+
+            // Skip if this index duplicates a UNIQUE constraint or PRIMARY KEY
+            if (uniqueColumnSets.has(indexColumns) && index.indexDefinition.includes('UNIQUE')) {
+              logger.debug("Skipping duplicate unique index", {
+                indexName: index.indexName,
+                columns: indexColumns
+              });
+              return;
+            }
+          }
+
+          // Clean up index definition - remove schema prefix for cleaner output
+          let cleanedDef = index.indexDefinition
+            .replace(/ON\s+public\./i, 'ON ')
+            .replace(/\s+USING\s+btree/gi, '');
+
+          statements.push(`${cleanedDef};`);
         });
       });
 

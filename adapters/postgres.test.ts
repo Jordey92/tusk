@@ -356,7 +356,7 @@ describe("PostgreSQL Adapter", () => {
         };
 
         const sql = adapter.columnToSQL(column);
-        expect(sql).toBe("is_active BOOLEAN NOT NULL DEFAULT true");
+        expect(sql).toBe("is_active BOOLEAN NOT NULL DEFAULT TRUE");
       });
 
       test("should handle SERIAL type", () => {
