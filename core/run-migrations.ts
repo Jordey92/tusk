@@ -35,17 +35,13 @@ export const runUp = async (
   }
 
   try {
-    // Read all migrations from directory
     const migrationsFromDirectory = await readMigrations(migrationsPath, "up");
 
-    // Get executed migrations with checksums
     const executedMigrations = await getExecutedMigrationsWithChecksums(adapter);
     const executedFilenames = new Set(executedMigrations.map(m => m.filename));
 
-    // Verify checksums of already-executed migrations
     for (const executedMigration of executedMigrations) {
       if (!executedMigration.checksum) {
-        // Migration executed before checksums were added, skip verification
         continue;
       }
 
@@ -71,7 +67,6 @@ export const runUp = async (
 
     logger.debug("Migration checksums verified");
 
-    // Find migrations that haven't been executed yet
     const migrationsToRun = migrationsFromDirectory.filter(
       (migration) =>
         !executedFilenames.has(migration.filename) &&
@@ -86,7 +81,6 @@ export const runUp = async (
 
     let pending = migrationsToRun.length;
 
-    // Execute pending migrations
     for (const migration of migrationsToRun) {
       logger.debug("Executing migration", { filename: migration.filename });
 
@@ -118,7 +112,6 @@ export const runUp = async (
     logger.info("Migration up process completed", { executed: migrationsToRun.length });
     return { executed: migrationsToRun.length, pending };
   } finally {
-    // Always release the lock, even if an error occurred
     await adapter.releaseMigrationLock();
   }
 };
@@ -130,7 +123,6 @@ export const runDown = async (
 ): Promise<RunResult> => {
   logger.info("Starting migration down process", { migrationsPath, count });
 
-  // Acquire migration lock to prevent concurrent migrations
   await adapter.acquireMigrationLock();
 
   try {
@@ -180,7 +172,6 @@ export const runDown = async (
     logger.info("Migration down process completed", { executed: migrationsToRollback.length });
     return { executed: migrationsToRollback.length, pending };
   } finally {
-    // Always release the lock, even if an error occurred
     await adapter.releaseMigrationLock();
   }
 };

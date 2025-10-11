@@ -1,7 +1,6 @@
 import type { DatabaseAdapter, TransactionClient } from "../types/migrations.js";
 import { logger } from "../utils/logger.js";
 
-// Row types for database queries
 interface MigrationRow {
   filename: string;
 }
@@ -12,8 +11,13 @@ interface MigrationRowWithChecksum {
   executed_at: Date;
 }
 
+export interface MigrationRecord {
+  filename: string;
+  checksum: string | null;
+  executed_at: Date;
+}
+
 export const ensureMigrationsTable = async (adapter: DatabaseAdapter) => {
-  // Create table if it doesn't exist
   await adapter.query(`
     CREATE TABLE IF NOT EXISTS _migrations (
       id SERIAL PRIMARY KEY,
@@ -22,7 +26,6 @@ export const ensureMigrationsTable = async (adapter: DatabaseAdapter) => {
     );
   `);
 
-  // Add checksum column if it doesn't exist (backward compatible)
   await adapter.query(`
     DO $$
     BEGIN
@@ -87,12 +90,6 @@ export const markAsRolledBack = async (
     filename,
   ]);
 };
-
-export interface MigrationRecord {
-  filename: string;
-  checksum: string | null;
-  executed_at: Date;
-}
 
 export const getExecutedMigrationsWithChecksums = async (
   adapter: DatabaseAdapter

@@ -15,7 +15,6 @@ export interface Migration {
   sql: string;
 }
 
-// Valid PostgreSQL query parameter types
 export type QueryParam = string | number | boolean | Date | null;
 
 export interface QueryResult<T = QueryResultRow> {

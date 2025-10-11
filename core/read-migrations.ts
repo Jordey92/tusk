@@ -35,7 +35,7 @@ export const extractTimestampFromFilename = (filename: string): string => {
     throw new Error(formatTuskError(tuskError));
   }
 
-  const [timestamp, ...nameParts] = filename
+  const [timestamp, ..._] = filename
     .replace(UP_DOWN_REGEX, "")
     .split("_");
 
