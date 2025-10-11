@@ -2,6 +2,16 @@
 
 Simple PostgreSQL migration tool for Node.js and Bun.
 
+## Preconditions
+
+Tusk is built for modern development environments.
+
+- **Node.js:** `18.0` or higher (recommended: `20.11+` LTS).
+- **Bun:** `1.0` or higher.
+- **PostgreSQL:** `13` or higher.
+
+*Lower versions of PostgreSQL (down to 9.1) may work due to high compatibility, but versions below 13 are not officially tested or supported.*
+
 ## Install
 
 **With npm:**
@@ -128,6 +138,16 @@ const app = new Elysia()
 ```
 
 **See [Framework Integration Examples](./docs/integrations.md)** for Express, Fastify, Hono, Koa, NestJS, Next.js, Remix, and more.
+
+## Testing
+
+Tusk is tested across multiple Node.js and PostgreSQL versions to ensure broad compatibility.
+
+**See [Testing Guide](./docs/testing.md)** for:
+- Running compatibility tests across Node.js 18-22
+- Testing against PostgreSQL 13-17
+- CI/CD integration examples
+- Writing and running unit tests
 
 ## Architecture
 

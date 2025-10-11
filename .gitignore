@@ -35,7 +35,8 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # AI
 CLAUDE.md
-FUTURE.md
+FUTURE*.md
+
 
 # testing
 /_migrations
