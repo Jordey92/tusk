@@ -1,0 +1,27 @@
+# Source maps - not needed in published package
+*.map
+
+# Documentation - users can read on GitHub/npm page
+docs/
+
+# Tests
+*.test.ts
+*.test.js
+__tests__/
+fixtures/
+
+# Development files
+.env
+.env.*
+tsconfig.json
+tsconfig.*.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

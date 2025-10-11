@@ -1,6 +1,6 @@
 {
   "name": "@jordey92/tusk",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Simple PostgreSQL migration tool with Elysia support",
   "author": "Jordan Dey",
   "license": "MIT",
@@ -29,7 +29,7 @@
   },
   "files": [
     "dist",
-    "docs",
+    "!dist/**/*.map",
     "README.md",
     "LICENSE"
   ],
