@@ -44,13 +44,21 @@
     "@types/pg": "^8.15.5",
     "elysia": "^1.4.9",
     "pg": "^8.16.3",
+    "postgres": "^3.4.7",
     "typescript": "^5.9.3"
   },
   "peerDependencies": {
     "pg": ">=8.0.0",
+    "postgres": ">=3.0.0",
     "elysia": ">=1.0.0"
   },
   "peerDependenciesMeta": {
+    "pg": {
+      "optional": true
+    },
+    "postgres": {
+      "optional": true
+    },
     "elysia": {
       "optional": true
     }

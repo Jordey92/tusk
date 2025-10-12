@@ -97,13 +97,28 @@ DROP TABLE users;
 
 ## Programmatic API
 
-**Running migrations programmatically:**
+**Running migrations programmatically with `pg`:**
 ```typescript
 import { Pool } from 'pg';
-import { createPostgresAdapter, runUp, runDown } from '@bydey/tusk';
+import { createPgAdapter, runUp, runDown } from '@bydey/tusk';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const adapter = createPostgresAdapter(pool);
+const adapter = createPgAdapter(pool);
+
+// Run all pending migrations
+await runUp(adapter, './migrations');
+
+// Rollback last migration
+await runDown(adapter, './migrations', 1);
+```
+
+**Or with `postgres.js`:**
+```typescript
+import postgres from 'postgres';
+import { createPostgresJsAdapter, runUp, runDown } from '@bydey/tusk';
+
+const sql = postgres(process.env.DATABASE_URL);
+const adapter = createPostgresJsAdapter(sql);
 
 // Run all pending migrations
 await runUp(adapter, './migrations');
@@ -115,10 +130,10 @@ await runDown(adapter, './migrations', 1);
 **Generating initial migration from existing database:**
 ```typescript
 import { Pool } from 'pg';
-import { createPostgresAdapter, createInitialMigration } from '@bydey/tusk';
+import { createPgAdapter, createInitialMigration } from '@bydey/tusk';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const adapter = createPostgresAdapter(pool);
+const adapter = createPgAdapter(pool);
 
 const result = await createInitialMigration(adapter, './migrations');
 console.log(`Created migration for ${result.tableCount} tables`);
@@ -151,12 +166,13 @@ Tusk is tested across multiple Node.js and PostgreSQL versions to ensure broad c
 
 ## Architecture
 
-Tusk uses a **Fat Adapter Pattern** to support multiple databases. All database-specific logic (introspection queries, DDL generation) lives in the adapter, making it easy to add support for new databases.
+Tusk uses a **Fat Adapter Pattern** to support multiple databases and PostgreSQL clients. All database-specific logic (introspection queries, DDL generation) lives in the adapter, making it easy to add support for new databases.
 
 **Current adapters:**
-- PostgreSQL (via `createPostgresAdapter`)
+- PostgreSQL via `pg` library (`createPgAdapter`)
+- PostgreSQL via `postgres.js` library (`createPostgresJsAdapter`)
 
-**For contributors:** To add support for a new database (MySQL, SQLite, etc.), implement the `DatabaseAdapter` interface in `types/migrations.ts`. See `adapters/postgres.ts` for a reference implementation.
+**For contributors:** To add support for a new database (MySQL, SQLite, etc.), implement the `DatabaseAdapter` interface in `types/migrations.ts`. See `adapters/pg.ts` for a reference implementation.
 
 ## License
 

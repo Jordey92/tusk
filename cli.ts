@@ -2,7 +2,7 @@
 
 import "dotenv/config";
 import { Pool } from "pg";
-import { createPostgresAdapter } from "./adapters/postgres.js";
+import { createPgAdapter } from "./adapters/pg.js";
 import { runUp, runDown } from "./core/run-migrations.js";
 import {
   ensureMigrationsTable,
@@ -172,7 +172,7 @@ const run = async () => {
 
     const config = loadDatabaseConfig();
     const pool = new Pool(config);
-    const adapter = createPostgresAdapter(pool);
+    const adapter = createPgAdapter(pool);
 
     await ensureMigrationsTable(adapter);
 

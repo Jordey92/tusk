@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { cleanupMigrations, createTestPool } from "../utils/test-helper";
-import { createPostgresAdapter } from "../adapters/postgres";
+import { createPgAdapter } from "../adapters/pg";
 import { runDown, runUp } from "./run-migrations";
 import { getExecutedMigrations } from "./track-migrations";
 
 describe("run migrations", () => {
   const pool = createTestPool();
-  const adapter = createPostgresAdapter(pool);
+  const adapter = createPgAdapter(pool);
   afterEach(async () => {
     await cleanupMigrations(pool);
   });

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { createPostgresAdapter } from "../adapters/postgres";
+import { createPgAdapter } from "../adapters/pg";
 import { cleanupMigrations, createTestPool } from "../utils/test-helper";
 import {
   ensureMigrationsTable,
@@ -17,7 +17,7 @@ describe("track migrations", () => {
 
   describe("ensureMigrationsTable", () => {
     test("should create _migrations table if it doesn't exist", async () => {
-      const adapter = createPostgresAdapter(pool);
+      const adapter = createPgAdapter(pool);
       await ensureMigrationsTable(adapter);
 
       const result = await adapter.query(`
@@ -30,7 +30,7 @@ describe("track migrations", () => {
     });
 
     test("should be idempotent (safe to call multiple times)", async () => {
-      const adapter = createPostgresAdapter(pool);
+      const adapter = createPgAdapter(pool);
 
       // Call multiple times
       await ensureMigrationsTable(adapter);
@@ -47,7 +47,7 @@ describe("track migrations", () => {
     });
 
     test("should create table with correct structure", async () => {
-      const adapter = createPostgresAdapter(pool);
+      const adapter = createPgAdapter(pool);
       await ensureMigrationsTable(adapter);
 
       const result = await adapter.query(`
@@ -82,7 +82,7 @@ describe("track migrations", () => {
 
   describe("getExecutedMigrations", () => {
     test("should return empty Set if no migrations executed", async () => {
-      const adapter = createPostgresAdapter(pool);
+      const adapter = createPgAdapter(pool);
       await ensureMigrationsTable(adapter);
 
       const executed = await getExecutedMigrations(adapter);
@@ -92,7 +92,7 @@ describe("track migrations", () => {
     });
 
     test("should return Set of executed migration filenames", async () => {
-      const adapter = createPostgresAdapter(pool);
+      const adapter = createPgAdapter(pool);
       await ensureMigrationsTable(adapter);
 
       // Insert a test migration
@@ -107,7 +107,7 @@ describe("track migrations", () => {
     });
 
     test("should return all migrations when multiple exist", async () => {
-      const adapter = createPostgresAdapter(pool);
+      const adapter = createPgAdapter(pool);
       await ensureMigrationsTable(adapter);
 
       // Insert multiple migrations
@@ -132,7 +132,7 @@ describe("track migrations", () => {
     });
 
     test("should handle very long filenames", async () => {
-      const adapter = createPostgresAdapter(pool);
+      const adapter = createPgAdapter(pool);
       await ensureMigrationsTable(adapter);
 
       const longFilename = "a".repeat(200) + ".up.sql";
@@ -149,7 +149,7 @@ describe("track migrations", () => {
 
   describe("getLastExecutedMigrations", () => {
     test("should return empty array if no migrations executed", async () => {
-      const adapter = createPostgresAdapter(pool);
+      const adapter = createPgAdapter(pool);
       await ensureMigrationsTable(adapter);
 
       const lastExecuted = await getLastExecutedMigrations(adapter);
@@ -159,7 +159,7 @@ describe("track migrations", () => {
     });
 
     test("should return all migrations when count is undefined", async () => {
-      const adapter = createPostgresAdapter(pool);
+      const adapter = createPgAdapter(pool);
       await ensureMigrationsTable(adapter);
 
       const filenames = [
@@ -184,7 +184,7 @@ describe("track migrations", () => {
     });
 
     test("should return specified number of migrations when count provided", async () => {
-      const adapter = createPostgresAdapter(pool);
+      const adapter = createPgAdapter(pool);
       await ensureMigrationsTable(adapter);
 
       const filenames = [
@@ -209,7 +209,7 @@ describe("track migrations", () => {
     });
 
     test("should return all migrations when count is larger than available", async () => {
-      const adapter = createPostgresAdapter(pool);
+      const adapter = createPgAdapter(pool);
       await ensureMigrationsTable(adapter);
 
       const filenames = ["001_first.up.sql", "002_second.up.sql"];
@@ -228,7 +228,7 @@ describe("track migrations", () => {
     });
 
     test("should return empty array when count is 0", async () => {
-      const adapter = createPostgresAdapter(pool);
+      const adapter = createPgAdapter(pool);
       await ensureMigrationsTable(adapter);
 
       await adapter.query(
@@ -243,7 +243,7 @@ describe("track migrations", () => {
 
   describe("markAsExecuted", () => {
     test("should successfully insert migration record", async () => {
-      const adapter = createPostgresAdapter(pool);
+      const adapter = createPgAdapter(pool);
       await ensureMigrationsTable(adapter);
 
       await markAsExecuted(adapter, "test_migration.up.sql");
@@ -257,7 +257,7 @@ describe("track migrations", () => {
     });
 
     test("should fail when trying to insert duplicate filename", async () => {
-      const adapter = createPostgresAdapter(pool);
+      const adapter = createPgAdapter(pool);
       await ensureMigrationsTable(adapter);
 
       await markAsExecuted(adapter, "duplicate.up.sql");
@@ -269,7 +269,7 @@ describe("track migrations", () => {
     });
 
     test("should work with TransactionClient", async () => {
-      const adapter = createPostgresAdapter(pool);
+      const adapter = createPgAdapter(pool);
       await ensureMigrationsTable(adapter);
 
       await adapter.transaction(async (client) => {
@@ -285,7 +285,7 @@ describe("track migrations", () => {
     });
 
     test("should handle empty filename", async () => {
-      const adapter = createPostgresAdapter(pool);
+      const adapter = createPgAdapter(pool);
       await ensureMigrationsTable(adapter);
 
       await markAsExecuted(adapter, "");
@@ -301,7 +301,7 @@ describe("track migrations", () => {
 
   describe("markAsRolledBack", () => {
     test("should remove a record from _migrations table", async () => {
-      const adapter = createPostgresAdapter(pool);
+      const adapter = createPgAdapter(pool);
       await ensureMigrationsTable(adapter);
 
       await markAsExecuted(adapter, "test.sql");
@@ -324,7 +324,7 @@ describe("track migrations", () => {
     });
 
     test("should not error when removing non-existent migration", async () => {
-      const adapter = createPostgresAdapter(pool);
+      const adapter = createPgAdapter(pool);
       await ensureMigrationsTable(adapter);
 
       // Should not throw error
@@ -340,7 +340,7 @@ describe("track migrations", () => {
     });
 
     test("should work with TransactionClient", async () => {
-      const adapter = createPostgresAdapter(pool);
+      const adapter = createPgAdapter(pool);
       await ensureMigrationsTable(adapter);
 
       await markAsExecuted(adapter, "transaction_rollback_test.sql");
@@ -359,7 +359,7 @@ describe("track migrations", () => {
     });
 
     test("should only remove the specific migration", async () => {
-      const adapter = createPostgresAdapter(pool);
+      const adapter = createPgAdapter(pool);
       await ensureMigrationsTable(adapter);
 
       // Add multiple migrations

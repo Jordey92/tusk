@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync } from "fs";
 import { readFile, rm } from "fs/promises";
 import { resolve } from "path";
-import { createPostgresAdapter } from "../adapters/postgres";
+import { createPgAdapter } from "../adapters/pg";
 import { cleanupMigrations, createTestPool } from "../utils/test-helper";
 import { getCurrentDir } from "../utils/runtime";
 import { createInitialMigration } from "./init-migration";
@@ -26,7 +26,7 @@ const createTestTables = async (pool: Pool) => {
 
 describe("init migration", () => {
   const pool = createTestPool();
-  const adapter = createPostgresAdapter(pool);
+  const adapter = createPgAdapter(pool);
   const testMigrationsPath = resolve(getCurrentDir(), "../fixtures/test-migrations");
 
   beforeAll(async () => {

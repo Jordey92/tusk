@@ -25,5 +25,6 @@ export {
 } from "./core/track-migrations.js";
 export { createInitialMigration } from "./core/init-migration.js";
 
-export { createPostgresAdapter } from "./adapters/postgres.js";
+export { createPgAdapter } from "./adapters/pg.js";
+export { createPostgresJsAdapter } from "./adapters/postgresjs.js";
 export { migrate } from "./plugins/elysia.js";

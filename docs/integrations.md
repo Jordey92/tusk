@@ -66,7 +66,7 @@ interface ElysiaMigrateConfig {
 ```typescript
 import express from 'express';
 import { Pool } from 'pg';
-import { createPostgresAdapter, runUp, ensureMigrationsTable } from '@bydey/tusk';
+import { createPgAdapter, runUp, ensureMigrationsTable } from '@bydey/tusk';
 
 const app = express();
 
@@ -74,7 +74,7 @@ const app = express();
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL
 });
-const adapter = createPostgresAdapter(pool);
+const adapter = createPgAdapter(pool);
 
 // Run migrations on startup
 const runMigrations = async () => {
@@ -121,10 +121,10 @@ process.on('SIGTERM', async () => {
 ```typescript
 import express from 'express';
 import { Pool } from 'pg';
-import { createPostgresAdapter } from '@bydey/tusk';
+import { createPgAdapter } from '@bydey/tusk';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const adapter = createPostgresAdapter(pool);
+const adapter = createPgAdapter(pool);
 
 // Middleware to inject db into requests
 const dbMiddleware = (req, res, next) => {
@@ -148,7 +148,7 @@ app.get('/users', async (req, res) => {
 ```typescript
 import Fastify from 'fastify';
 import { Pool } from 'pg';
-import { createPostgresAdapter, runUp, ensureMigrationsTable } from '@bydey/tusk';
+import { createPgAdapter, runUp, ensureMigrationsTable } from '@bydey/tusk';
 
 const fastify = Fastify({
   logger: true
@@ -158,7 +158,7 @@ const fastify = Fastify({
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL
 });
-const adapter = createPostgresAdapter(pool);
+const adapter = createPgAdapter(pool);
 
 // Decorate fastify with db
 fastify.decorate('db', { pool, adapter });
@@ -205,13 +205,13 @@ start();
 ```typescript
 import fp from 'fastify-plugin';
 import { Pool } from 'pg';
-import { createPostgresAdapter, runUp, ensureMigrationsTable } from '@bydey/tusk';
+import { createPgAdapter, runUp, ensureMigrationsTable } from '@bydey/tusk';
 
 const tuskPlugin = fp(async (fastify, options) => {
   const pool = new Pool({
     connectionString: options.connectionString || process.env.DATABASE_URL
   });
-  const adapter = createPostgresAdapter(pool);
+  const adapter = createPgAdapter(pool);
 
   fastify.decorate('db', { pool, adapter });
 
@@ -241,7 +241,7 @@ fastify.register(tuskPlugin, {
 ```typescript
 import { Hono } from 'hono';
 import { Pool } from 'pg';
-import { createPostgresAdapter, runUp, ensureMigrationsTable } from '@bydey/tusk';
+import { createPgAdapter, runUp, ensureMigrationsTable } from '@bydey/tusk';
 
 const app = new Hono();
 
@@ -249,7 +249,7 @@ const app = new Hono();
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL
 });
-const adapter = createPostgresAdapter(pool);
+const adapter = createPgAdapter(pool);
 
 // Run migrations before starting
 console.log('🔄 Running migrations...');
@@ -299,7 +299,7 @@ export default app;
 import Koa from 'koa';
 import Router from '@koa/router';
 import { Pool } from 'pg';
-import { createPostgresAdapter, runUp, ensureMigrationsTable } from '@bydey/tusk';
+import { createPgAdapter, runUp, ensureMigrationsTable } from '@bydey/tusk';
 
 const app = new Koa();
 const router = new Router();
@@ -308,7 +308,7 @@ const router = new Router();
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL
 });
-const adapter = createPostgresAdapter(pool);
+const adapter = createPgAdapter(pool);
 
 // Add db to context
 app.context.db = { pool, adapter };
@@ -353,7 +353,7 @@ runMigrations().then(() => {
 // src/database/migration.module.ts
 import { Module, OnModuleInit } from '@nestjs/common';
 import { Pool } from 'pg';
-import { createPostgresAdapter, runUp, ensureMigrationsTable } from '@bydey/tusk';
+import { createPgAdapter, runUp, ensureMigrationsTable } from '@bydey/tusk';
 
 @Module({})
 export class MigrationModule implements OnModuleInit {
@@ -362,7 +362,7 @@ export class MigrationModule implements OnModuleInit {
       connectionString: process.env.DATABASE_URL,
     });
 
-    const adapter = createPostgresAdapter(pool);
+    const adapter = createPgAdapter(pool);
 
     console.log('🔄 Running migrations...');
     await ensureMigrationsTable(adapter);
@@ -378,7 +378,7 @@ export class MigrationModule implements OnModuleInit {
 // src/database/database.service.ts
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Pool } from 'pg';
-import { createPostgresAdapter } from '@bydey/tusk';
+import { createPgAdapter } from '@bydey/tusk';
 import type { DatabaseAdapter } from '@bydey/tusk';
 
 @Injectable()
@@ -390,7 +390,7 @@ export class DatabaseService implements OnModuleDestroy {
     this.pool = new Pool({
       connectionString: process.env.DATABASE_URL,
     });
-    this.adapter = createPostgresAdapter(this.pool);
+    this.adapter = createPgAdapter(this.pool);
   }
 
   async onModuleDestroy() {
@@ -448,7 +448,7 @@ export class UsersController {
 ```typescript
 // lib/db.ts
 import { Pool } from 'pg';
-import { createPostgresAdapter } from '@bydey/tusk';
+import { createPgAdapter } from '@bydey/tusk';
 
 const globalForDb = globalThis as unknown as {
   pool: Pool | undefined;
@@ -458,7 +458,7 @@ export const pool = globalForDb.pool ?? new Pool({
   connectionString: process.env.DATABASE_URL,
 });
 
-export const adapter = createPostgresAdapter(pool);
+export const adapter = createPgAdapter(pool);
 
 if (process.env.NODE_ENV !== 'production') {
   globalForDb.pool = pool;
@@ -536,7 +536,7 @@ export async function getUsers() {
 ```typescript
 // app/lib/db.server.ts
 import { Pool } from 'pg';
-import { createPostgresAdapter } from '@bydey/tusk';
+import { createPgAdapter } from '@bydey/tusk';
 
 let pool: Pool;
 
@@ -555,7 +555,7 @@ if (process.env.NODE_ENV === 'production') {
 
 export const db = {
   pool,
-  adapter: createPostgresAdapter(pool),
+  adapter: createPgAdapter(pool),
 };
 ```
 
@@ -620,7 +620,7 @@ export default function Users() {
 
 ```typescript
 import { Pool } from 'pg';
-import { createPostgresAdapter } from '@bydey/tusk';
+import { createPgAdapter } from '@bydey/tusk';
 
 const config = {
   development: {
@@ -640,7 +640,7 @@ const config = {
 
 const env = process.env.NODE_ENV || 'development';
 const pool = new Pool(config[env]);
-const adapter = createPostgresAdapter(pool);
+const adapter = createPgAdapter(pool);
 ```
 
 ### Conditional Migration Running

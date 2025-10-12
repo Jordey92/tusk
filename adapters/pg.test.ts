@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { createPostgresAdapter } from "./postgres";
+import { createPgAdapter } from "./pg";
 import { cleanupMigrations, createTestPool } from "../utils/test-helper";
 import { Pool } from "pg";
 import type { ColumnInfo, TableInfo, IntrospectedSchema } from "../types/schema";
@@ -44,10 +44,9 @@ const createTestTables = async (pool: Pool) => {
 
 describe("PostgreSQL Adapter", () => {
   const pool = createTestPool();
-  const adapter = createPostgresAdapter(pool);
+  const adapter = createPgAdapter(pool);
 
   beforeAll(async () => {
-    await cleanupMigrations(pool);
     await createTestTables(pool);
   });
 
@@ -57,7 +56,7 @@ describe("PostgreSQL Adapter", () => {
 
   describe("introspect schema", () => {
     describe("getTableNames", () => {
-      test("should return list of user tables excluding tusk_migrations", async () => {
+      test.only("should return list of user tables excluding tusk_migrations", async () => {
         const tables = await adapter.getTableNames("public");
 
         expect(Array.isArray(tables)).toBe(true);

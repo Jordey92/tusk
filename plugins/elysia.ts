@@ -1,6 +1,6 @@
 import { Elysia } from "elysia";
 import { Pool } from "pg";
-import { createPostgresAdapter } from "../adapters/postgres.js";
+import { createPgAdapter } from "../adapters/pg.js";
 import { ensureMigrationsTable } from "../core/track-migrations.js";
 import { runUp } from "../core/run-migrations.js";
 
@@ -39,7 +39,7 @@ export const createPoolFromConfig = (config: ElysiaMigrateConfig): Pool => {
 
 export const migrate = (config: ElysiaMigrateConfig = {}) => {
   const pool = createPoolFromConfig(config);
-  const adapter = createPostgresAdapter(pool);
+  const adapter = createPgAdapter(pool);
   const migrationsPath = config.migrationsPath || "./migrations";
   const runOnStartup = config.runOnStartup ?? true; // default to true
 

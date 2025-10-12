@@ -1,18 +1,18 @@
 import { Pool } from "pg";
 import type { DatabaseAdapter } from "../types/migrations.js";
-import { createExecuteQuery, createTransaction } from "./postgres/query.js";
-import { createLockingMethods } from "./postgres/locking.js";
-import { createIntrospectionMethods } from "./postgres/introspection.js";
+import { createExecuteQuery, createTransaction } from "./pg/query.js";
+import { createLockingMethods } from "./pg/locking.js";
+import { createIntrospectionMethods } from "./pg/introspection.js";
 import {
   columnToSQL,
   generateCreateTable,
   generateDropTable,
   generateUpMigration,
   generateDownMigration,
-} from "./postgres/sql-generator.js";
-import { sortTablesByDependencies } from "./postgres/dependencies.js";
+} from "./pg/sql-generator.js";
+import { sortTablesByDependencies } from "./pg/dependencies.js";
 
-export const createPostgresAdapter = (pool: Pool): DatabaseAdapter => {
+export const createPgAdapter = (pool: Pool): DatabaseAdapter => {
   const executeQuery = createExecuteQuery(pool);
   const transaction = createTransaction(pool);
   const lockingMethods = createLockingMethods(executeQuery);
