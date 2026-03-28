@@ -15,7 +15,7 @@ import { sortTablesByDependencies } from "./pg/dependencies.js";
 export const createPgAdapter = (pool: Pool): DatabaseAdapter => {
   const executeQuery = createExecuteQuery(pool);
   const transaction = createTransaction(pool);
-  const lockingMethods = createLockingMethods(executeQuery);
+  const lockingMethods = createLockingMethods(pool);
   const introspectionMethods = createIntrospectionMethods(executeQuery);
 
   return {

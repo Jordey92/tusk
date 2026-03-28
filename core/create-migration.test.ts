@@ -202,10 +202,29 @@ describe("createMigrationFile", () => {
     }
   });
 
-  test("should throw error for non-existent directory", async () => {
-    await expect(
-      createMigrationFile("./non-existent-directory", "test")
-    ).rejects.toThrow();
+  test("should create directory if it does not exist", async () => {
+    const { mkdtemp, rm, access, unlink } = await import("fs/promises");
+    const { tmpdir } = await import("os");
+    const { join } = await import("path");
+
+    const tempDir = await mkdtemp(join(tmpdir(), "tusk-test-create-dir-"));
+    const nestedDir = join(tempDir, "nested", "migrations");
+    let result: { upFile: string; downFile: string };
+
+    try {
+      result = await createMigrationFile(nestedDir, "test");
+
+      await access(join(nestedDir, result.upFile));
+      await access(join(nestedDir, result.downFile));
+    } finally {
+      if (result) {
+        try {
+          await unlink(join(nestedDir, result.upFile));
+          await unlink(join(nestedDir, result.downFile));
+        } catch {}
+      }
+      await rm(tempDir, { recursive: true, force: true });
+    }
   });
 
   test("should handle empty filename", async () => {

@@ -2,12 +2,27 @@ import type { ColumnInfo, TableInfo, IntrospectedSchema } from "../../types/sche
 import { logger } from "../../utils/logger.js";
 import { sortTablesByDependencies } from "./dependencies.js";
 
+const quoteIdentifier = (identifier: string): string =>
+  `"${identifier.replace(/"/g, "\"\"")}"`;
+
+const qualifyTableName = (tableName: string, schema?: string): string => {
+  if (!schema) {
+    return quoteIdentifier(tableName);
+  }
+
+  return `${quoteIdentifier(schema)}.${quoteIdentifier(tableName)}`;
+};
+
+const quoteColumnList = (columns: string[]): string =>
+  columns.map((column) => quoteIdentifier(column)).join(", ");
+
 export const columnToSQL = (column: ColumnInfo): string => {
-  let sql = column.name;
+  let sql = quoteIdentifier(column.name);
   let type = column.type.toUpperCase();
 
   // Handle SERIAL types (integer with nextval default)
   if (
+    !column.isIdentity &&
     column.type === "integer" &&
     column.defaultValue &&
     column.defaultValue.includes("nextval")
@@ -35,6 +50,11 @@ export const columnToSQL = (column: ColumnInfo): string => {
   }
 
   sql += ` ${type}`;
+
+  if (column.isIdentity) {
+    const generation = column.identityGeneration ?? "BY DEFAULT";
+    sql += ` GENERATED ${generation} AS IDENTITY`;
+  }
 
   // Add NOT NULL constraint
   if (!column.isNullable) {
@@ -85,17 +105,21 @@ export const generateCreateTable = (table: TableInfo): string => {
   if (table.primaryKeys.length > 0) {
     const pkColumns = table.primaryKeys
       .sort((a, b) => a.position - b.position)
-      .map((pk) => pk.columnName)
-      .join(", ");
-    lines.push(`  PRIMARY KEY (${pkColumns})`);
+      .map((pk) => pk.columnName);
+    lines.push(`  PRIMARY KEY (${quoteColumnList(pkColumns)})`);
   }
 
   table.uniqueConstraints.forEach((unique) => {
-    lines.push(`  UNIQUE (${unique.columnNames.join(", ")})`);
+    lines.push(`  UNIQUE (${quoteColumnList(unique.columnNames)})`);
   });
 
   table.foreignKeys.forEach((fk) => {
-    let fkLine = `  FOREIGN KEY (${fk.columnName}) REFERENCES ${fk.foreignTableName}(${fk.foreignColumnName})`;
+    let fkLine =
+      `  FOREIGN KEY (${quoteIdentifier(fk.columnName)}) REFERENCES ` +
+      `${qualifyTableName(
+        fk.foreignTableName,
+        fk.foreignSchema ?? table.schema
+      )}(${quoteIdentifier(fk.foreignColumnName)})`;
 
     if (fk.updateRule && fk.updateRule !== "NO ACTION") {
       fkLine += ` ON UPDATE ${fk.updateRule}`;
@@ -108,7 +132,7 @@ export const generateCreateTable = (table: TableInfo): string => {
     lines.push(fkLine);
   });
 
-  const sql = `CREATE TABLE ${table.name} (\n${lines.join(",\n")}\n);`;
+  const sql = `CREATE TABLE ${qualifyTableName(table.name, table.schema)} (\n${lines.join(",\n")}\n);`;
 
   logger.debug("Generated CREATE TABLE statement", {
     tableName: table.name,
@@ -117,8 +141,8 @@ export const generateCreateTable = (table: TableInfo): string => {
   return sql;
 };
 
-export const generateDropTable = (tableName: string): string => {
-  return `DROP TABLE IF EXISTS ${tableName} CASCADE;`;
+export const generateDropTable = (tableName: string, schema?: string): string => {
+  return `DROP TABLE IF EXISTS ${qualifyTableName(tableName, schema)} CASCADE;`;
 };
 
 export const generateUpMigration = (schema: IntrospectedSchema): string => {
@@ -200,7 +224,7 @@ export const generateDownMigration = (schema: IntrospectedSchema): string => {
   const statements: string[] = [];
 
   sorted.reverse().forEach((table) => {
-    statements.push(generateDropTable(table.name));
+    statements.push(generateDropTable(table.name, table.schema));
   });
 
   const sql = statements.join("\n");

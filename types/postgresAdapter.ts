@@ -13,6 +13,8 @@ export interface ColumnRow extends QueryResultRow {
   numeric_precision: number | null;
   numeric_scale: number | null;
   udt_name: string;
+  is_identity: string;
+  identity_generation: string | null;
 }
 
 export interface PrimaryKeyRow extends QueryResultRow {
@@ -22,6 +24,7 @@ export interface PrimaryKeyRow extends QueryResultRow {
 
 export interface ForeignKeyRow extends QueryResultRow {
   column_name: string;
+  foreign_table_schema: string;
   foreign_table_name: string;
   foreign_column_name: string;
   update_rule: string;

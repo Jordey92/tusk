@@ -19,26 +19,50 @@ export interface ElysiaMigrateConfig {
   runOnStartup?: boolean;
 }
 
+export interface PoolHandle {
+  pool: Pool;
+  ownsPool: boolean;
+}
+
 export const createPoolFromConfig = (config: ElysiaMigrateConfig): Pool => {
+  return createPoolHandle(config).pool;
+};
+
+/**
+ * Resolves the pool to use for the plugin and whether the plugin owns its lifecycle.
+ */
+export const createPoolHandle = (config: ElysiaMigrateConfig): PoolHandle => {
   if (config.pool) {
-    return config.pool;
+    return {
+      pool: config.pool,
+      ownsPool: false,
+    };
   }
 
   if (config.connectionString) {
-    return new Pool({ connectionString: config.connectionString });
+    return {
+      pool: new Pool({ connectionString: config.connectionString }),
+      ownsPool: true,
+    };
   }
 
   if (config.connection) {
-    return new Pool(config.connection);
+    return {
+      pool: new Pool(config.connection),
+      ownsPool: true,
+    };
   }
 
-  return new Pool({
-    connectionString: process.env.DATABASE_URL,
-  });
+  return {
+    pool: new Pool({
+      connectionString: process.env.DATABASE_URL,
+    }),
+    ownsPool: true,
+  };
 };
 
 export const migrate = (config: ElysiaMigrateConfig = {}) => {
-  const pool = createPoolFromConfig(config);
+  const { pool, ownsPool } = createPoolHandle(config);
   const adapter = createPgAdapter(pool);
   const migrationsPath = config.migrationsPath || "./migrations";
   const runOnStartup = config.runOnStartup ?? true; // default to true
@@ -57,6 +81,8 @@ export const migrate = (config: ElysiaMigrateConfig = {}) => {
       }
     })
     .onStop(async () => {
-      await pool.end();
+      if (ownsPool) {
+        await pool.end();
+      }
     });
 };

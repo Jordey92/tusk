@@ -1,4 +1,4 @@
-import { writeFile } from "fs/promises";
+import { mkdir, writeFile } from "fs/promises";
 import { resolve } from "path";
 import { downTemplate, upTemplate } from "../templates/migrationContent.js";
 
@@ -14,6 +14,7 @@ export const createMigrationFile = async (
   const upPath = resolve(path, upFilename);
   const downPath = resolve(path, downFilename);
 
+  await mkdir(path, { recursive: true });
   await writeFile(upPath, upTemplate(filename));
   await writeFile(downPath, downTemplate(filename));
 

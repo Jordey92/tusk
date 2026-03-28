@@ -7,6 +7,8 @@ export interface ColumnInfo {
   numericPrecision: number | null;
   numericScale: number | null;
   udtName: string; // For custom types and enums
+  isIdentity?: boolean;
+  identityGeneration?: string | null;
 }
 
 export interface PrimaryKeyInfo {
@@ -16,6 +18,7 @@ export interface PrimaryKeyInfo {
 
 export interface ForeignKeyInfo {
   columnName: string;
+  foreignSchema?: string;
   foreignTableName: string;
   foreignColumnName: string;
   updateRule: string;
@@ -34,6 +37,7 @@ export interface IndexInfo {
 }
 
 export interface TableInfo {
+  schema?: string;
   name: string;
   columns: ColumnInfo[];
   primaryKeys: PrimaryKeyInfo[];

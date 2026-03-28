@@ -39,17 +39,20 @@ export interface DatabaseAdapter {
 
   // Introspection capabilities
   introspectDatabase(schema?: string): Promise<IntrospectedSchema>;
-  introspectTable(tableName: string): Promise<TableInfo>;
+  introspectTable(tableName: string, schema?: string): Promise<TableInfo>;
   getTableNames(schema?: string): Promise<string[]>;
-  getTableColumns(tableName: string): Promise<ColumnInfo[]>;
-  getPrimaryKeys(tableName: string): Promise<PrimaryKeyInfo[]>;
-  getForeignKeys(tableName: string): Promise<ForeignKeyInfo[]>;
-  getUniqueConstraints(tableName: string): Promise<UniqueConstraintInfo[]>;
-  getIndexes(tableName: string): Promise<IndexInfo[]>;
+  getTableColumns(tableName: string, schema?: string): Promise<ColumnInfo[]>;
+  getPrimaryKeys(tableName: string, schema?: string): Promise<PrimaryKeyInfo[]>;
+  getForeignKeys(tableName: string, schema?: string): Promise<ForeignKeyInfo[]>;
+  getUniqueConstraints(
+    tableName: string,
+    schema?: string
+  ): Promise<UniqueConstraintInfo[]>;
+  getIndexes(tableName: string, schema?: string): Promise<IndexInfo[]>;
 
   // DDL generation capabilities
   generateCreateTable(table: TableInfo): string;
-  generateDropTable(tableName: string): string;
+  generateDropTable(tableName: string, schema?: string): string;
   generateUpMigration(schema: IntrospectedSchema): string;
   generateDownMigration(schema: IntrospectedSchema): string;
   columnToSQL(column: ColumnInfo): string;

@@ -49,8 +49,11 @@ export const createIntrospectionMethods = (
     return tableNames;
   };
 
-  const getTableColumns = async (tableName: string): Promise<ColumnInfo[]> => {
-    logger.debug("Getting columns for table", { tableName });
+  const getTableColumns = async (
+    tableName: string,
+    schema: string = "public"
+  ): Promise<ColumnInfo[]> => {
+    logger.debug("Getting columns for table", { tableName, schema });
 
     const result = await executeQuery<ColumnRow>(
       `
@@ -62,13 +65,15 @@ export const createIntrospectionMethods = (
         character_maximum_length,
         numeric_precision,
         numeric_scale,
-        udt_name
+        udt_name,
+        is_identity,
+        identity_generation
       FROM information_schema.columns
-      WHERE table_schema = 'public'
-        AND table_name = $1
+      WHERE table_schema = $1
+        AND table_name = $2
       ORDER BY ordinal_position
       `,
-      [tableName]
+      [schema, tableName]
     );
 
     const columns: ColumnInfo[] = result.rows.map((row) => ({
@@ -80,6 +85,8 @@ export const createIntrospectionMethods = (
       numericPrecision: row.numeric_precision,
       numericScale: row.numeric_scale,
       udtName: row.udt_name,
+      isIdentity: row.is_identity === "YES",
+      identityGeneration: row.identity_generation,
     }));
 
     logger.debug("Found columns", { tableName, count: columns.length });
@@ -87,8 +94,11 @@ export const createIntrospectionMethods = (
     return columns;
   };
 
-  const getPrimaryKeys = async (tableName: string): Promise<PrimaryKeyInfo[]> => {
-    logger.debug("Getting primary keys for table", { tableName });
+  const getPrimaryKeys = async (
+    tableName: string,
+    schema: string = "public"
+  ): Promise<PrimaryKeyInfo[]> => {
+    logger.debug("Getting primary keys for table", { tableName, schema });
 
     const result = await executeQuery<PrimaryKeyRow>(
       `
@@ -97,12 +107,12 @@ export const createIntrospectionMethods = (
       JOIN information_schema.key_column_usage kcu
         ON tc.constraint_name = kcu.constraint_name
         AND tc.table_schema = kcu.table_schema
-      WHERE tc.table_schema = 'public'
-        AND tc.table_name = $1
+      WHERE tc.table_schema = $1
+        AND tc.table_name = $2
         AND tc.constraint_type = 'PRIMARY KEY'
       ORDER BY kcu.ordinal_position
       `,
-      [tableName]
+      [schema, tableName]
     );
 
     const primaryKeys: PrimaryKeyInfo[] = result.rows.map((row) => ({
@@ -118,13 +128,17 @@ export const createIntrospectionMethods = (
     return primaryKeys;
   };
 
-  const getForeignKeys = async (tableName: string): Promise<ForeignKeyInfo[]> => {
-    logger.debug("Getting foreign keys for table", { tableName });
+  const getForeignKeys = async (
+    tableName: string,
+    schema: string = "public"
+  ): Promise<ForeignKeyInfo[]> => {
+    logger.debug("Getting foreign keys for table", { tableName, schema });
 
     const result = await executeQuery<ForeignKeyRow>(
       `
       SELECT
         kcu.column_name,
+        ccu.table_schema AS foreign_table_schema,
         ccu.table_name AS foreign_table_name,
         ccu.column_name AS foreign_column_name,
         rc.update_rule,
@@ -133,22 +147,23 @@ export const createIntrospectionMethods = (
       FROM information_schema.table_constraints tc
       JOIN information_schema.key_column_usage kcu
         ON tc.constraint_name = kcu.constraint_name
-        AND tc.table_schema = kcu.table_schema
-      JOIN information_schema.constraint_column_usage ccu
-        ON ccu.constraint_name = tc.constraint_name
-        AND ccu.table_schema = tc.table_schema
+        AND tc.constraint_schema = kcu.constraint_schema
       JOIN information_schema.referential_constraints rc
         ON rc.constraint_name = tc.constraint_name
-        AND rc.constraint_schema = tc.table_schema
-      WHERE tc.table_schema = 'public'
-        AND tc.table_name = $1
+        AND rc.constraint_schema = tc.constraint_schema
+      JOIN information_schema.constraint_column_usage ccu
+        ON ccu.constraint_name = rc.unique_constraint_name
+        AND ccu.constraint_schema = rc.unique_constraint_schema
+      WHERE tc.table_schema = $1
+        AND tc.table_name = $2
         AND tc.constraint_type = 'FOREIGN KEY'
       `,
-      [tableName]
+      [schema, tableName]
     );
 
     const foreignKeys: ForeignKeyInfo[] = result.rows.map((row) => ({
       columnName: row.column_name,
+      foreignSchema: row.foreign_table_schema,
       foreignTableName: row.foreign_table_name,
       foreignColumnName: row.foreign_column_name,
       updateRule: row.update_rule,
@@ -165,9 +180,10 @@ export const createIntrospectionMethods = (
   };
 
   const getUniqueConstraints = async (
-    tableName: string
+    tableName: string,
+    schema: string = "public"
   ): Promise<UniqueConstraintInfo[]> => {
-    logger.debug("Getting unique constraints for table", { tableName });
+    logger.debug("Getting unique constraints for table", { tableName, schema });
 
     const result = await executeQuery<UniqueConstraintRow>(
       `
@@ -178,12 +194,12 @@ export const createIntrospectionMethods = (
       JOIN information_schema.key_column_usage kcu
         ON tc.constraint_name = kcu.constraint_name
         AND tc.table_schema = kcu.table_schema
-      WHERE tc.table_schema = 'public'
-        AND tc.table_name = $1
+      WHERE tc.table_schema = $1
+        AND tc.table_name = $2
         AND tc.constraint_type = 'UNIQUE'
       GROUP BY tc.constraint_name
       `,
-      [tableName]
+      [schema, tableName]
     );
 
     const uniqueConstraints: UniqueConstraintInfo[] = result.rows.map(
@@ -209,18 +225,21 @@ export const createIntrospectionMethods = (
     return uniqueConstraints;
   };
 
-  const getIndexes = async (tableName: string): Promise<IndexInfo[]> => {
-    logger.debug("Getting indexes for table", { tableName });
+  const getIndexes = async (
+    tableName: string,
+    schema: string = "public"
+  ): Promise<IndexInfo[]> => {
+    logger.debug("Getting indexes for table", { tableName, schema });
 
     const result = await executeQuery<IndexRow>(
       `
       SELECT indexname, indexdef
       FROM pg_indexes
-      WHERE schemaname = 'public'
-        AND tablename = $1
+      WHERE schemaname = $1
+        AND tablename = $2
         AND indexname NOT LIKE '%_pkey'
       `,
-      [tableName]
+      [schema, tableName]
     );
 
     const indexes: IndexInfo[] = result.rows.map((row) => ({
@@ -233,19 +252,23 @@ export const createIntrospectionMethods = (
     return indexes;
   };
 
-  const introspectTable = async (tableName: string): Promise<TableInfo> => {
-    logger.info("Introspecting table", { tableName });
+  const introspectTable = async (
+    tableName: string,
+    schema: string = "public"
+  ): Promise<TableInfo> => {
+    logger.info("Introspecting table", { tableName, schema });
 
     const [columns, primaryKeys, foreignKeys, uniqueConstraints, indexes] =
       await Promise.all([
-        getTableColumns(tableName),
-        getPrimaryKeys(tableName),
-        getForeignKeys(tableName),
-        getUniqueConstraints(tableName),
-        getIndexes(tableName),
+        getTableColumns(tableName, schema),
+        getPrimaryKeys(tableName, schema),
+        getForeignKeys(tableName, schema),
+        getUniqueConstraints(tableName, schema),
+        getIndexes(tableName, schema),
       ]);
 
     const tableInfo: TableInfo = {
+      schema,
       name: tableName,
       columns,
       primaryKeys,
@@ -267,7 +290,7 @@ export const createIntrospectionMethods = (
     const tableNames = await getTableNames(schema);
 
     const tables = await Promise.all(
-      tableNames.map((tableName) => introspectTable(tableName))
+      tableNames.map((tableName) => introspectTable(tableName, schema))
     );
 
     logger.info("Database introspection complete", {

@@ -111,7 +111,7 @@ describe("Error Utilities", () => {
       expect(error.code).toBe("MIGRATION_EXECUTION_FAILED");
       expect(error.message).toContain("002_users.up.sql");
       expect(error.message).toContain("rolled back");
-      expect(error.message).toContain("migrate up");
+      expect(error.message).toContain("tusk up");
       expect(error.context).toEqual({ filename: "002_users.up.sql" });
     });
 
@@ -129,7 +129,7 @@ describe("Error Utilities", () => {
 
       expect(error.code).toBe("ROLLBACK_FAILED");
       expect(error.message).toContain("003_posts.down.sql");
-      expect(error.message).toContain("migrate down");
+      expect(error.message).toContain("tusk down");
       expect(error.context).toEqual({ filename: "003_posts.down.sql" });
     });
 

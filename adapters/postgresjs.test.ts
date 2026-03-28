@@ -98,7 +98,7 @@ describe("PostgresJS Adapter", () => {
     const { Pool } = await import("pg");
     const pool = new Pool({
       host: process.env.DB_HOST || "localhost",
-      port: parseInt(process.env.DB_PORT || "5432"),
+      port: parseInt(process.env.DB_PORT || "5433"),
       database: process.env.DB_NAME || "migrate_tool_test",
       user: process.env.DB_USER || "postgres",
       password: process.env.DB_PASSWORD || "postgres",
@@ -379,15 +379,15 @@ describe("PostgresJS Adapter", () => {
       };
 
       const sql = adapter.generateCreateTable(table);
-      expect(sql).toContain("CREATE TABLE test_table");
-      expect(sql).toContain("id SERIAL");
-      expect(sql).toContain("name VARCHAR(255) NOT NULL");
-      expect(sql).toContain("PRIMARY KEY (id)");
+      expect(sql).toContain("CREATE TABLE \"test_table\"");
+      expect(sql).toContain("\"id\" SERIAL");
+      expect(sql).toContain("\"name\" VARCHAR(255) NOT NULL");
+      expect(sql).toContain("PRIMARY KEY (\"id\")");
     });
 
     test("should generate DROP TABLE SQL", () => {
       const sql = adapter.generateDropTable("test_table");
-      expect(sql).toBe("DROP TABLE IF EXISTS test_table CASCADE;");
+      expect(sql).toBe("DROP TABLE IF EXISTS \"test_table\" CASCADE;");
     });
 
     test("should sort tables by dependencies", () => {

@@ -1,15 +1,35 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync } from "fs";
 import { readFile, rm } from "fs/promises";
 import { resolve } from "path";
+import { Pool } from "pg";
 import { createPgAdapter } from "../adapters/pg";
 import { cleanupMigrations, createTestPool } from "../utils/test-helper";
 import { getCurrentDir } from "../utils/runtime";
 import { createInitialMigration } from "./init-migration";
-import { Pool } from "pg";
 
-const createTestTables = async (pool: Pool) => {
-  await pool.query(`
+const pool = createTestPool();
+const adapter = createPgAdapter(pool);
+const testMigrationsPath = resolve(getCurrentDir(), "../fixtures/test-migrations");
+
+const readGeneratedMigration = async (
+  setupSchema: () => Promise<void>,
+  schema: string = "public"
+) => {
+  await setupSchema();
+
+  const result = await createInitialMigration(adapter, testMigrationsPath, schema);
+  const upContent = await readFile(resolve(testMigrationsPath, result.upFile), "utf-8");
+  const downContent = await readFile(
+    resolve(testMigrationsPath, result.downFile),
+    "utf-8"
+  );
+
+  return { result, upContent, downContent };
+};
+
+const createBasicTables = async (db: Pool) => {
+  await db.query(`
     CREATE TABLE users (
       id SERIAL PRIMARY KEY,
       email VARCHAR(255) NOT NULL UNIQUE,
@@ -25,76 +45,142 @@ const createTestTables = async (pool: Pool) => {
 };
 
 describe("init migration", () => {
-  const pool = createTestPool();
-  const adapter = createPgAdapter(pool);
-  const testMigrationsPath = resolve(getCurrentDir(), "../fixtures/test-migrations");
-
-  beforeAll(async () => {
+  beforeEach(async () => {
     await cleanupMigrations(pool);
-    await createTestTables(pool);
+  });
+
+  afterEach(async () => {
+    await rm(testMigrationsPath, { recursive: true, force: true });
   });
 
   afterAll(async () => {
     await cleanupMigrations(pool);
-    // Clean up test migration files
-    try {
-      await rm(testMigrationsPath, { recursive: true, force: true });
-    } catch {}
+    await pool.end();
   });
 
-  describe("createInitialMigration", () => {
-    test("should create initial migration files", async () => {
-      const result = await createInitialMigration(adapter, testMigrationsPath);
+  test("creates initial migration files for a basic schema", async () => {
+    const { result } = await readGeneratedMigration(() => createBasicTables(pool));
 
-      expect(result.upFile).toContain("0000000000000_initial.up.sql");
-      expect(result.downFile).toContain("0000000000000_initial.down.sql");
-      expect(result.tableCount).toBe(2);
+    expect(result.upFile).toContain("0000000000000_initial.up.sql");
+    expect(result.downFile).toContain("0000000000000_initial.down.sql");
+    expect(result.tableCount).toBe(2);
+    expect(existsSync(resolve(testMigrationsPath, result.upFile))).toBe(true);
+    expect(existsSync(resolve(testMigrationsPath, result.downFile))).toBe(true);
+  });
 
-      // Check files exist
-      expect(existsSync(resolve(testMigrationsPath, result.upFile))).toBe(true);
-      expect(existsSync(resolve(testMigrationsPath, result.downFile))).toBe(true);
+  test("preserves dependency order in generated up and down migrations", async () => {
+    const { upContent, downContent } = await readGeneratedMigration(() =>
+      createBasicTables(pool)
+    );
+
+    const usersIndex = upContent.indexOf('CREATE TABLE "public"."users"');
+    const postsIndex = upContent.indexOf('CREATE TABLE "public"."posts"');
+    expect(usersIndex).toBeLessThan(postsIndex);
+
+    const dropPostsIndex = downContent.indexOf(
+      'DROP TABLE IF EXISTS "public"."posts"'
+    );
+    const dropUsersIndex = downContent.indexOf(
+      'DROP TABLE IF EXISTS "public"."users"'
+    );
+    expect(dropPostsIndex).toBeLessThan(dropUsersIndex);
+  });
+
+  test("quotes reserved words and mixed-case identifiers", async () => {
+    const { upContent } = await readGeneratedMigration(async () => {
+      await pool.query(`
+        CREATE TABLE public."order" (
+          "id" INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          "select" TEXT NOT NULL,
+          "User Name" TEXT
+        );
+      `);
     });
 
-    test("should create UP migration with CREATE TABLE statements", async () => {
-      const result = await createInitialMigration(adapter, testMigrationsPath);
+    expect(upContent).toContain('CREATE TABLE "public"."order"');
+    expect(upContent).toContain('"select" TEXT NOT NULL');
+    expect(upContent).toContain('"User Name" TEXT');
+  });
 
-      const upContent = await readFile(resolve(testMigrationsPath, result.upFile), "utf-8");
+  test("generates migrations for non-public schemas", async () => {
+    const { upContent, downContent, result } = await readGeneratedMigration(
+      async () => {
+        await pool.query(`
+          CREATE SCHEMA "tenant-data";
 
-      expect(upContent).toContain("CREATE TABLE users");
-      expect(upContent).toContain("CREATE TABLE posts");
-      expect(upContent).toContain("PRIMARY KEY");
-      expect(upContent).toContain("FOREIGN KEY");
+          CREATE TABLE "tenant-data"."order" (
+            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+            description TEXT NOT NULL
+          );
+        `);
+      },
+      "tenant-data"
+    );
+
+    expect(result.tableCount).toBe(1);
+    expect(upContent).toContain('CREATE TABLE "tenant-data"."order"');
+    expect(downContent).toContain(
+      'DROP TABLE IF EXISTS "tenant-data"."order" CASCADE;'
+    );
+  });
+
+  test("preserves identity columns from real tables", async () => {
+    const { upContent } = await readGeneratedMigration(async () => {
+      await pool.query(`
+        CREATE TABLE users (
+          id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          email TEXT NOT NULL
+        );
+      `);
     });
 
-    test("should create DOWN migration with DROP TABLE statements", async () => {
-      const result = await createInitialMigration(adapter, testMigrationsPath);
+    expect(upContent).toContain(
+      '"id" INTEGER GENERATED ALWAYS AS IDENTITY NOT NULL'
+    );
+  });
 
-      const downContent = await readFile(resolve(testMigrationsPath, result.downFile), "utf-8");
+  test("preserves cross-schema foreign keys", async () => {
+    const { upContent } = await readGeneratedMigration(
+      async () => {
+        await pool.query(`
+          CREATE TABLE public.accounts (
+            id SERIAL PRIMARY KEY
+          );
 
-      expect(downContent).toContain("DROP TABLE IF EXISTS posts");
-      expect(downContent).toContain("DROP TABLE IF EXISTS users");
+          CREATE SCHEMA tenant;
+
+          CREATE TABLE tenant.orders (
+            id SERIAL PRIMARY KEY,
+            account_id INTEGER NOT NULL REFERENCES public.accounts(id) ON DELETE CASCADE
+          );
+        `);
+      },
+      "tenant"
+    );
+
+    expect(upContent).toContain(
+      'REFERENCES "public"."accounts"("id") ON DELETE CASCADE'
+    );
+  });
+
+  test("preserves expression and partial indexes", async () => {
+    const { upContent } = await readGeneratedMigration(async () => {
+      await pool.query(`
+        CREATE TABLE users (
+          id SERIAL PRIMARY KEY,
+          name TEXT NOT NULL,
+          deleted_at TIMESTAMPTZ
+        );
+
+        CREATE INDEX idx_users_lower_name ON public.users ((lower(name)));
+        CREATE INDEX idx_users_active_name ON public.users (name)
+        WHERE deleted_at IS NULL;
+      `);
     });
 
-    test("should create tables in dependency order in UP migration", async () => {
-      const result = await createInitialMigration(adapter, testMigrationsPath);
-
-      const upContent = await readFile(resolve(testMigrationsPath, result.upFile), "utf-8");
-
-      const usersIndex = upContent.indexOf("CREATE TABLE users");
-      const postsIndex = upContent.indexOf("CREATE TABLE posts");
-
-      expect(usersIndex).toBeLessThan(postsIndex);
-    });
-
-    test("should drop tables in reverse dependency order in DOWN migration", async () => {
-      const result = await createInitialMigration(adapter, testMigrationsPath);
-
-      const downContent = await readFile(resolve(testMigrationsPath, result.downFile), "utf-8");
-
-      const postsIndex = downContent.indexOf("DROP TABLE IF EXISTS posts");
-      const usersIndex = downContent.indexOf("DROP TABLE IF EXISTS users");
-
-      expect(postsIndex).toBeLessThan(usersIndex);
-    });
+    expect(upContent).toContain("CREATE INDEX idx_users_lower_name");
+    expect(upContent).toContain("lower(name)");
+    expect(upContent).toContain("CREATE INDEX idx_users_active_name");
+    expect(upContent).toContain("WHERE (deleted_at IS NULL)");
   });
 });

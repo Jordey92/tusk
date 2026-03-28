@@ -15,7 +15,7 @@ export const getFilesFromDirectory = async (path: string) => {
       absolutePath,
       error instanceof Error ? error : new Error(String(error))
     );
-    throw new Error(formatTuskError(tuskError));
+    throw tuskError;
   }
 
   const files = await readdir(absolutePath);
@@ -32,7 +32,7 @@ export const getSqlFilesFromList = (
 export const extractTimestampFromFilename = (filename: string): string => {
   if (!filename.match(UP_DOWN_REGEX)) {
     const tuskError = createMigrationFileError(filename, "Filename must end with .up.sql or .down.sql");
-    throw new Error(formatTuskError(tuskError));
+    throw tuskError;
   }
 
   const [timestamp, ..._] = filename
@@ -41,7 +41,7 @@ export const extractTimestampFromFilename = (filename: string): string => {
 
   if (!timestamp) {
     const tuskError = createMigrationFileError(filename, "No timestamp found in filename");
-    throw new Error(formatTuskError(tuskError));
+    throw tuskError;
   }
 
   return timestamp;

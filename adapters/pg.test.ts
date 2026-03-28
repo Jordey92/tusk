@@ -56,7 +56,7 @@ describe("PostgreSQL Adapter", () => {
 
   describe("introspect schema", () => {
     describe("getTableNames", () => {
-      test.only("should return list of user tables excluding tusk_migrations", async () => {
+      test("should return list of user tables excluding tusk_migrations", async () => {
         const tables = await adapter.getTableNames("public");
 
         expect(Array.isArray(tables)).toBe(true);
@@ -160,6 +160,23 @@ describe("PostgreSQL Adapter", () => {
         expect(authorFk?.foreignTableName).toBe("users");
         expect(authorFk?.foreignColumnName).toBe("id");
         expect(authorFk?.deleteRule).toBe("CASCADE");
+      });
+
+      test("should capture the referenced schema for cross-schema foreign keys", async () => {
+        await adapter.query(`CREATE SCHEMA tenant`);
+        await adapter.query(`
+          CREATE TABLE tenant.orders (
+            id SERIAL PRIMARY KEY,
+            author_id INTEGER NOT NULL REFERENCES public.users(id) ON DELETE CASCADE
+          )
+        `);
+
+        const fks = await adapter.getForeignKeys("orders", "tenant");
+
+        expect(fks).toHaveLength(1);
+        expect(fks[0]?.foreignSchema).toBe("public");
+        expect(fks[0]?.foreignTableName).toBe("users");
+        expect(fks[0]?.foreignColumnName).toBe("id");
       });
 
       test("should return multiple foreign keys for comments table", async () => {
@@ -289,6 +306,36 @@ describe("PostgreSQL Adapter", () => {
 
         expect(schema.tables.length).toBeGreaterThan(0);
       });
+
+      test("should respect schema parameter for table metadata", async () => {
+        await adapter.query("CREATE SCHEMA IF NOT EXISTS test_schema");
+        await adapter.query(`
+          CREATE TABLE test_schema.widgets (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL
+          );
+        `);
+        await adapter.query(`
+          CREATE TABLE test_schema.gadgets (
+            id SERIAL PRIMARY KEY,
+            widget_id INTEGER NOT NULL REFERENCES test_schema.widgets(id)
+          );
+        `);
+
+        try {
+          const schema = await adapter.introspectDatabase("test_schema");
+          const tableNames = schema.tables.map((t) => t.name);
+
+          expect(tableNames).toContain("widgets");
+          expect(tableNames).toContain("gadgets");
+
+          const widgets = schema.tables.find((t) => t.name === "widgets");
+          expect(widgets).toBeDefined();
+          expect(widgets?.columns.length).toBeGreaterThan(0);
+        } finally {
+          await adapter.query("DROP SCHEMA IF EXISTS test_schema CASCADE");
+        }
+      });
     });
   });
 
@@ -307,7 +354,7 @@ describe("PostgreSQL Adapter", () => {
         };
 
         const sql = adapter.columnToSQL(column);
-        expect(sql).toBe("id INTEGER NOT NULL");
+        expect(sql).toBe("\"id\" INTEGER NOT NULL");
       });
 
       test("should handle nullable column", () => {
@@ -323,7 +370,7 @@ describe("PostgreSQL Adapter", () => {
         };
 
         const sql = adapter.columnToSQL(column);
-        expect(sql).toBe("description TEXT");
+        expect(sql).toBe("\"description\" TEXT");
       });
 
       test("should handle varchar with length", () => {
@@ -339,7 +386,7 @@ describe("PostgreSQL Adapter", () => {
         };
 
         const sql = adapter.columnToSQL(column);
-        expect(sql).toBe("email VARCHAR(255) NOT NULL");
+        expect(sql).toBe("\"email\" VARCHAR(255) NOT NULL");
       });
 
       test("should handle default value", () => {
@@ -355,7 +402,7 @@ describe("PostgreSQL Adapter", () => {
         };
 
         const sql = adapter.columnToSQL(column);
-        expect(sql).toBe("is_active BOOLEAN NOT NULL DEFAULT TRUE");
+        expect(sql).toBe("\"is_active\" BOOLEAN NOT NULL DEFAULT TRUE");
       });
 
       test("should handle SERIAL type", () => {
@@ -371,7 +418,7 @@ describe("PostgreSQL Adapter", () => {
         };
 
         const sql = adapter.columnToSQL(column);
-        expect(sql).toContain("id SERIAL");
+        expect(sql).toContain("\"id\" SERIAL");
       });
 
       test("should handle timestamp with time zone", () => {
@@ -387,7 +434,7 @@ describe("PostgreSQL Adapter", () => {
         };
 
         const sql = adapter.columnToSQL(column);
-        expect(sql).toBe("created_at TIMESTAMPTZ");
+        expect(sql).toBe("\"created_at\" TIMESTAMPTZ");
       });
     });
 
@@ -424,11 +471,11 @@ describe("PostgreSQL Adapter", () => {
         };
 
         const sql = adapter.generateCreateTable(table);
-        expect(sql).toContain("CREATE TABLE users");
-        expect(sql).toContain("id SERIAL");
-        expect(sql).toContain("email VARCHAR(255) NOT NULL");
-        expect(sql).toContain("PRIMARY KEY (id)");
-        expect(sql).toContain("UNIQUE (email)");
+        expect(sql).toContain("CREATE TABLE \"users\"");
+        expect(sql).toContain("\"id\" SERIAL");
+        expect(sql).toContain("\"email\" VARCHAR(255) NOT NULL");
+        expect(sql).toContain("PRIMARY KEY (\"id\")");
+        expect(sql).toContain("UNIQUE (\"email\")");
       });
 
       test("should handle composite primary key", () => {
@@ -466,7 +513,7 @@ describe("PostgreSQL Adapter", () => {
         };
 
         const sql = adapter.generateCreateTable(table);
-        expect(sql).toContain("PRIMARY KEY (post_id, tag_name)");
+        expect(sql).toContain("PRIMARY KEY (\"post_id\", \"tag_name\")");
       });
 
       test("should handle foreign keys", () => {
@@ -510,7 +557,7 @@ describe("PostgreSQL Adapter", () => {
         };
 
         const sql = adapter.generateCreateTable(table);
-        expect(sql).toContain("FOREIGN KEY (author_id) REFERENCES users(id)");
+        expect(sql).toContain("FOREIGN KEY (\"author_id\") REFERENCES \"users\"(\"id\")");
         expect(sql).toContain("ON DELETE CASCADE");
       });
     });
@@ -518,7 +565,7 @@ describe("PostgreSQL Adapter", () => {
     describe("generateDropTable", () => {
       test("should generate DROP TABLE statement", () => {
         const sql = adapter.generateDropTable("users");
-        expect(sql).toBe("DROP TABLE IF EXISTS users CASCADE;");
+        expect(sql).toBe("DROP TABLE IF EXISTS \"users\" CASCADE;");
       });
     });
 
@@ -647,8 +694,8 @@ describe("PostgreSQL Adapter", () => {
         };
 
         const sql = adapter.generateUpMigration(schema);
-        expect(sql).toContain("CREATE TABLE users");
-        expect(sql).toContain("PRIMARY KEY (id)");
+        expect(sql).toContain("CREATE TABLE \"users\"");
+        expect(sql).toContain("PRIMARY KEY (\"id\")");
       });
 
       test("should generate migrations in dependency order", () => {
@@ -715,8 +762,8 @@ describe("PostgreSQL Adapter", () => {
         };
 
         const sql = adapter.generateUpMigration(schema);
-        const usersIndex = sql.indexOf("CREATE TABLE users");
-        const postsIndex = sql.indexOf("CREATE TABLE posts");
+        const usersIndex = sql.indexOf("CREATE TABLE \"users\"");
+        const postsIndex = sql.indexOf("CREATE TABLE \"posts\"");
         expect(usersIndex).toBeLessThan(postsIndex);
       });
 
@@ -788,8 +835,8 @@ describe("PostgreSQL Adapter", () => {
         };
 
         const sql = adapter.generateDownMigration(schema);
-        const postsIndex = sql.indexOf("DROP TABLE IF EXISTS posts");
-        const usersIndex = sql.indexOf("DROP TABLE IF EXISTS users");
+        const postsIndex = sql.indexOf("DROP TABLE IF EXISTS \"posts\"");
+        const usersIndex = sql.indexOf("DROP TABLE IF EXISTS \"users\"");
         expect(postsIndex).toBeLessThan(usersIndex);
       });
     });

@@ -231,10 +231,9 @@ describe("run migrations", () => {
         // Run up migration
         await runUp(adapter, tempDir);
 
-        // Try to run down - should handle missing down file
-        const result = await runDown(adapter, tempDir);
-        expect(result.executed).toBe(0); // No down files to execute
-        expect(result.pending).toBe(0);
+        await expect(runDown(adapter, tempDir)).rejects.toThrow(
+          "Missing rollback migration file"
+        );
 
       } finally {
         await unlink(upFile);
@@ -336,6 +335,48 @@ describe("run migrations", () => {
 
         const afterRollback = await getExecutedMigrations(adapter);
         expect(afterRollback.size).toBe(totalCount - countToRollback);
+      }
+    });
+
+    test("should rollback in reverse execution order to respect dependencies", async () => {
+      const { mkdtemp, rm, writeFile } = await import("fs/promises");
+      const { tmpdir } = await import("os");
+      const { join } = await import("path");
+
+      const tempDir = await mkdtemp(join(tmpdir(), "tusk-test-order-"));
+
+      const upUsers = join(tempDir, "100_create_users.up.sql");
+      const downUsers = join(tempDir, "100_create_users.down.sql");
+      const upPosts = join(tempDir, "200_create_posts.up.sql");
+      const downPosts = join(tempDir, "200_create_posts.down.sql");
+
+      try {
+        await writeFile(
+          upUsers,
+          "CREATE TABLE users (id SERIAL PRIMARY KEY, email TEXT NOT NULL);"
+        );
+        await writeFile(
+          downUsers,
+          "DROP TABLE users;"
+        );
+        await writeFile(
+          upPosts,
+          "CREATE TABLE posts (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id));"
+        );
+        await writeFile(
+          downPosts,
+          "DROP TABLE posts;"
+        );
+
+        await runUp(adapter, tempDir);
+
+        const result = await runDown(adapter, tempDir, 2);
+        expect(result.executed).toBe(2);
+        expect(result.pending).toBe(0);
+      } finally {
+        await adapter.query("DROP TABLE IF EXISTS posts CASCADE;");
+        await adapter.query("DROP TABLE IF EXISTS users CASCADE;");
+        await rm(tempDir, { recursive: true, force: true });
       }
     });
   });

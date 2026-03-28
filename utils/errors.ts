@@ -7,11 +7,23 @@ export type TuskErrorCode =
   | "VALIDATION_ERROR"
   | "CONFIGURATION_ERROR";
 
-export interface TuskError {
+export class TuskError extends Error {
   code: TuskErrorCode;
-  message: string;
-  cause?: Error;
+  override cause?: Error;
   context?: Record<string, unknown>;
+
+  constructor(
+    code: TuskErrorCode,
+    message: string,
+    cause?: Error,
+    context?: Record<string, unknown>
+  ) {
+    super(message);
+    this.name = "TuskError";
+    this.code = code;
+    this.cause = cause;
+    this.context = context;
+  }
 }
 
 export const createTuskError = (
@@ -19,12 +31,7 @@ export const createTuskError = (
   message: string,
   cause?: Error,
   context?: Record<string, unknown>
-): TuskError => ({
-  code,
-  message,
-  cause,
-  context,
-});
+): TuskError => new TuskError(code, message, cause, context);
 
 export const createDatabaseError = (message: string, cause?: Error, context?: Record<string, unknown>): TuskError =>
   createTuskError("DATABASE_CONNECTION_FAILED", message, cause, context);
@@ -48,7 +55,7 @@ export const createMigrationFileError = (filename: string, reason: string, cause
 export const createMigrationExecutionError = (filename: string, cause?: Error): TuskError =>
   createTuskError(
     "MIGRATION_EXECUTION_FAILED",
-    `Migration failed: ${filename}. This migration was rolled back. Fix the SQL and run 'migrate up' again.`,
+    `Migration failed: ${filename}. This migration was rolled back. Fix the SQL and run 'tusk up' again.`,
     cause,
     { filename }
   );
@@ -56,7 +63,7 @@ export const createMigrationExecutionError = (filename: string, cause?: Error): 
 export const createRollbackError = (filename: string, cause?: Error): TuskError =>
   createTuskError(
     "ROLLBACK_FAILED",
-    `Rollback failed: ${filename}. Fix the SQL and run 'migrate down' again.`,
+    `Rollback failed: ${filename}. Fix the SQL and run 'tusk down' again.`,
     cause,
     { filename }
   );
@@ -82,5 +89,5 @@ export const formatTuskError = (error: TuskError): string => {
 };
 
 export const isTuskError = (error: unknown): error is TuskError => {
-  return error !== null && typeof error === 'object' && 'code' in error && 'message' in error;
+  return error instanceof TuskError;
 };

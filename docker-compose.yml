@@ -29,9 +29,9 @@ services:
     # to a "named volume" managed by Docker on your machine.
     # This means even if you stop and remove the container, your data will still be there.
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "user"]
+      test: ["CMD", "pg_isready", "-U", "user", "-d", "migrate_tool_test"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -40,4 +40,3 @@ services:
 # Docker manages the actual storage location on your machine, making it easy and safe.
 volumes:
   postgres_data:
-

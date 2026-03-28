@@ -1,9 +1,10 @@
-import type { DatabaseAdapter, RunResult } from "../types/migrations.js";
+import type { DatabaseAdapter, Migration, RunResult } from "../types/migrations.js";
 import { getCorrespondingFilename } from "../utils/filename.js";
 import { logger } from "../utils/logger.js";
 import { createDatabaseError, createMigrationExecutionError, createRollbackError, formatTuskError, createValidationError } from "../utils/errors.js";
 import { readMigrations } from "./read-migrations.js";
 import { calculateChecksum } from "../utils/checksum.js";
+import { planRollbackMigrations } from "./rollback-plan.js";
 import {
   ensureMigrationsTable,
   getLastExecutedMigrations,
@@ -31,7 +32,7 @@ export const runUp = async (
       error instanceof Error ? error : new Error(String(error))
     );
     logger.error("Database connection failed", { error: formatTuskError(tuskError) });
-    throw new Error(formatTuskError(tuskError));
+    throw tuskError;
   }
 
   try {
@@ -60,7 +61,7 @@ export const runUp = async (
             { filename: executedMigration.filename }
           );
           logger.error("Migration checksum mismatch", { error: formatTuskError(tuskError) });
-          throw new Error(formatTuskError(tuskError));
+          throw tuskError;
         }
       }
     }
@@ -105,7 +106,7 @@ export const runUp = async (
           filename: migration.filename,
           error: formatTuskError(tuskError)
         });
-        throw new Error(formatTuskError(tuskError));
+        throw tuskError;
       }
     }
 
@@ -130,12 +131,10 @@ export const runDown = async (
     const migrationsFromDirectory = await readMigrations(migrationsPath, "down");
 
     const lastExecuted = await getLastExecutedMigrations(adapter, count);
-    const lastExecutedSet = new Set(lastExecuted);
-
-    const migrationsToRollback = migrationsFromDirectory.filter((migration) => {
-      const upFilename = getCorrespondingFilename(migration.filename, "up");
-      return lastExecutedSet.has(upFilename);
-    });
+    const migrationsToRollback = planRollbackMigrations(
+      lastExecuted,
+      migrationsFromDirectory
+    );
 
     logger.info("Found migrations to rollback", {
       total: migrationsFromDirectory.length,
@@ -165,7 +164,7 @@ export const runDown = async (
           filename: migration.filename,
           error: formatTuskError(tuskError)
         });
-        throw new Error(formatTuskError(tuskError));
+        throw tuskError;
       }
     }
 

@@ -14,8 +14,7 @@ import { readMigrations } from "./core/read-migrations.js";
 import { logger } from "./utils/logger.js";
 import { createConfigurationError, createValidationError, formatTuskError, isTuskError } from "./utils/errors.js";
 import { getCurrentDir } from "./utils/runtime.js";
-import { readFileSync } from "fs";
-import { resolve } from "path";
+import { getPackageVersion } from "./utils/version.js";
 
 // Database configuration interface
 interface DatabaseConfig {
@@ -43,7 +42,7 @@ const validateDatabaseConfig = (config: DatabaseConfig) => {
       `Provide DATABASE_URL or individual environment variables.`,
       { missing }
     );
-    throw new Error(formatTuskError(tuskError));
+    throw tuskError;
   }
 };
 
@@ -64,18 +63,12 @@ const loadDatabaseConfig = (): DatabaseConfig => {
   return config;
 };
 
-const getVersion = () => {
-  try {
-    const packagePath = resolve(getCurrentDir(), "./package.json");
-    const packageJson = JSON.parse(readFileSync(packagePath, "utf-8"));
-    return packageJson.version;
-  } catch {
-    return "unknown";
-  }
+const getVersion = async () => {
+  return getPackageVersion(getCurrentDir());
 };
 
-const showVersion = () => {
-  console.log(`tusk v${getVersion()}`);
+const showVersion = async () => {
+  console.log(`tusk v${await getVersion()}`);
 };
 
 const showHelp = () => {
@@ -127,7 +120,7 @@ const validateCommand = (command: string, arg?: string) => {
       `Unknown command: ${command}. Valid commands: ${validCommands.join(", ")}`,
       { command, validCommands }
     );
-    throw new Error(formatTuskError(tuskError));
+    throw tuskError;
   }
 
   if (command === "create" && !arg) {
@@ -135,7 +128,7 @@ const validateCommand = (command: string, arg?: string) => {
       "Migration name required for create command",
       { command }
     );
-    throw new Error(formatTuskError(tuskError));
+    throw tuskError;
   }
 
   if (command === "down" && arg) {
@@ -145,7 +138,7 @@ const validateCommand = (command: string, arg?: string) => {
         "Count must be a positive integer for down command",
         { command, arg }
       );
-      throw new Error(formatTuskError(tuskError));
+      throw tuskError;
     }
   }
 };
@@ -161,7 +154,7 @@ if (!command || command === "help" || command === "--help" || command === "-h") 
 }
 
 if (command === "version" || command === "--version" || command === "-v") {
-  showVersion();
+  await showVersion();
   process.exit(0);
 }
 

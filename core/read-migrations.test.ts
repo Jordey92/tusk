@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeAll } from "bun:test";
+import { isTuskError } from "../utils/errors";
 import {
   readMigrations,
   getFilesFromDirectory,
@@ -22,6 +23,17 @@ describe("getFilesFromDirectory", () => {
     await expect(
       getFilesFromDirectory("./non-existent-directory")
     ).rejects.toThrow("Migrations directory not found");
+  });
+
+  test("should throw TuskError for non-existent directory", async () => {
+    try {
+      await getFilesFromDirectory("./non-existent-directory");
+    } catch (error) {
+      expect(isTuskError(error)).toBe(true);
+      return;
+    }
+
+    throw new Error("Expected getFilesFromDirectory to throw");
   });
 
   test("should handle relative paths", async () => {
