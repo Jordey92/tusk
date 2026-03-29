@@ -32,7 +32,7 @@ For local publishing, authenticate with GitHub Packages first:
 
 ```ini
 @jordey92:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
+//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
 ```
 
 ## GitHub Actions Publish
@@ -65,7 +65,7 @@ Consumers installing from GitHub Packages need:
 
 ```ini
 @jordey92:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
+//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
 ```
 
 And in GitHub Actions:

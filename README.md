@@ -27,7 +27,7 @@ bun add @jordey92/tusk pg
 **From GitHub Packages:**
 ```ini
 @jordey92:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
+//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
 ```
 
 Then install normally:
