@@ -16,12 +16,32 @@ Tusk is built for modern development environments.
 
 **With npm:**
 ```bash
-npm install @bydey/tusk pg
+npm install @jordey92/tusk pg
 ```
 
 **With Bun:**
 ```bash
-bun add @bydey/tusk pg
+bun add @jordey92/tusk pg
+```
+
+**From GitHub Packages:**
+```ini
+@jordey92:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
+```
+
+Then install normally:
+```bash
+npm install @jordey92/tusk pg
+# or
+bun add @jordey92/tusk pg
+```
+
+For GitHub Actions consumers, the workflow needs:
+```yaml
+permissions:
+  contents: read
+  packages: read
 ```
 
 ## Usage
@@ -100,7 +120,7 @@ DROP TABLE users;
 **Running migrations programmatically with `pg`:**
 ```typescript
 import { Pool } from 'pg';
-import { createPgAdapter, runUp, runDown } from '@bydey/tusk';
+import { createPgAdapter, runUp, runDown } from '@jordey92/tusk';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = createPgAdapter(pool);
@@ -115,7 +135,7 @@ await runDown(adapter, './migrations', 1);
 **Or with `postgres.js`:**
 ```typescript
 import postgres from 'postgres';
-import { createPostgresJsAdapter, runUp, runDown } from '@bydey/tusk';
+import { createPostgresJsAdapter, runUp, runDown } from '@jordey92/tusk';
 
 const sql = postgres(process.env.DATABASE_URL);
 const adapter = createPostgresJsAdapter(sql);
@@ -130,7 +150,7 @@ await runDown(adapter, './migrations', 1);
 **Generating initial migration from existing database:**
 ```typescript
 import { Pool } from 'pg';
-import { createPgAdapter, createInitialMigration } from '@bydey/tusk';
+import { createPgAdapter, createInitialMigration } from '@jordey92/tusk';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = createPgAdapter(pool);
@@ -142,7 +162,7 @@ console.log(`Created migration for ${result.tableCount} tables`);
 **Using with Elysia (official plugin):**
 ```typescript
 import { Elysia } from 'elysia';
-import { migrate } from '@bydey/tusk';
+import { migrate } from '@jordey92/tusk';
 
 const app = new Elysia()
   .use(migrate({
@@ -153,6 +173,13 @@ const app = new Elysia()
 ```
 
 **See [Framework Integration Examples](./docs/integrations.md)** for Express, Fastify, Hono, Koa, NestJS, Next.js, Remix, and more.
+
+## Releasing
+
+Tusk currently publishes to GitHub Packages under `@jordey92/tusk`.
+
+- Manual release steps: [docs/releasing.md](./docs/releasing.md)
+- Automated publish workflow: [publish-github-package.yml](./.github/workflows/publish-github-package.yml)
 
 ## Testing
 

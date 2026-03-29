@@ -21,7 +21,7 @@ Tusk provides an official Elysia plugin with automatic migration running and dat
 
 ```typescript
 import { Elysia } from 'elysia';
-import { migrate } from '@bydey/tusk';
+import { migrate } from '@jordey92/tusk';
 
 const app = new Elysia()
   .use(migrate({
@@ -66,7 +66,7 @@ interface ElysiaMigrateConfig {
 ```typescript
 import express from 'express';
 import { Pool } from 'pg';
-import { createPgAdapter, runUp, ensureMigrationsTable } from '@bydey/tusk';
+import { createPgAdapter, runUp, ensureMigrationsTable } from '@jordey92/tusk';
 
 const app = express();
 
@@ -121,7 +121,7 @@ process.on('SIGTERM', async () => {
 ```typescript
 import express from 'express';
 import { Pool } from 'pg';
-import { createPgAdapter } from '@bydey/tusk';
+import { createPgAdapter } from '@jordey92/tusk';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = createPgAdapter(pool);
@@ -148,7 +148,7 @@ app.get('/users', async (req, res) => {
 ```typescript
 import Fastify from 'fastify';
 import { Pool } from 'pg';
-import { createPgAdapter, runUp, ensureMigrationsTable } from '@bydey/tusk';
+import { createPgAdapter, runUp, ensureMigrationsTable } from '@jordey92/tusk';
 
 const fastify = Fastify({
   logger: true
@@ -205,7 +205,7 @@ start();
 ```typescript
 import fp from 'fastify-plugin';
 import { Pool } from 'pg';
-import { createPgAdapter, runUp, ensureMigrationsTable } from '@bydey/tusk';
+import { createPgAdapter, runUp, ensureMigrationsTable } from '@jordey92/tusk';
 
 const tuskPlugin = fp(async (fastify, options) => {
   const pool = new Pool({
@@ -241,7 +241,7 @@ fastify.register(tuskPlugin, {
 ```typescript
 import { Hono } from 'hono';
 import { Pool } from 'pg';
-import { createPgAdapter, runUp, ensureMigrationsTable } from '@bydey/tusk';
+import { createPgAdapter, runUp, ensureMigrationsTable } from '@jordey92/tusk';
 
 const app = new Hono();
 
@@ -299,7 +299,7 @@ export default app;
 import Koa from 'koa';
 import Router from '@koa/router';
 import { Pool } from 'pg';
-import { createPgAdapter, runUp, ensureMigrationsTable } from '@bydey/tusk';
+import { createPgAdapter, runUp, ensureMigrationsTable } from '@jordey92/tusk';
 
 const app = new Koa();
 const router = new Router();
@@ -353,7 +353,7 @@ runMigrations().then(() => {
 // src/database/migration.module.ts
 import { Module, OnModuleInit } from '@nestjs/common';
 import { Pool } from 'pg';
-import { createPgAdapter, runUp, ensureMigrationsTable } from '@bydey/tusk';
+import { createPgAdapter, runUp, ensureMigrationsTable } from '@jordey92/tusk';
 
 @Module({})
 export class MigrationModule implements OnModuleInit {
@@ -378,8 +378,8 @@ export class MigrationModule implements OnModuleInit {
 // src/database/database.service.ts
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Pool } from 'pg';
-import { createPgAdapter } from '@bydey/tusk';
-import type { DatabaseAdapter } from '@bydey/tusk';
+import { createPgAdapter } from '@jordey92/tusk';
+import type { DatabaseAdapter } from '@jordey92/tusk';
 
 @Injectable()
 export class DatabaseService implements OnModuleDestroy {
@@ -448,7 +448,7 @@ export class UsersController {
 ```typescript
 // lib/db.ts
 import { Pool } from 'pg';
-import { createPgAdapter } from '@bydey/tusk';
+import { createPgAdapter } from '@jordey92/tusk';
 
 const globalForDb = globalThis as unknown as {
   pool: Pool | undefined;
@@ -470,7 +470,7 @@ if (process.env.NODE_ENV !== 'production') {
 ```typescript
 // scripts/migrate.ts
 import { pool, adapter } from '../lib/db';
-import { runUp, ensureMigrationsTable } from '@bydey/tusk';
+import { runUp, ensureMigrationsTable } from '@jordey92/tusk';
 
 async function migrate() {
   try {
@@ -536,7 +536,7 @@ export async function getUsers() {
 ```typescript
 // app/lib/db.server.ts
 import { Pool } from 'pg';
-import { createPgAdapter } from '@bydey/tusk';
+import { createPgAdapter } from '@jordey92/tusk';
 
 let pool: Pool;
 
@@ -564,7 +564,7 @@ export const db = {
 ```typescript
 // scripts/migrate.ts
 import { db } from '../app/lib/db.server';
-import { runUp, ensureMigrationsTable } from '@bydey/tusk';
+import { runUp, ensureMigrationsTable } from '@jordey92/tusk';
 
 async function migrate() {
   try {
@@ -620,7 +620,7 @@ export default function Users() {
 
 ```typescript
 import { Pool } from 'pg';
-import { createPgAdapter } from '@bydey/tusk';
+import { createPgAdapter } from '@jordey92/tusk';
 
 const config = {
   development: {
@@ -646,7 +646,7 @@ const adapter = createPgAdapter(pool);
 ### Conditional Migration Running
 
 ```typescript
-import { runUp, ensureMigrationsTable } from '@bydey/tusk';
+import { runUp, ensureMigrationsTable } from '@jordey92/tusk';
 
 // Only run migrations in development, use separate migration process in production
 const shouldRunMigrations =
@@ -683,7 +683,7 @@ app.get('/health', async (req, res) => {
 ### Transaction Helper
 
 ```typescript
-import { DatabaseAdapter } from '@bydey/tusk';
+import { DatabaseAdapter } from '@jordey92/tusk';
 
 async function withTransaction<T>(
   adapter: DatabaseAdapter,

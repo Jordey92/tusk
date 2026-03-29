@@ -37,7 +37,7 @@ interface ClientLike {
  * @example
  * ```typescript
  * import postgres from 'postgres'
- * import { createPostgresJsAdapter } from '@bydey/tusk'
+ * import { createPostgresJsAdapter } from '@jordey92/tusk'
  *
  * const sql = postgres(process.env.DATABASE_URL)
  * const adapter = createPostgresJsAdapter(sql)
