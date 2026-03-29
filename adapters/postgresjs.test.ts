@@ -8,7 +8,7 @@ const createTestSql = () => {
   // Use connection string to match pg setup exactly
   const connectionString =
     process.env.DATABASE_URL ||
-    `postgres://${process.env.DB_USER || "postgres"}:${process.env.DB_PASSWORD || "postgres"}@${process.env.DB_HOST || "localhost"}:${process.env.DB_PORT || "5432"}/${process.env.DB_NAME || "migrate_tool_test"}`;
+    `postgres://${process.env.DB_USER || "user"}:${process.env.DB_PASSWORD || "password"}@${process.env.DB_HOST || "127.0.0.1"}:${process.env.DB_PORT || "5433"}/${process.env.DB_NAME || "migrate_tool_test"}`;
 
   return postgres(connectionString, {
     max: 1, // Keep pool small for tests
@@ -97,11 +97,11 @@ describe("PostgresJS Adapter", () => {
     // Clean up using pg Pool for cleanup helper compatibility
     const { Pool } = await import("pg");
     const pool = new Pool({
-      host: process.env.DB_HOST || "localhost",
+      host: process.env.DB_HOST || "127.0.0.1",
       port: parseInt(process.env.DB_PORT || "5433"),
       database: process.env.DB_NAME || "migrate_tool_test",
-      user: process.env.DB_USER || "postgres",
-      password: process.env.DB_PASSWORD || "postgres",
+      user: process.env.DB_USER || "user",
+      password: process.env.DB_PASSWORD || "password",
     });
     await cleanupMigrations(pool as Pool);
     await pool.end();

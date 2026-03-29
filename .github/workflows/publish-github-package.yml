@@ -53,6 +53,13 @@ jobs:
 
       - name: Run test suite
         run: bun test
+        env:
+          DATABASE_URL: postgresql://user:password@127.0.0.1:5433/migrate_tool_test
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5433
+          DB_USER: user
+          DB_PASSWORD: password
+          DB_NAME: migrate_tool_test
 
       - name: Publish to GitHub Packages
         run: npm publish
