@@ -1,5 +1,6 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "database-migrate-tool",
@@ -18,9 +19,12 @@
       "peerDependencies": {
         "elysia": ">=1.0.0",
         "pg": ">=8.0.0",
+        "postgres": ">=3.0.0",
       },
       "optionalPeers": [
         "elysia",
+        "pg",
+        "postgres",
       ],
     },
   },
