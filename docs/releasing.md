@@ -2,13 +2,11 @@
 
 Tusk publishes to npm as `@bydey/tusk`.
 
-The release path is intentionally simple: build, run the test suite, tag the version, and publish the package.
+The normal release path is the GitHub Actions workflow: choose a release type, let the workflow update `package.json`, run the build and test suite, publish to npm, and then create the git tag and GitHub release.
 
 ## Prerequisites
 
 - GitHub repository: `jordey92/tusk`
-- Package version updated in `package.json`
-- A Git tag matching the version, for example `v0.3.0`
 - An npm token with publish access to the `@bydey` scope
 
 ## Manual Local Publish
@@ -36,27 +34,33 @@ For local publishing, authenticate to npm first:
 npm login
 ```
 
-## GitHub Actions Publish
+## GitHub Actions Release
 
 This repo includes [publish-npm-package.yml](../.github/workflows/publish-npm-package.yml).
 
-It publishes when:
+It is triggered manually with `workflow_dispatch`.
 
-- a tag matching `v*.*.*` is pushed
-- the workflow is triggered manually with `workflow_dispatch`
+Inputs:
+- `release_type`: `as-is`, `patch`, `minor`, `major`, or `custom`
+- `custom_version`: required when `release_type` is `custom`
+- `create_github_release`: whether to create a GitHub release after publishing
 
 The workflow:
 
-1. installs dependencies with Bun
-2. runs `bun run build`
-3. runs `bun test`
-4. publishes with `npm publish --access public`
+1. determines the version to publish
+2. updates `package.json` when needed
+3. runs `bun run build`
+4. runs `bun test`
+5. publishes with `npm publish --access public`
+6. commits the version bump if one was made
+7. creates and pushes the git tag
+8. optionally creates a GitHub release
 
 Required workflow permissions:
 
 ```yaml
 permissions:
-  contents: read
+  contents: write
 ```
 
 The workflow should use an `NPM_TOKEN` secret.
