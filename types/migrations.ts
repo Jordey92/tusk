@@ -15,20 +15,41 @@ export interface Migration {
   sql: string;
 }
 
+export interface ConnectionConfig {
+  host?: string;
+  port?: number;
+  database?: string;
+  user?: string;
+  password?: string;
+}
+
 export type QueryParam = string | number | boolean | Date | null;
+export type { QueryResultRow };
 
 export interface QueryResult<T = QueryResultRow> {
   rows: T[];
   rowCount: number | null;
 }
 
-export interface TransactionClient {
-  query<T extends QueryResultRow = QueryResultRow>(sql: string, params?: QueryParam[]): Promise<QueryResult<T>>;
+export interface QueryClient {
+  query<T extends QueryResultRow = QueryResultRow>(
+    sql: string,
+    params?: QueryParam[]
+  ): Promise<QueryResult<T>>;
 }
 
-export interface DatabaseAdapter {
-  // Core database operations
-  query<T extends QueryResultRow = QueryResultRow>(sql: string, params?: QueryParam[]): Promise<QueryResult<T>>;
+export interface ConnectionClient extends QueryClient {
+  release(): void;
+}
+
+export interface ConnectionPool extends QueryClient {
+  connect(): Promise<ConnectionClient>;
+}
+
+export interface TransactionClient extends QueryClient {
+}
+
+export interface DatabaseAdapter extends QueryClient {
   transaction<T>(
     callback: (client: TransactionClient) => Promise<T>
   ): Promise<T>;

@@ -41,7 +41,3 @@ export interface IndexRow extends QueryResultRow {
   indexname: string;
   indexdef: string;
 }
-
-export interface LockRow extends QueryResultRow {
-  acquired: boolean;
-}

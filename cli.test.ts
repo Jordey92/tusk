@@ -53,6 +53,28 @@ describe("cli smoke test", () => {
     }
   });
 
+  test("create works without database settings", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "tusk-cli-create-"));
+    cleanupPaths.push(workspace);
+
+    const result = await runCli(
+      ["create", "widgets"],
+      {
+        MIGRATIONS_PATH: "migrations",
+        LOG_LEVEL: "error",
+      },
+      workspace
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Created");
+    expect(result.stderr).toBe("");
+
+    const createdFiles = await readdir(join(workspace, "migrations"));
+    expect(createdFiles.some((file) => file.endsWith(".up.sql"))).toBe(true);
+    expect(createdFiles.some((file) => file.endsWith(".down.sql"))).toBe(true);
+  });
+
   test("create, up, status, and down work against a fresh database", async () => {
     const database = await createTemporaryDatabase("cli_smoke");
     const workspace = await mkdtemp(join(tmpdir(), "tusk-cli-smoke-"));

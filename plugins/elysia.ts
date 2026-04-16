@@ -3,30 +3,24 @@ import { Pool } from "pg";
 import { createPgAdapter } from "../adapters/pg.js";
 import { ensureMigrationsTable } from "../core/track-migrations.js";
 import { runUp } from "../core/run-migrations.js";
+import type { ConnectionConfig } from "../types/migrations.js";
 
+/**
+ * Connection settings accepted by the Elysia migration plugin.
+ */
 export interface ElysiaMigrateConfig {
   connectionString?: string;
   pool?: Pool;
-  connection?: {
-    host?: string;
-    port?: number;
-    database?: string;
-    user?: string;
-    password?: string;
-  };
+  connection?: ConnectionConfig;
 
   migrationsPath?: string;
   runOnStartup?: boolean;
 }
 
-export interface PoolHandle {
+interface PoolHandle {
   pool: Pool;
   ownsPool: boolean;
 }
-
-export const createPoolFromConfig = (config: ElysiaMigrateConfig): Pool => {
-  return createPoolHandle(config).pool;
-};
 
 /**
  * Resolves the pool to use for the plugin and whether the plugin owns its lifecycle.
@@ -65,13 +59,10 @@ export const migrate = (config: ElysiaMigrateConfig = {}) => {
   const { pool, ownsPool } = createPoolHandle(config);
   const adapter = createPgAdapter(pool);
   const migrationsPath = config.migrationsPath || "./migrations";
-  const runOnStartup = config.runOnStartup ?? true; // default to true
+  const runOnStartup = config.runOnStartup ?? true;
 
   return new Elysia({ name: "migrate" })
-    .decorate("db", {
-      pool,
-      adapter,
-    })
+    .decorate("db", { pool, adapter })
     .onStart(async () => {
       if (runOnStartup) {
         console.log("🔄 Running migrations...");

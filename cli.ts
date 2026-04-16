@@ -15,15 +15,10 @@ import { logger } from "./utils/logger.js";
 import { createConfigurationError, createValidationError, formatTuskError, isTuskError } from "./utils/errors.js";
 import { getCurrentDir } from "./utils/runtime.js";
 import { getPackageVersion } from "./utils/version.js";
+import type { ConnectionConfig } from "./types/migrations.js";
 
-// Database configuration interface
-interface DatabaseConfig {
+interface DatabaseConfig extends ConnectionConfig {
   connectionString?: string;
-  host?: string;
-  port?: number;
-  database?: string;
-  user?: string;
-  password?: string;
 }
 
 const validateDatabaseConfig = (config: DatabaseConfig) => {
@@ -143,6 +138,86 @@ const validateCommand = (command: string, arg?: string) => {
   }
 };
 
+type DatabaseCommand = "init" | "up" | "down" | "status";
+
+const runDatabaseCommand = async (command: DatabaseCommand, arg?: string) => {
+  const config = loadDatabaseConfig();
+  const pool = new Pool(config);
+  const adapter = createPgAdapter(pool);
+
+  try {
+    await ensureMigrationsTable(adapter);
+
+    if (command === "init") {
+      logger.info("Generating initial migration from database");
+      const initResult = await createInitialMigration(adapter, migrationsPath);
+      console.log(`✓ Created ${initResult.upFile}`);
+      console.log(`✓ Created ${initResult.downFile}`);
+      console.log(`✓ Introspected ${initResult.tableCount} table(s)`);
+      logger.info("Initial migration created successfully", {
+        upFile: initResult.upFile,
+        downFile: initResult.downFile,
+        tableCount: initResult.tableCount
+      });
+      return;
+    }
+
+    if (command === "up") {
+      logger.info("Running up migrations");
+      const upResult = await runUp(adapter, migrationsPath);
+      console.log(`✓ Executed ${upResult.executed} migration(s)`);
+      return;
+    }
+
+    if (command === "down") {
+      const count = arg ? parseInt(arg) : undefined;
+      logger.info("Running down migrations", { count });
+      const downResult = await runDown(adapter, migrationsPath, count);
+      console.log(`✓ Rolled back ${downResult.executed} migration(s)`);
+      return;
+    }
+
+    logger.info("Checking migration status");
+    const allMigrations = await readMigrations(migrationsPath, "up");
+    const executedMigrations = await getExecutedMigrationsWithChecksums(adapter);
+    const executedFilenames = new Set(executedMigrations.map((m) => m.filename));
+    const executed = allMigrations.filter((m) => executedFilenames.has(m.filename));
+    const pending = allMigrations.filter((m) => !executedFilenames.has(m.filename));
+
+    console.log("\nMigration Status:");
+    console.log("─".repeat(60));
+
+    if (executed.length > 0) {
+      console.log("\nExecuted:");
+      executed.forEach((migration) => {
+        const record = executedMigrations.find((m) => m.filename === migration.filename);
+        const date = record?.executed_at
+          ? new Date(record.executed_at).toLocaleString("en-US", {
+              year: "numeric",
+              month: "short",
+              day: "numeric",
+              hour: "2-digit",
+              minute: "2-digit"
+            })
+          : "unknown";
+        console.log(`  ✓ ${migration.filename} (${date})`);
+      });
+    }
+
+    if (pending.length > 0) {
+      console.log("\nPending:");
+      pending.forEach((migration) => {
+        console.log(`  ⏳ ${migration.filename}`);
+      });
+    }
+
+    console.log("\n─".repeat(60));
+    console.log(`Total: ${executed.length} executed, ${pending.length} pending\n`);
+  } finally {
+    await pool.end();
+  }
+};
+
 const migrationsPath = process.env.MIGRATIONS_PATH || "./migrations";
 const command = process.argv[2];
 const arg = process.argv[3];
@@ -163,101 +238,22 @@ const run = async () => {
     validateCommand(command, arg);
     logger.info("Starting tusk migration tool", { command, arg, migrationsPath });
 
-    const config = loadDatabaseConfig();
-    const pool = new Pool(config);
-    const adapter = createPgAdapter(pool);
-
-    await ensureMigrationsTable(adapter);
-
-    switch (command) {
-      case "create":
-        logger.info("Creating migration", { name: arg });
-        const files = await createMigrationFile(migrationsPath, arg!);
-        console.log(`✓ Created ${files.upFile}`);
-        console.log(`✓ Created ${files.downFile}`);
-        logger.info("Migration files created successfully", files);
-        break;
-
-      case "init":
-        logger.info("Generating initial migration from database");
-        const initResult = await createInitialMigration(adapter, migrationsPath);
-        console.log(`✓ Created ${initResult.upFile}`);
-        console.log(`✓ Created ${initResult.downFile}`);
-        console.log(`✓ Introspected ${initResult.tableCount} table(s)`);
-        logger.info("Initial migration created successfully", {
-          upFile: initResult.upFile,
-          downFile: initResult.downFile,
-          tableCount: initResult.tableCount
-        });
-        break;
-
-      case "up":
-        logger.info("Running up migrations");
-        const upResult = await runUp(adapter, migrationsPath);
-        console.log(`✓ Executed ${upResult.executed} migration(s)`);
-        break;
-
-      case "down":
-        const count = arg ? parseInt(arg) : undefined;
-        logger.info("Running down migrations", { count });
-        const downResult = await runDown(adapter, migrationsPath, count);
-        console.log(`✓ Rolled back ${downResult.executed} migration(s)`);
-        break;
-
-      case "status":
-        logger.info("Checking migration status");
-
-        // Get all migrations from directory
-        const allMigrations = await readMigrations(migrationsPath, "up");
-
-        // Get executed migrations with metadata
-        const executedMigrations = await getExecutedMigrationsWithChecksums(adapter);
-        const executedFilenames = new Set(executedMigrations.map(m => m.filename));
-
-        // Separate into executed and pending
-        const executed = allMigrations.filter(m => executedFilenames.has(m.filename));
-        const pending = allMigrations.filter(m => !executedFilenames.has(m.filename));
-
-        console.log("\nMigration Status:");
-        console.log("─".repeat(60));
-
-        if (executed.length > 0) {
-          console.log("\nExecuted:");
-          executed.forEach(migration => {
-            const record = executedMigrations.find(m => m.filename === migration.filename);
-            const date = record?.executed_at
-              ? new Date(record.executed_at).toLocaleString('en-US', {
-                  year: 'numeric',
-                  month: 'short',
-                  day: 'numeric',
-                  hour: '2-digit',
-                  minute: '2-digit'
-                })
-              : 'unknown';
-            console.log(`  ✓ ${migration.filename} (${date})`);
-          });
-        }
-
-        if (pending.length > 0) {
-          console.log("\nPending:");
-          pending.forEach(migration => {
-            console.log(`  ⏳ ${migration.filename}`);
-          });
-        }
-
-        console.log("\n─".repeat(60));
-        console.log(`Total: ${executed.length} executed, ${pending.length} pending\n`);
-        break;
-
-      case "version":
-        showVersion();
-        break;
-
-      default:
-        showHelp();
+    if (command === "create") {
+      logger.info("Creating migration", { name: arg });
+      const files = await createMigrationFile(migrationsPath, arg!);
+      console.log(`✓ Created ${files.upFile}`);
+      console.log(`✓ Created ${files.downFile}`);
+      logger.info("Migration files created successfully", files);
+      process.exit(0);
     }
 
-    await pool.end();
+    if (command === "init" || command === "up" || command === "down" || command === "status") {
+      await runDatabaseCommand(command, arg);
+      logger.info("Migration tool completed successfully");
+      process.exit(0);
+    }
+
+    showHelp();
     logger.info("Migration tool completed successfully");
     process.exit(0);
   } catch (error) {

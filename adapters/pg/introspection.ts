@@ -1,5 +1,5 @@
 import type { QueryResultRow } from "pg";
-import type { QueryParam } from "../../types/migrations.js";
+import type { QueryClient } from "../../types/migrations.js";
 import type {
   ColumnInfo,
   PrimaryKeyInfo,
@@ -20,10 +20,7 @@ import type {
 import { logger } from "../../utils/logger.js";
 
 export const createIntrospectionMethods = (
-  executeQuery: <T extends QueryResultRow = QueryResultRow>(
-    sql: string,
-    params?: QueryParam[]
-  ) => Promise<{ rows: T[] }>
+  executeQuery: QueryClient["query"]
 ) => {
   const getTableNames = async (schema: string = "public"): Promise<string[]> => {
     logger.debug("Getting table names", { schema });

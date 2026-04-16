@@ -1,13 +1,15 @@
 # Releasing Tusk
 
-Tusk currently publishes to GitHub Packages as `@jordey92/tusk`.
+Tusk publishes to npm as `@bydey/tusk`.
+
+The release path is intentionally simple: build, run the test suite, tag the version, and publish the package.
 
 ## Prerequisites
 
 - GitHub repository: `jordey92/tusk`
 - Package version updated in `package.json`
 - A Git tag matching the version, for example `v0.3.0`
-- A GitHub token with package publish permissions for manual local publishes
+- An npm token with publish access to the `@bydey` scope
 
 ## Manual Local Publish
 
@@ -17,27 +19,26 @@ From the repo root:
 bun install
 bun run build
 bun test
-npm publish
+npm publish --access public
 ```
 
-`package.json` already points publishing at:
+`package.json` already sets:
 
 ```json
 "publishConfig": {
-  "registry": "https://npm.pkg.github.com"
+  "access": "public"
 }
 ```
 
-For local publishing, authenticate with GitHub Packages first:
+For local publishing, authenticate to npm first:
 
-```ini
-@jordey92:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
+```bash
+npm login
 ```
 
 ## GitHub Actions Publish
 
-This repo includes [publish-github-package.yml](../.github/workflows/publish-github-package.yml).
+This repo includes [publish-npm-package.yml](../.github/workflows/publish-npm-package.yml).
 
 It publishes when:
 
@@ -49,38 +50,13 @@ The workflow:
 1. installs dependencies with Bun
 2. runs `bun run build`
 3. runs `bun test`
-4. publishes with `npm publish`
+4. publishes with `npm publish --access public`
 
 Required workflow permissions:
 
 ```yaml
 permissions:
   contents: read
-  packages: write
 ```
 
-## Consumer Setup
-
-Consumers installing from GitHub Packages need:
-
-```ini
-@jordey92:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
-```
-
-And in GitHub Actions:
-
-```yaml
-permissions:
-  contents: read
-  packages: read
-```
-
-## Future Scope Rename
-
-If the package later moves to `@bydey/tusk`, these fields and docs will need updating:
-
-- `package.json` package `name`
-- `publishConfig`
-- install snippets in `README.md`
-- integration examples in `docs/integrations.md`
+The workflow should use an `NPM_TOKEN` secret.

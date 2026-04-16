@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import type { QueryParam } from "../../types/migrations.js";
 import { createLockingMethods } from "./locking";
 
 describe("createLockingMethods", () => {
   test("acquires and releases the advisory lock on the same dedicated client", async () => {
-    const calls: Array<{ target: string; sql: string; params?: unknown[] }> = [];
+    const calls: Array<{ target: string; sql: string; params?: QueryParam[] }> = [];
 
     const client = {
-      query: async (sql: string, params?: unknown[]) => {
+      query: async (sql: string, params?: QueryParam[]) => {
         calls.push({ target: "client", sql, params });
         if (sql.includes("pg_try_advisory_lock")) {
           return { rows: [{ acquired: true }] };

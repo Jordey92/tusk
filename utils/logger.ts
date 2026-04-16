@@ -1,14 +1,12 @@
-type LogLevel = "debug" | "info" | "warn" | "error";
+import type { StructuredContext } from "../types/structured.js";
 
-interface LogContext {
-  [key: string]: unknown;
-}
+export type LogLevel = "debug" | "info" | "warn" | "error";
 
 interface Logger {
-  debug(message: string, context?: LogContext): void;
-  info(message: string, context?: LogContext): void;
-  warn(message: string, context?: LogContext): void;
-  error(message: string, context?: LogContext): void;
+  debug(message: string, context?: StructuredContext): void;
+  info(message: string, context?: StructuredContext): void;
+  warn(message: string, context?: StructuredContext): void;
+  error(message: string, context?: StructuredContext): void;
 }
 
 const LOG_LEVELS = { debug: 0, info: 1, warn: 2, error: 3 } as const;
@@ -22,7 +20,7 @@ const shouldLog = (level: LogLevel, currentLevel: LogLevel): boolean => {
   return LOG_LEVELS[level] >= LOG_LEVELS[currentLevel];
 };
 
-const formatMessage = (level: LogLevel, message: string, context?: LogContext): string => {
+const formatMessage = (level: LogLevel, message: string, context?: StructuredContext): string => {
   const timestamp = new Date().toISOString();
   const baseMessage = `[${timestamp}] [${level.toUpperCase()}] ${message}`;
 
@@ -34,25 +32,25 @@ const formatMessage = (level: LogLevel, message: string, context?: LogContext): 
 };
 
 const createLogger = (level: LogLevel = getLogLevel()): Logger => ({
-  debug: (message: string, context?: LogContext) => {
+  debug: (message: string, context?: StructuredContext) => {
     if (shouldLog("debug", level)) {
       console.log(formatMessage("debug", message, context));
     }
   },
 
-  info: (message: string, context?: LogContext) => {
+  info: (message: string, context?: StructuredContext) => {
     if (shouldLog("info", level)) {
       console.log(formatMessage("info", message, context));
     }
   },
 
-  warn: (message: string, context?: LogContext) => {
+  warn: (message: string, context?: StructuredContext) => {
     if (shouldLog("warn", level)) {
       console.warn(formatMessage("warn", message, context));
     }
   },
 
-  error: (message: string, context?: LogContext) => {
+  error: (message: string, context?: StructuredContext) => {
     if (shouldLog("error", level)) {
       console.error(formatMessage("error", message, context));
     }
@@ -61,4 +59,3 @@ const createLogger = (level: LogLevel = getLogLevel()): Logger => ({
 
 export const logger = createLogger();
 export { createLogger };
-export type { Logger, LogLevel, LogContext };

@@ -1,5 +1,9 @@
 import type { QueryResultRow } from "pg";
-import type { QueryParam } from "../../types/migrations.js";
+import type {
+  ConnectionClient,
+  ConnectionPool,
+  QueryParam,
+} from "../../types/migrations.js";
 import { logger } from "../../utils/logger.js";
 
 const MIGRATION_LOCK_ID = 123456789;
@@ -8,22 +12,8 @@ interface LockRow extends QueryResultRow {
   acquired: boolean;
 }
 
-interface LockClient {
-  query<T extends QueryResultRow = QueryResultRow>(
-    sql: string,
-    params?: QueryParam[]
-  ): Promise<{ rows: T[] }>;
-  release(): void;
-}
-
-interface LockConnection {
-  connect(): Promise<LockClient>;
-}
-
-export const createLockingMethods = (
-  pool: LockConnection
-) => {
-  let lockClient: LockClient | null = null;
+export const createLockingMethods = (pool: ConnectionPool) => {
+  let lockClient: ConnectionClient | null = null;
 
   return {
     acquireMigrationLock: async () => {
@@ -34,6 +24,7 @@ export const createLockingMethods = (
 
       logger.debug("Attempting to acquire migration lock");
       const client = await pool.connect();
+      let lockAcquired = false;
 
       try {
         const result = await client.query<LockRow>(
@@ -53,10 +44,12 @@ export const createLockingMethods = (
         }
 
         lockClient = client;
+        lockAcquired = true;
         logger.info("Migration lock acquired successfully");
-      } catch (error) {
-        client.release();
-        throw error;
+      } finally {
+        if (!lockAcquired) {
+          client.release();
+        }
       }
     },
 

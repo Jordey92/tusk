@@ -1,4 +1,6 @@
-export type TuskErrorCode =
+import type { StructuredContext } from "../types/structured.js";
+
+type TuskErrorCode =
   | "DATABASE_CONNECTION_FAILED"
   | "MIGRATION_DIRECTORY_NOT_FOUND"
   | "MIGRATION_FILE_INVALID"
@@ -10,13 +12,13 @@ export type TuskErrorCode =
 export class TuskError extends Error {
   code: TuskErrorCode;
   override cause?: Error;
-  context?: Record<string, unknown>;
+  context?: StructuredContext;
 
   constructor(
     code: TuskErrorCode,
     message: string,
     cause?: Error,
-    context?: Record<string, unknown>
+    context?: StructuredContext
   ) {
     super(message);
     this.name = "TuskError";
@@ -30,10 +32,10 @@ export const createTuskError = (
   code: TuskErrorCode,
   message: string,
   cause?: Error,
-  context?: Record<string, unknown>
+  context?: StructuredContext
 ): TuskError => new TuskError(code, message, cause, context);
 
-export const createDatabaseError = (message: string, cause?: Error, context?: Record<string, unknown>): TuskError =>
+export const createDatabaseError = (message: string, cause?: Error, context?: StructuredContext): TuskError =>
   createTuskError("DATABASE_CONNECTION_FAILED", message, cause, context);
 
 export const createMigrationDirectoryError = (path: string, cause?: Error): TuskError =>
@@ -68,10 +70,10 @@ export const createRollbackError = (filename: string, cause?: Error): TuskError 
     { filename }
   );
 
-export const createValidationError = (message: string, context?: Record<string, unknown>): TuskError =>
+export const createValidationError = (message: string, context?: StructuredContext): TuskError =>
   createTuskError("VALIDATION_ERROR", message, undefined, context);
 
-export const createConfigurationError = (message: string, context?: Record<string, unknown>): TuskError =>
+export const createConfigurationError = (message: string, context?: StructuredContext): TuskError =>
   createTuskError("CONFIGURATION_ERROR", message, undefined, context);
 
 export const formatTuskError = (error: TuskError): string => {

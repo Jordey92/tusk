@@ -7,7 +7,7 @@ import { logger } from "../utils/logger.js";
 const INITIAL_MIGRATION_TIMESTAMP = "0000000000000";
 const INITIAL_MIGRATION_NAME = "initial";
 
-export interface InitMigrationResult {
+interface InitMigrationResult {
   upFile: string;
   downFile: string;
   tableCount: number;

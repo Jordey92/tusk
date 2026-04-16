@@ -1,36 +1,30 @@
 # Framework Integrations
 
-Tusk provides a simple programmatic API that works with any JavaScript/TypeScript framework. Below are integration examples for popular frameworks.
+Tusk is easiest to integrate in one of two ways:
+- create an adapter at startup and run migrations before serving traffic
+- run migrations in a separate deploy step and keep the adapter for app queries
 
-## Table of Contents
+This page mixes two levels of confidence:
+- **Verified**: examples backed by the package test suite or real integration coverage
+- **Integration patterns**: framework-specific usage patterns that match the public API, but are not all yet exercised as standalone example apps
 
-- [Elysia](#elysia) (Official Plugin)
-- [Express](#express)
-- [Fastify](#fastify)
-- [Hono](#hono)
-- [Koa](#koa)
-- [NestJS](#nestjs)
-- [Next.js](#nextjs)
-- [Remix](#remix)
+Today, the verified framework-level integration is Elysia. The other framework sections should be read as implementation patterns.
 
----
+## Elysia (Verified)
 
-## Elysia
-
-Tusk provides an official Elysia plugin with automatic migration running and database decorator support.
+Tusk includes an Elysia plugin that runs `up` on startup and decorates the app with `{ pool, adapter }`.
 
 ```typescript
 import { Elysia } from 'elysia';
-import { migrate } from '@jordey92/tusk';
+import { migrate } from '@bydey/tusk';
 
 const app = new Elysia()
   .use(migrate({
     connectionString: process.env.DATABASE_URL,
     migrationsPath: './migrations',
-    runOnStartup: true // default
+    runOnStartup: true,
   }))
   .get('/users', async ({ db }) => {
-    // Access db.pool or db.adapter
     const result = await db.pool.query('SELECT * FROM users');
     return result.rows;
   })
@@ -43,10 +37,9 @@ console.log('Server running on http://localhost:3000');
 
 ```typescript
 interface ElysiaMigrateConfig {
-  // Choose one connection method:
-  connectionString?: string;           // e.g., "postgresql://..."
-  pool?: Pool;                        // Existing pg Pool
-  connection?: {                      // Individual config
+  connectionString?: string;
+  pool?: Pool;
+  connection?: {
     host?: string;
     port?: number;
     database?: string;
@@ -54,29 +47,25 @@ interface ElysiaMigrateConfig {
     password?: string;
   };
 
-  migrationsPath?: string;            // default: "./migrations"
-  runOnStartup?: boolean;             // default: true
+  migrationsPath?: string;
+  runOnStartup?: boolean;
 }
 ```
 
----
-
-## Express
+## Express (Pattern)
 
 ```typescript
 import express from 'express';
 import { Pool } from 'pg';
-import { createPgAdapter, runUp, ensureMigrationsTable } from '@jordey92/tusk';
+import { createPgAdapter, runUp, ensureMigrationsTable } from '@bydey/tusk';
 
 const app = express();
 
-// Setup database and migrations
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL
 });
 const adapter = createPgAdapter(pool);
 
-// Run migrations on startup
 const runMigrations = async () => {
   try {
     console.log('🔄 Running migrations...');
@@ -89,10 +78,8 @@ const runMigrations = async () => {
   }
 };
 
-// Make db available to routes
 app.locals.db = { pool, adapter };
 
-// Example route
 app.get('/users', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM users');
@@ -102,31 +89,28 @@ app.get('/users', async (req, res) => {
   }
 });
 
-// Start server after migrations
 runMigrations().then(() => {
   app.listen(3000, () => {
     console.log('Server running on http://localhost:3000');
   });
 });
 
-// Cleanup on shutdown
 process.on('SIGTERM', async () => {
   await pool.end();
   process.exit(0);
 });
 ```
 
-**With middleware approach:**
+If you prefer request-local access, add your own middleware:
 
 ```typescript
 import express from 'express';
 import { Pool } from 'pg';
-import { createPgAdapter } from '@jordey92/tusk';
+import { createPgAdapter } from '@bydey/tusk';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = createPgAdapter(pool);
 
-// Middleware to inject db into requests
 const dbMiddleware = (req, res, next) => {
   req.db = { pool, adapter };
   next();
@@ -141,29 +125,24 @@ app.get('/users', async (req, res) => {
 });
 ```
 
----
-
-## Fastify
+## Fastify (Pattern)
 
 ```typescript
 import Fastify from 'fastify';
 import { Pool } from 'pg';
-import { createPgAdapter, runUp, ensureMigrationsTable } from '@jordey92/tusk';
+import { createPgAdapter, runUp, ensureMigrationsTable } from '@bydey/tusk';
 
 const fastify = Fastify({
   logger: true
 });
 
-// Setup database
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL
 });
 const adapter = createPgAdapter(pool);
 
-// Decorate fastify with db
 fastify.decorate('db', { pool, adapter });
 
-// Run migrations on ready hook
 fastify.addHook('onReady', async () => {
   try {
     fastify.log.info('Running migrations...');
@@ -176,18 +155,15 @@ fastify.addHook('onReady', async () => {
   }
 });
 
-// Cleanup on close
 fastify.addHook('onClose', async () => {
   await pool.end();
 });
 
-// Example route
 fastify.get('/users', async (request, reply) => {
   const result = await fastify.db.pool.query('SELECT * FROM users');
   return result.rows;
 });
 
-// Start server
 const start = async () => {
   try {
     await fastify.listen({ port: 3000 });
@@ -200,12 +176,12 @@ const start = async () => {
 start();
 ```
 
-**As a Fastify plugin:**
+If you prefer to wrap setup as your own Fastify plugin:
 
 ```typescript
 import fp from 'fastify-plugin';
 import { Pool } from 'pg';
-import { createPgAdapter, runUp, ensureMigrationsTable } from '@jordey92/tusk';
+import { createPgAdapter, runUp, ensureMigrationsTable } from '@bydey/tusk';
 
 const tuskPlugin = fp(async (fastify, options) => {
   const pool = new Pool({
@@ -236,12 +212,12 @@ fastify.register(tuskPlugin, {
 
 ---
 
-## Hono
+## Hono (Pattern)
 
 ```typescript
 import { Hono } from 'hono';
 import { Pool } from 'pg';
-import { createPgAdapter, runUp, ensureMigrationsTable } from '@jordey92/tusk';
+import { createPgAdapter, runUp, ensureMigrationsTable } from '@bydey/tusk';
 
 const app = new Hono();
 
@@ -293,13 +269,13 @@ export default app;
 
 ---
 
-## Koa
+## Koa (Pattern)
 
 ```typescript
 import Koa from 'koa';
 import Router from '@koa/router';
 import { Pool } from 'pg';
-import { createPgAdapter, runUp, ensureMigrationsTable } from '@jordey92/tusk';
+import { createPgAdapter, runUp, ensureMigrationsTable } from '@bydey/tusk';
 
 const app = new Koa();
 const router = new Router();
@@ -345,7 +321,7 @@ runMigrations().then(() => {
 
 ---
 
-## NestJS
+## NestJS (Pattern)
 
 **Create a migration module:**
 
@@ -353,7 +329,7 @@ runMigrations().then(() => {
 // src/database/migration.module.ts
 import { Module, OnModuleInit } from '@nestjs/common';
 import { Pool } from 'pg';
-import { createPgAdapter, runUp, ensureMigrationsTable } from '@jordey92/tusk';
+import { createPgAdapter, runUp, ensureMigrationsTable } from '@bydey/tusk';
 
 @Module({})
 export class MigrationModule implements OnModuleInit {
@@ -378,8 +354,8 @@ export class MigrationModule implements OnModuleInit {
 // src/database/database.service.ts
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Pool } from 'pg';
-import { createPgAdapter } from '@jordey92/tusk';
-import type { DatabaseAdapter } from '@jordey92/tusk';
+import { createPgAdapter } from '@bydey/tusk';
+import type { DatabaseAdapter } from '@bydey/tusk';
 
 @Injectable()
 export class DatabaseService implements OnModuleDestroy {
@@ -441,14 +417,14 @@ export class UsersController {
 
 ---
 
-## Next.js
+## Next.js (Pattern)
 
 **App Router (Next.js 13+):**
 
 ```typescript
 // lib/db.ts
 import { Pool } from 'pg';
-import { createPgAdapter } from '@jordey92/tusk';
+import { createPgAdapter } from '@bydey/tusk';
 
 const globalForDb = globalThis as unknown as {
   pool: Pool | undefined;
@@ -470,7 +446,7 @@ if (process.env.NODE_ENV !== 'production') {
 ```typescript
 // scripts/migrate.ts
 import { pool, adapter } from '../lib/db';
-import { runUp, ensureMigrationsTable } from '@jordey92/tusk';
+import { runUp, ensureMigrationsTable } from '@bydey/tusk';
 
 async function migrate() {
   try {
@@ -529,14 +505,14 @@ export async function getUsers() {
 
 ---
 
-## Remix
+## Remix (Pattern)
 
 **Database utility:**
 
 ```typescript
 // app/lib/db.server.ts
 import { Pool } from 'pg';
-import { createPgAdapter } from '@jordey92/tusk';
+import { createPgAdapter } from '@bydey/tusk';
 
 let pool: Pool;
 
@@ -564,7 +540,7 @@ export const db = {
 ```typescript
 // scripts/migrate.ts
 import { db } from '../app/lib/db.server';
-import { runUp, ensureMigrationsTable } from '@jordey92/tusk';
+import { runUp, ensureMigrationsTable } from '@bydey/tusk';
 
 async function migrate() {
   try {
@@ -620,7 +596,7 @@ export default function Users() {
 
 ```typescript
 import { Pool } from 'pg';
-import { createPgAdapter } from '@jordey92/tusk';
+import { createPgAdapter } from '@bydey/tusk';
 
 const config = {
   development: {
@@ -646,9 +622,8 @@ const adapter = createPgAdapter(pool);
 ### Conditional Migration Running
 
 ```typescript
-import { runUp, ensureMigrationsTable } from '@jordey92/tusk';
+import { runUp, ensureMigrationsTable } from '@bydey/tusk';
 
-// Only run migrations in development, use separate migration process in production
 const shouldRunMigrations =
   process.env.RUN_MIGRATIONS === 'true' ||
   process.env.NODE_ENV === 'development';
@@ -662,7 +637,6 @@ if (shouldRunMigrations) {
 ### Health Check Endpoint
 
 ```typescript
-// Example for any framework
 app.get('/health', async (req, res) => {
   try {
     await pool.query('SELECT 1');
@@ -683,7 +657,7 @@ app.get('/health', async (req, res) => {
 ### Transaction Helper
 
 ```typescript
-import { DatabaseAdapter } from '@jordey92/tusk';
+import { DatabaseAdapter } from '@bydey/tusk';
 
 async function withTransaction<T>(
   adapter: DatabaseAdapter,
@@ -692,15 +666,11 @@ async function withTransaction<T>(
   return adapter.transaction(callback);
 }
 
-// Usage
 await withTransaction(adapter, async (client) => {
   await client.query('INSERT INTO users (name) VALUES ($1)', ['Alice']);
   await client.query('INSERT INTO posts (user_id, title) VALUES ($1, $2)', [1, 'Hello']);
-  // Both queries committed together, or rolled back on error
 });
 ```
-
----
 
 ## CI/CD Integration
 
@@ -744,22 +714,18 @@ RUN npm install
 
 COPY . .
 
-# Run migrations on container start
 CMD ["sh", "-c", "npx tusk up && node dist/index.js"]
 ```
 
----
-
 ## Tips
 
-1. **Always run migrations before starting your server** to ensure schema is up-to-date
-2. **Use environment variables** for database configuration
-3. **In production**, consider running migrations separately via CI/CD rather than on app startup
-4. **Use connection pooling** - Tusk works with `pg` Pool for efficient connections
-5. **Handle cleanup** - Close database connections when your app shuts down
-6. **Test migrations** in staging environment before production
+1. Run migrations before serving traffic, or in a dedicated deploy step.
+2. Keep your migrations directory stable across environments.
+3. Reuse one pool per process and close it on shutdown.
+4. In production, prefer a separate migration step over running on every app boot.
+5. Test migrations in staging before production.
 
 ## Need Help?
 
-- [GitHub Issues](https://github.com/bydey/tusk/issues)
+- [GitHub Issues](https://github.com/jordey92/tusk/issues)
 - [Main Documentation](../README.md)

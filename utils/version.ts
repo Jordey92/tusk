@@ -1,5 +1,10 @@
-import { readFile } from "fs/promises";
+import { access, readFile } from "fs/promises";
 import { dirname, resolve } from "path";
+import { constants } from "fs";
+
+const isMissingFileError = (error: unknown): error is NodeJS.ErrnoException => {
+  return error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT";
+};
 
 const findPackageJson = async (startDir: string): Promise<string | null> => {
   let currentDir = startDir;
@@ -7,9 +12,13 @@ const findPackageJson = async (startDir: string): Promise<string | null> => {
   while (true) {
     const candidate = resolve(currentDir, "package.json");
     try {
-      await readFile(candidate, "utf-8");
+      await access(candidate, constants.R_OK);
       return candidate;
-    } catch {}
+    } catch (error) {
+      if (!isMissingFileError(error)) {
+        throw error;
+      }
+    }
 
     const parentDir = dirname(currentDir);
     if (parentDir === currentDir) {
@@ -20,16 +29,12 @@ const findPackageJson = async (startDir: string): Promise<string | null> => {
 };
 
 export const getPackageVersion = async (startDir: string): Promise<string> => {
-  try {
-    const packageJsonPath = await findPackageJson(startDir);
-    if (!packageJsonPath) {
-      return "unknown";
-    }
-
-    const raw = await readFile(packageJsonPath, "utf-8");
-    const parsed = JSON.parse(raw) as { version?: string };
-    return parsed.version || "unknown";
-  } catch {
+  const packageJsonPath = await findPackageJson(startDir);
+  if (!packageJsonPath) {
     return "unknown";
   }
+
+  const raw = await readFile(packageJsonPath, "utf-8");
+  const parsed = JSON.parse(raw) as { version?: string };
+  return parsed.version || "unknown";
 };

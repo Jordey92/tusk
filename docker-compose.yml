@@ -1,33 +1,13 @@
-# This section defines the individual services (containers) that make up your application stack.
 services:
-  # We're defining a single service and naming it 'db'.
-  # Your Elysia API will connect to this service using the hostname 'db'.
   db:
-    # This is the Docker image we want to use.
-    # We are "pinning" the version to Postgres 18 running on Debian "Bookworm" for stability.
     image: postgres:18-bookworm
-
-    # This policy ensures that if the container stops for any reason, Docker will automatically restart it.
     restart: always
-
-    # Environment variables are used to configure the PostgreSQL instance inside the container.
-    # IMPORTANT: Use these for local development only. Do NOT commit real production passwords to Git.
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
       POSTGRES_DB: migrate_tool_test
-
-    # This section maps a port from your host machine (your laptop) to a port inside the container.
-    # Format is "HOST_PORT:CONTAINER_PORT".
-    # We use 5433 on the host to avoid conflicts if you have another Postgres instance running locally.
-    # The container itself always runs Postgres on the standard port 5432.
     ports:
       - '5433:5432'
-
-    # This is the most critical part for data persistence.
-    # It links the directory inside the container where Postgres stores its data
-    # to a "named volume" managed by Docker on your machine.
-    # This means even if you stop and remove the container, your data will still be there.
     volumes:
       - postgres_data:/var/lib/postgresql
     healthcheck:
@@ -35,8 +15,5 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-
-# This top-level key defines the named volumes used by your services.
-# Docker manages the actual storage location on your machine, making it easy and safe.
 volumes:
   postgres_data:

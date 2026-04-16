@@ -1,4 +1,4 @@
-import type { DatabaseAdapter, Migration, RunResult } from "../types/migrations.js";
+import type { DatabaseAdapter, RunResult } from "../types/migrations.js";
 import { getCorrespondingFilename } from "../utils/filename.js";
 import { logger } from "../utils/logger.js";
 import { createDatabaseError, createMigrationExecutionError, createRollbackError, formatTuskError, createValidationError } from "../utils/errors.js";
@@ -23,19 +23,18 @@ export const runUp = async (
   await adapter.acquireMigrationLock();
 
   try {
-    await ensureMigrationsTable(adapter);
-    logger.debug("Migrations table ensured");
-  } catch (error) {
-    await adapter.releaseMigrationLock();
-    const tuskError = createDatabaseError(
-      "Failed to ensure migrations table exists. Check database connection.",
-      error instanceof Error ? error : new Error(String(error))
-    );
-    logger.error("Database connection failed", { error: formatTuskError(tuskError) });
-    throw tuskError;
-  }
+    try {
+      await ensureMigrationsTable(adapter);
+      logger.debug("Migrations table ensured");
+    } catch (error) {
+      const tuskError = createDatabaseError(
+        "Failed to ensure migrations table exists. Check database connection.",
+        error instanceof Error ? error : new Error(String(error))
+      );
+      logger.error("Database connection failed", { error: formatTuskError(tuskError) });
+      throw tuskError;
+    }
 
-  try {
     const migrationsFromDirectory = await readMigrations(migrationsPath, "up");
 
     const executedMigrations = await getExecutedMigrationsWithChecksums(adapter);
@@ -53,7 +52,6 @@ export const runUp = async (
       if (migrationFile) {
         const currentChecksum = calculateChecksum(migrationFile.sql);
         if (currentChecksum !== executedMigration.checksum) {
-          await adapter.releaseMigrationLock();
           const tuskError = createValidationError(
             `Migration file ${executedMigration.filename} has been modified after execution. ` +
             `This is not allowed. Original checksum: ${executedMigration.checksum}, ` +

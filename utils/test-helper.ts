@@ -1,7 +1,6 @@
 import "dotenv/config";
 import { randomUUID } from "crypto";
 import { Pool } from "pg";
-import { createPgAdapter } from "../adapters/pg.js";
 
 const TEST_CONNECTION = {
   user: "user",
@@ -15,13 +14,6 @@ const ADMIN_DATABASE = "postgres";
 
 const quoteIdentifier = (identifier: string): string =>
   `"${identifier.replace(/"/g, "\"\"")}"`;
-
-export interface TemporaryDatabaseHandle {
-  name: string;
-  pool: Pool;
-  connectionString: string;
-  cleanup(): Promise<void>;
-}
 
 export const createTestPool = (database: string = TEST_CONNECTION.database) => {
   return new Pool({
@@ -52,12 +44,14 @@ export const cleanupMigrations = async (pool: Pool) => {
   `);
 };
 
-/**
- * Creates an isolated database and hides the teardown details from callers.
- */
 export const createTemporaryDatabase = async (
   prefix: string = "tusk_test"
-): Promise<TemporaryDatabaseHandle> => {
+): Promise<{
+  name: string;
+  pool: Pool;
+  connectionString: string;
+  cleanup(): Promise<void>;
+}> => {
   const adminPool = createTestPool(ADMIN_DATABASE);
   const name = `${prefix}_${randomUUID().replace(/-/g, "")}`;
   const quotedName = quoteIdentifier(name);
@@ -87,16 +81,5 @@ export const createTemporaryDatabase = async (
       await adminPool.query(`DROP DATABASE IF EXISTS ${quotedName}`);
       await adminPool.end();
     },
-  };
-};
-
-export const createTemporaryDatabaseAdapter = async (
-  prefix?: string
-) => {
-  const database = await createTemporaryDatabase(prefix);
-
-  return {
-    ...database,
-    adapter: createPgAdapter(database.pool),
   };
 };

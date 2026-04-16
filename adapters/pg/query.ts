@@ -1,33 +1,31 @@
-import { Pool, type QueryResultRow } from "pg";
-import type { TransactionClient, QueryParam } from "../../types/migrations.js";
+import type { QueryResultRow } from "pg";
+import type {
+  ConnectionClient,
+  ConnectionPool,
+  QueryClient,
+  QueryParam,
+  TransactionClient,
+} from "../../types/migrations.js";
 import { logger } from "../../utils/logger.js";
 
 const TRANSACTION_TIMEOUT_MS = 300000;
 
-export const createExecuteQuery = (pool: Pool) => {
+export const createExecuteQuery = (pool: QueryClient) => {
   return async <T extends QueryResultRow = QueryResultRow>(
     sql: string,
     params?: QueryParam[]
   ) => {
-    try {
-      logger.debug("Executing query", {
-        sql: sql.substring(0, 100),
-        paramCount: params?.length,
-      });
-      return await pool.query<T>(sql, params);
-    } catch (error) {
-      logger.error("Query execution failed", {
-        sql: sql.substring(0, 100),
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    }
+    logger.debug("Executing query", {
+      sql: sql.substring(0, 100),
+      paramCount: params?.length,
+    });
+    return await pool.query<T>(sql, params);
   };
 };
 
-export const createTransaction = (pool: Pool) => {
+export const createTransaction = (pool: ConnectionPool) => {
   return async <T>(callback: (client: TransactionClient) => Promise<T>): Promise<T> => {
-    const client = await pool.connect();
+    const client: ConnectionClient = await pool.connect();
     let transactionStarted = false;
 
     try {
@@ -45,18 +43,10 @@ export const createTransaction = (pool: Pool) => {
           sql: string,
           params?: QueryParam[]
         ) => {
-          try {
-            logger.debug("Executing transaction query", {
-              sql: sql.substring(0, 100),
-            });
-            return await client.query<T>(sql, params);
-          } catch (error) {
-            logger.error("Transaction query failed", {
-              sql: sql.substring(0, 100),
-              error: error instanceof Error ? error.message : String(error),
-            });
-            throw error;
-          }
+          logger.debug("Executing transaction query", {
+            sql: sql.substring(0, 100),
+          });
+          return await client.query<T>(sql, params);
         },
       };
 
@@ -90,17 +80,8 @@ export const createTransaction = (pool: Pool) => {
       });
       throw error;
     } finally {
-      try {
-        client.release();
-        logger.debug("Database client released");
-      } catch (releaseError) {
-        logger.warn("Failed to release database client", {
-          error:
-            releaseError instanceof Error
-              ? releaseError.message
-              : String(releaseError),
-        });
-      }
+      client.release();
+      logger.debug("Database client released");
     }
   };
 };
