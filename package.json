@@ -1,12 +1,16 @@
 {
   "name": "@bydey/tusk",
   "version": "0.1.0",
-  "description": "Simple PostgreSQL migration tool with Elysia support",
+  "description": "SQL-first PostgreSQL migrations for Node.js and Bun",
   "author": "Bydey",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/jordey92/tusk.git"
+  },
+  "homepage": "https://github.com/jordey92/tusk#readme",
+  "bugs": {
+    "url": "https://github.com/jordey92/tusk/issues"
   },
   "publishConfig": {
     "access": "public"
@@ -15,10 +19,13 @@
     "postgres",
     "postgresql",
     "migration",
+    "migrations",
     "database",
     "sql",
+    "sql-first",
     "elysia",
-    "bun"
+    "bun",
+    "node"
   ],
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
