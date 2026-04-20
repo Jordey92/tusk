@@ -24,16 +24,31 @@ on:
         default: true
         type: boolean
 
+concurrency:
+  group: release-${{ github.workflow }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
 jobs:
+  compatibility:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/reusable-package-smoke.yml
+    with:
+      job_name: Minimum Support Verification (Node 18, PostgreSQL 13)
+      node_version: "18"
+      postgres_image: postgres:13.23-bookworm
+      artifact_name: release-minimum-supported-logs
+
   release:
+    needs: compatibility
     runs-on: ubuntu-latest
 
     services:
       postgres:
-        image: postgres:18-bookworm
+        image: postgres:18.3-bookworm
         env:
           POSTGRES_USER: user
           POSTGRES_PASSWORD: password
@@ -71,6 +86,14 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+
+      - name: Restore Bun cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -117,10 +140,18 @@ jobs:
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
 
       - name: Build package
-        run: bun run build
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p artifacts/release
+          bun run build 2>&1 | tee artifacts/release/build.log
 
       - name: Run test suite
-        run: bun test
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p artifacts/release
+          bun test 2>&1 | tee artifacts/release/bun-test.log
         env:
           DATABASE_URL: postgresql://user:password@127.0.0.1:5433/migrate_tool_test
           DB_HOST: 127.0.0.1
@@ -128,6 +159,18 @@ jobs:
           DB_USER: user
           DB_PASSWORD: password
           DB_NAME: migrate_tool_test
+          TUSK_PACKAGE_SMOKE_SKIP_BUILD: "1"
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-logs
+          path: |
+            artifacts/release
+            .tmp
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Publish to npm
         run: npm publish --access public

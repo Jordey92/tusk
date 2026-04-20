@@ -2,7 +2,7 @@
 
 Tusk publishes to npm as `@bydey/tusk`.
 
-The normal release path is the GitHub Actions workflow: choose a release type, let the workflow update `package.json`, run the build and test suite, publish to npm, and then create the git tag and GitHub release.
+The normal release path is the GitHub Actions workflow: choose a release type, let the workflow update `package.json`, verify the minimum-supported compatibility lane, run the modern build and test suite, publish to npm, and then create the git tag and GitHub release.
 
 ## Prerequisites
 
@@ -47,14 +47,15 @@ Inputs:
 
 The workflow:
 
-1. determines the version to publish
-2. updates `package.json` when needed
-3. runs `bun run build`
-4. runs `bun test`
-5. publishes with `npm publish --access public`
-6. commits the version bump if one was made
-7. creates and pushes the git tag
-8. optionally creates a GitHub release
+1. runs the `Minimum Support Verification (Node 18, PostgreSQL 13)` job against the packed package smoke path
+2. determines the version to publish
+3. updates `package.json` when needed
+4. runs `bun run build`
+5. runs `bun test` on the modern verification lane (`Node 24`, `PostgreSQL 18`)
+6. publishes with `npm publish --access public`
+7. commits the version bump if one was made
+8. creates and pushes the git tag
+9. optionally creates a GitHub release
 
 Required workflow permissions:
 
@@ -64,3 +65,17 @@ permissions:
 ```
 
 The workflow should use an `NPM_TOKEN` secret.
+
+## Branch Protection
+
+For the release workflow to mean anything, the default branch should require the `CI` workflow checks before merge:
+
+- `Verify (Node 24, PostgreSQL 18)`
+- `Minimum Support (Node 18, PostgreSQL 13)`
+
+Recommended repository settings:
+
+- require pull requests before merging
+- require branches to be up to date before merging
+- require conversation resolution before merging
+- do not allow bypassing required checks
