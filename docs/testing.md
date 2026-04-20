@@ -2,14 +2,22 @@
 
 This guide covers the supported verification path for Tusk.
 
-Tusk does not maintain a broad compatibility matrix. The supported path is the current build, test suite, package smoke test, and local Postgres-backed integration tests.
+Tusk verifies two things continuously:
+
+- the modern primary lane used for day-to-day development
+- the oldest supported Node.js and PostgreSQL versions promised in the public docs
+
+GitHub Actions also runs an expanded compatibility matrix on a schedule.
 
 ## Prerequisites
 
 - Bun
 - Docker and Docker Compose for database-backed tests
+- Node.js if you want to run the packaged CLI smoke test with `node`
 
-## Standard Verification
+## Local Verification
+
+### Full modern verification
 
 Run the full suite from the repository root:
 
@@ -17,6 +25,20 @@ Run the full suite from the repository root:
 bun run build
 bun test
 ```
+
+This matches the `Verify (Node 24, PostgreSQL 18)` workflow when a local PostgreSQL service is available.
+
+### Minimum-supported packaged smoke test
+
+To verify the published package shape and the oldest supported runtime/database pair:
+
+```bash
+bun run build
+TUSK_SMOKE_DATABASE_URL=postgresql://user:password@127.0.0.1:5433/migrate_tool_test \
+  bun test package-smoke.test.ts
+```
+
+This is the same path used by the `Minimum Support (Node 18, PostgreSQL 13)` workflow, except CI also runs the test under Node.js 18.
 
 ## Database-Backed Checks
 
@@ -36,12 +58,26 @@ The integration tests expect the local service on `127.0.0.1:5433` with the cred
 
 ## Package Smoke Test
 
-To verify the published shape, build the package and run the package smoke test:
+To verify the packed npm artifact without hitting a database:
 
 ```bash
 bun run build
 bun test package-smoke.test.ts
 ```
+
+If `TUSK_SMOKE_DATABASE_URL` is set, the smoke test also exercises `create`, `up`, `status`, and `down` against a real PostgreSQL instance using the packed CLI.
+
+## CI Coverage
+
+Tusk currently uses three GitHub Actions workflows:
+
+- `CI`
+  - `Verify (Node 24, PostgreSQL 18)` is intended to be a required branch check
+  - `Minimum Support (Node 18, PostgreSQL 13)` is intended to be a required branch check
+- `Compatibility Matrix`
+  - scheduled and manually runnable compatibility smoke coverage across multiple Node.js and PostgreSQL versions
+- `Release and Publish npm Package`
+  - manual release workflow gated on the minimum-supported package smoke test and the modern full-suite verification path
 
 ## Troubleshooting
 

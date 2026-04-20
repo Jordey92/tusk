@@ -1,0 +1,39 @@
+name: Compatibility Matrix
+
+on:
+  schedule:
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: compatibility-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  package-compatibility:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - node: 18
+            postgres: 13
+            postgres_image: postgres:13.23-bookworm
+          - node: 20
+            postgres: 13
+            postgres_image: postgres:13.23-bookworm
+          - node: 22
+            postgres: 16
+            postgres_image: postgres:16.13-bookworm
+          - node: 24
+            postgres: 18
+            postgres_image: postgres:18.3-bookworm
+    uses: ./.github/workflows/reusable-package-smoke.yml
+    with:
+      job_name: Compatibility (Node ${{ matrix.node }}, PostgreSQL ${{ matrix.postgres }})
+      node_version: ${{ matrix.node }}
+      postgres_image: ${{ matrix.postgres_image }}
+      artifact_name: compatibility-node-${{ matrix.node }}-pg-${{ matrix.postgres }}-logs
+      timeout_minutes: 20

@@ -3,11 +3,14 @@ import {
   mkdir,
   mkdtemp,
   readdir,
+  readFile,
   rename,
   rm,
   writeFile,
 } from "fs/promises";
 import { join, resolve } from "path";
+import { Pool } from "pg";
+import { exerciseMigrationLifecycle } from "./utils/cli-smoke";
 
 interface CommandResult {
   exitCode: number;
@@ -16,6 +19,13 @@ interface CommandResult {
 }
 
 const repoRoot = process.cwd();
+const nodeBinary = process.env.NODE_BINARY || "node";
+const packageSmokeDatabaseUrl = process.env.TUSK_SMOKE_DATABASE_URL;
+const skipPackageBuild = process.env.TUSK_PACKAGE_SMOKE_SKIP_BUILD === "1";
+
+interface PackageJson {
+  name: string;
+}
 
 const decode = async (stream: ReadableStream<Uint8Array> | null) => {
   if (!stream) {
@@ -27,11 +37,15 @@ const decode = async (stream: ReadableStream<Uint8Array> | null) => {
 
 const runCommand = async (
   cmd: string[],
-  cwd: string
+  cwd: string,
+  envOverrides: Record<string, string> = {}
 ): Promise<CommandResult> => {
   const child = Bun.spawn(cmd, {
     cwd,
-    env: process.env,
+    env: {
+      ...process.env,
+      ...envOverrides,
+    },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -55,16 +69,36 @@ describe("package smoke test", () => {
   });
 
   test("packed tarball exposes the installed CLI and public API", async () => {
+    const packageJson = JSON.parse(
+      await readFile(resolve(repoRoot, "package.json"), "utf-8")
+    ) as PackageJson;
+    const packageName = packageJson.name;
+    const [packageScope, packageBaseName] = packageName.startsWith("@")
+      ? packageName.split("/")
+      : [undefined, packageName];
     const tempRootParent = resolve(repoRoot, ".tmp");
     await mkdir(tempRootParent, { recursive: true });
 
     const tempRoot = await mkdtemp(join(tempRootParent, "package-smoke-"));
     const projectDir = join(tempRoot, "project");
-    const scopedDir = join(projectDir, "node_modules", "@jordey92");
+    const packageParentDir = packageScope
+      ? join(projectDir, "node_modules", packageScope)
+      : join(projectDir, "node_modules");
+    const installedPackageDir = join(packageParentDir, packageBaseName);
+    const cliEntrypoint = join(installedPackageDir, "dist", "cli.js");
+    const commandEnv = {
+      LOG_LEVEL: "error",
+      MIGRATIONS_PATH: "migrations",
+      ...(packageSmokeDatabaseUrl
+        ? { DATABASE_URL: packageSmokeDatabaseUrl }
+        : {}),
+    };
     cleanupPaths.push(tempRoot);
 
-    const buildResult = await runCommand(["bun", "run", "build"], repoRoot);
-    expect(buildResult.exitCode).toBe(0);
+    if (!skipPackageBuild) {
+      const buildResult = await runCommand(["bun", "run", "build"], repoRoot);
+      expect(buildResult.exitCode).toBe(0);
+    }
 
     const packResult = await runCommand(
       ["npm", "pack", "--pack-destination", tempRoot],
@@ -75,15 +109,15 @@ describe("package smoke test", () => {
     const tarball = (await readdir(tempRoot)).find((file) => file.endsWith(".tgz"));
     expect(tarball).toBeDefined();
 
-    await mkdir(scopedDir, { recursive: true });
+    await mkdir(packageParentDir, { recursive: true });
 
     const extractResult = await runCommand(
-      ["tar", "-xzf", join(tempRoot, tarball!), "-C", scopedDir],
+      ["tar", "-xzf", join(tempRoot, tarball!), "-C", packageParentDir],
       repoRoot
     );
     expect(extractResult.exitCode).toBe(0);
 
-    await rename(join(scopedDir, "package"), join(scopedDir, "tusk"));
+    await rename(join(packageParentDir, "package"), installedPackageDir);
     await mkdir(join(projectDir, "migrations"), { recursive: true });
 
     await writeFile(
@@ -91,13 +125,9 @@ describe("package smoke test", () => {
       JSON.stringify({ name: "package-smoke", type: "module", private: true })
     );
     await writeFile(
-      join(projectDir, "migrations", "0000000000001_test.up.sql"),
-      "CREATE TABLE smoke_test (id INT);"
-    );
-    await writeFile(
       join(projectDir, "smoke.mjs"),
       `
-      import { readMigrations } from "@jordey92/tusk";
+      import { readMigrations } from ${JSON.stringify(packageName)};
 
       const migrations = await readMigrations("./migrations");
       console.log(migrations.map((migration) => migration.filename).join(","));
@@ -105,14 +135,48 @@ describe("package smoke test", () => {
     );
 
     const versionResult = await runCommand(
-      [process.execPath, join(projectDir, "node_modules", "@jordey92", "tusk", "dist", "cli.js"), "version"],
-      projectDir
+      [nodeBinary, cliEntrypoint, "version"],
+      projectDir,
+      commandEnv
     );
     expect(versionResult.exitCode).toBe(0);
     expect(versionResult.stdout).toContain("tusk v");
 
-    const apiResult = await runCommand([process.execPath, "smoke.mjs"], projectDir);
+    const runPackagedCli = (args: string[]) =>
+      runCommand([nodeBinary, cliEntrypoint, ...args], projectDir, commandEnv);
+
+    let upFile: string | undefined;
+
+    if (packageSmokeDatabaseUrl) {
+      const pool = new Pool({ connectionString: packageSmokeDatabaseUrl });
+      try {
+        ({ upFile } = await exerciseMigrationLifecycle({
+          runCli: runPackagedCli,
+          migrationsPath: join(projectDir, "migrations"),
+          pool,
+          migrationName: "smoke_test",
+          tableName: "smoke_test",
+        }));
+      } finally {
+        await pool.end();
+      }
+    } else {
+      const createResult = await runPackagedCli(["create", "smoke_test"]);
+      expect(createResult.exitCode).toBe(0);
+      expect(createResult.stdout).toContain("Created");
+
+      const createdFiles = await readdir(join(projectDir, "migrations"));
+      upFile = createdFiles.find((file) => file.endsWith(".up.sql"));
+      expect(upFile).toBeDefined();
+    }
+
+    const apiResult = await runCommand(
+      [nodeBinary, "smoke.mjs"],
+      projectDir,
+      commandEnv
+    );
     expect(apiResult.exitCode).toBe(0);
-    expect(apiResult.stdout).toContain("0000000000001_test.up.sql");
+    expect(apiResult.stdout).toContain(upFile!);
+
   });
 });

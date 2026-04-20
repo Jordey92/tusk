@@ -40,3 +40,4 @@ FUTURE*.md
 
 # testing
 /_migrations
+.omx/

@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify-modern:
+    name: Verify (Node 24, PostgreSQL 18)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:18.3-bookworm
+        env:
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: migrate_tool_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U user -d migrate_tool_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://user:password@127.0.0.1:5433/migrate_tool_test
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5433
+      DB_USER: user
+      DB_PASSWORD: password
+      DB_NAME: migrate_tool_test
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Restore Bun cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build package
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p artifacts/verify-modern
+          bun run build 2>&1 | tee artifacts/verify-modern/build.log
+
+      - name: Run test suite
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p artifacts/verify-modern
+          bun test 2>&1 | tee artifacts/verify-modern/bun-test.log
+        env:
+          TUSK_PACKAGE_SMOKE_SKIP_BUILD: "1"
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-modern-logs
+          path: |
+            artifacts/verify-modern
+            .tmp
+          if-no-files-found: ignore
+          retention-days: 14
+
+  minimum-supported:
+    uses: ./.github/workflows/reusable-package-smoke.yml
+    with:
+      job_name: Minimum Support (Node 18, PostgreSQL 13)
+      node_version: "18"
+      postgres_image: postgres:13.23-bookworm
+      artifact_name: minimum-supported-logs

@@ -1,5 +1,7 @@
 # Tusk
 
+[![CI](https://github.com/jordey92/tusk/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jordey92/tusk/actions/workflows/ci.yml)
+
 Tusk is a SQL-first PostgreSQL migration tool for Node.js and Bun.
 
 It is explicit and low abstraction:
@@ -16,6 +18,11 @@ Tusk favors control and embeddability over schema builders and generated migrati
 
 - Node.js `18+` or Bun `1+`
 - PostgreSQL `13+`
+
+Recommended for new projects:
+
+- Node.js `24`
+- PostgreSQL `18`
 
 ## Install
 
@@ -189,6 +196,20 @@ tusk down [count]
 tusk status
 tusk version
 ```
+
+## Support Policy
+
+Tusk keeps a wide support floor for teams working on older projects while still treating the current stack as the primary development lane.
+
+- Supported floor: Node.js `18+`, Bun `1+`, PostgreSQL `13+`
+- Recommended stack: Node.js `24`, PostgreSQL `18`
+- Required PR CI checks:
+  - `Verify (Node 24, PostgreSQL 18)` runs the full build and test suite
+  - `Minimum Support (Node 18, PostgreSQL 13)` runs the packaged smoke test against the oldest supported runtime/database pair
+- Scheduled compatibility coverage:
+  - the `Compatibility Matrix` workflow exercises packaged smoke tests across multiple supported Node.js and PostgreSQL versions
+
+If a supported floor version stops passing CI, it is a regression and should be treated as a bug.
 
 ## More
 
