@@ -1,0 +1,144 @@
+name: Prepare Release PR
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: "How to determine the next version"
+        required: true
+        default: "patch"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - custom
+      custom_version:
+        description: "Explicit version to prepare when release_type is custom"
+        required: false
+        type: string
+
+concurrency:
+  group: release-pr-${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN }}
+
+    steps:
+      - name: Check release PR token
+        run: |
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "RELEASE_PR_TOKEN secret is required."
+            echo "Use a fine-grained PAT or app token with contents and pull requests write access."
+            exit 1
+          fi
+
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PR_TOKEN }}
+
+      - name: Ensure workflow runs from default branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [ "${GITHUB_REF_NAME}" != "${DEFAULT_BRANCH}" ]; then
+            echo "Run release preparation from ${DEFAULT_BRANCH}, not ${GITHUB_REF_NAME}."
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Determine release version
+        id: version
+        shell: bash
+        run: |
+          release_type="${{ github.event.inputs.release_type }}"
+          custom_version="${{ github.event.inputs.custom_version }}"
+
+          current_version="$(node -p "require('./package.json').version")"
+          echo "Current version: ${current_version}"
+
+          case "${release_type}" in
+            patch|minor|major)
+              npm version "${release_type}" --no-git-tag-version
+              next_version="$(node -p "require('./package.json').version")"
+              ;;
+            custom)
+              if [ -z "${custom_version}" ]; then
+                echo "custom_version is required when release_type is custom"
+                exit 1
+              fi
+              npm version "${custom_version}" --no-git-tag-version
+              next_version="$(node -p "require('./package.json').version")"
+              ;;
+            *)
+              echo "Unsupported release type: ${release_type}"
+              exit 1
+              ;;
+          esac
+
+          tag="v${next_version}"
+          branch="release/${tag}"
+
+          if git ls-remote --tags origin "refs/tags/${tag}" | grep -q "${tag}$"; then
+            echo "Tag ${tag} already exists on origin"
+            exit 1
+          fi
+
+          if git ls-remote --heads origin "refs/heads/${branch}" | grep -q "${branch}$"; then
+            echo "Release branch ${branch} already exists on origin"
+            exit 1
+          fi
+
+          if gh pr list --base "${{ github.event.repository.default_branch }}" --head "${branch}" --state open --json number --jq 'length > 0' | grep -q true; then
+            echo "An open release PR for ${branch} already exists"
+            exit 1
+          fi
+
+          echo "version=${next_version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "branch=${branch}" >> "$GITHUB_OUTPUT"
+
+      - name: Commit release branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "${{ steps.version.outputs.branch }}"
+          git add package.json
+          git commit -m "chore(release): prepare ${{ steps.version.outputs.tag }}"
+
+      - name: Push release branch
+        run: git push -u origin "${{ steps.version.outputs.branch }}"
+
+      - name: Open release pull request
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          body_file="$(mktemp)"
+          cat > "${body_file}" <<EOF
+          ## Summary
+          - prepare `${{ steps.version.outputs.tag }}` for release
+          - bump \`package.json\` from the current published line to `${{ steps.version.outputs.version }}`
+
+          ## Next Step
+          - merge this PR after CI passes
+          - run the \`Publish npm Release\` workflow from \`${DEFAULT_BRANCH}\`
+          EOF
+
+          gh pr create \
+            --base "${DEFAULT_BRANCH}" \
+            --head "${{ steps.version.outputs.branch }}" \
+            --title "chore(release): prepare ${{ steps.version.outputs.tag }}" \
+            --body-file "${body_file}"
