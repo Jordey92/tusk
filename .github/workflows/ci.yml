@@ -68,21 +68,12 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Build package
+      - name: Run CI verification
         shell: bash
         run: |
           set -o pipefail
           mkdir -p artifacts/verify-modern
-          bun run build 2>&1 | tee artifacts/verify-modern/build.log
-
-      - name: Run test suite
-        shell: bash
-        run: |
-          set -o pipefail
-          mkdir -p artifacts/verify-modern
-          bun test 2>&1 | tee artifacts/verify-modern/bun-test.log
-        env:
-          TUSK_PACKAGE_SMOKE_SKIP_BUILD: "1"
+          bun run test:ci 2>&1 | tee artifacts/verify-modern/test-ci.log
 
       - name: Upload failure artifacts
         if: failure()

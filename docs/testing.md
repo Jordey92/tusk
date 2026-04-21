@@ -17,25 +17,59 @@ GitHub Actions also runs an expanded compatibility matrix on a schedule.
 
 ## Local Verification
 
-### Full modern verification
+### Fast unit checks
 
-Run the full suite from the repository root:
+Run the tests that do not require PostgreSQL:
 
 ```bash
-bun run build
-bun test
+bun run test
+# or
+bun run test:unit
+```
+
+This is the recommended default local check while iterating on non-database code.
+
+### Smoke checks
+
+Run the highest-signal local smoke paths against a running PostgreSQL service on `127.0.0.1:5433`:
+
+```bash
+bun run test:smoke
+```
+
+This covers:
+
+- the packed npm artifact via `package-smoke.test.ts`
+- the CLI happy path via `cli.test.ts`
+- the Elysia startup integration via `plugins/elysia.test.ts`
+
+### Full modern verification
+
+Run the same command as the modern GitHub Actions verification lane:
+
+```bash
+bun run test:ci
 ```
 
 This matches the `Verify (Node 24, PostgreSQL 18)` workflow when a local PostgreSQL service is available.
+
+### Database-backed integration coverage
+
+Run the deeper PostgreSQL-backed integration suites:
+
+```bash
+bun run test:db
+```
+
+This covers the adapter and migration engine integration paths beyond the smoke tests.
 
 ### Minimum-supported packaged smoke test
 
 To verify the published package shape and the oldest supported runtime/database pair:
 
 ```bash
-bun run build
 TUSK_SMOKE_DATABASE_URL=postgresql://user:password@127.0.0.1:5433/migrate_tool_test \
-  bun test package-smoke.test.ts
+  bun run test:smoke:package
 ```
 
 This is the same path used by the `Minimum Support (Node 18, PostgreSQL 13)` workflow, except CI also runs the test under Node.js 18.
@@ -51,7 +85,10 @@ docker compose up -d db
 Then run the suite again:
 
 ```bash
-bun test
+bun run test:smoke
+bun run test:db
+# or the full lane
+bun run test:ci
 ```
 
 The integration tests expect the local service on `127.0.0.1:5433` with the credentials in [.env.example](../.env.example).
@@ -61,8 +98,7 @@ The integration tests expect the local service on `127.0.0.1:5433` with the cred
 To verify the packed npm artifact without hitting a database:
 
 ```bash
-bun run build
-bun test package-smoke.test.ts
+bun run test:smoke:package
 ```
 
 If `TUSK_SMOKE_DATABASE_URL` is set, the smoke test also exercises `create`, `up`, `status`, and `down` against a real PostgreSQL instance using the packed CLI.
