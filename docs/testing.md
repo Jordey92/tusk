@@ -112,8 +112,10 @@ Tusk currently uses three GitHub Actions workflows:
   - `Minimum Support (Node 18, PostgreSQL 13)` is intended to be a required branch check
 - `Compatibility Matrix`
   - scheduled and manually runnable compatibility smoke coverage across multiple Node.js and PostgreSQL versions
-- `Release and Publish npm Package`
-  - manual release workflow gated on the minimum-supported package smoke test and the modern full-suite verification path
+- `Prepare Release PR`
+  - manually creates a version-bump PR against `main`
+- `Publish npm Release`
+  - manually publishes the version already merged to `main`
 
 ## Troubleshooting
 
