@@ -139,19 +139,12 @@ jobs:
           echo "version=${next_version}" >> "$GITHUB_OUTPUT"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
 
-      - name: Build package
+      - name: Run CI verification
         shell: bash
         run: |
           set -o pipefail
           mkdir -p artifacts/release
-          bun run build 2>&1 | tee artifacts/release/build.log
-
-      - name: Run test suite
-        shell: bash
-        run: |
-          set -o pipefail
-          mkdir -p artifacts/release
-          bun test 2>&1 | tee artifacts/release/bun-test.log
+          bun run test:ci 2>&1 | tee artifacts/release/test-ci.log
         env:
           DATABASE_URL: postgresql://user:password@127.0.0.1:5433/migrate_tool_test
           DB_HOST: 127.0.0.1
@@ -159,7 +152,6 @@ jobs:
           DB_USER: user
           DB_PASSWORD: password
           DB_NAME: migrate_tool_test
-          TUSK_PACKAGE_SMOKE_SKIP_BUILD: "1"
 
       - name: Upload failure artifacts
         if: failure()

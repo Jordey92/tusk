@@ -42,7 +42,12 @@
   ],
   "scripts": {
     "build": "tsc",
-    "test": "bun test",
+    "test": "bun run test:unit",
+    "test:unit": "bun test core/create-migration.test.ts core/read-migrations.test.ts core/rollback-plan.test.ts utils/checksum.test.ts utils/errors.test.ts utils/filename.test.ts utils/logger.test.ts utils/runtime.test.ts utils/version.test.ts adapters/pg/sql-generator.test.ts adapters/pg/introspection.test.ts adapters/pg/locking.test.ts",
+    "test:smoke:package": "bun test package-smoke.test.ts",
+    "test:smoke": "TUSK_SMOKE_DATABASE_URL=postgresql://user:password@127.0.0.1:5433/migrate_tool_test bun test package-smoke.test.ts cli.test.ts plugins/elysia.test.ts",
+    "test:db": "bun test adapters/pg.test.ts adapters/postgresjs.test.ts core/run-migrations.test.ts core/init-migration.test.ts core/track-migrations.test.ts",
+    "test:ci": "bun run build && TUSK_PACKAGE_SMOKE_SKIP_BUILD=1 bun test",
     "prepublishOnly": "bun run build"
   },
   "devDependencies": {
