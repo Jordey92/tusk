@@ -112,6 +112,9 @@ Check status:
 
 ```bash
 npx tusk status
+npx tusk status --exit-code
+npx tusk status --json
+npx tusk status --quiet
 ```
 
 Roll back the last migration:
@@ -196,6 +199,12 @@ tusk down [count]
 tusk status
 tusk version
 ```
+
+`tusk status --exit-code` exits with status `1` when migrations are pending and `0` when the schema is clean.
+
+`tusk status --quiet` suppresses the detailed sections and prints only the summary line, which is useful for scripts and CI logs.
+
+`tusk status --json` prints machine-readable status data with `executed`, `pending`, and `summary` fields. It can be combined with `--exit-code`, but not with `--quiet`.
 
 ## Support Policy
 
