@@ -31,6 +31,10 @@
       {
         "file": "utils/cli-output.ts",
         "testCommand": "bun test utils/cli-output.test.ts cli.test.ts"
+      },
+      {
+        "file": "utils/cli-parser.ts",
+        "testCommand": "bun test utils/cli-parser.test.ts cli.test.ts"
       }
     ]
   }
