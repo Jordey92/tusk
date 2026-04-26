@@ -134,7 +134,7 @@ npx tusk up --dry-run
 npx tusk up --dry-run --json
 ```
 
-Roll back the last migration. `down` defaults to one rollback so an omitted
+Roll back migrations. `down` defaults to one rollback so an omitted
 argument cannot accidentally undo the full migration history:
 
 ```bash
