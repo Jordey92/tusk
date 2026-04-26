@@ -1,4 +1,3 @@
-import type { QueryResultRow } from "pg";
 import type { QueryClient } from "../../types/migrations.js";
 import type {
   ColumnInfo,

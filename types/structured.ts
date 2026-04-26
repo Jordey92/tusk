@@ -1,4 +1,4 @@
-export type StructuredValue =
+type StructuredValue =
   | string
   | number
   | boolean

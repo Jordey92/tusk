@@ -2,7 +2,6 @@ import type { QueryResultRow } from "pg";
 import type {
   ConnectionClient,
   ConnectionPool,
-  QueryParam,
 } from "../../types/migrations.js";
 import { logger } from "../../utils/logger.js";
 
