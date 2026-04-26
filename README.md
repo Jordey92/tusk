@@ -134,11 +134,14 @@ npx tusk up --dry-run
 npx tusk up --dry-run --json
 ```
 
-Roll back the last migration:
+Roll back migrations. `down` defaults to one rollback so an omitted
+argument cannot accidentally undo the full migration history:
 
 ```bash
-npx tusk down 1
-npx tusk down 1 --dry-run
+npx tusk down
+npx tusk down --dry-run
+npx tusk down 3
+npx tusk down --all
 ```
 
 ## Starting From an Existing Database
@@ -216,12 +219,20 @@ tusk create <name>
 tusk init
 tusk up
 tusk down [count]
+tusk down --all
 tusk status
 tusk validate
 tusk version
 ```
 
-`tusk up --dry-run` and `tusk down [count] --dry-run` print the ordered migration SQL without applying it.
+`tusk down` rolls back one migration by default. This is intentionally narrow:
+the safest rollback is the latest migration only, and broader rollback should be
+explicit. Use `tusk down <count>` to roll back several migrations, or
+`tusk down --all` to roll back every applied migration.
+
+`tusk up --dry-run`, `tusk down --dry-run`,
+`tusk down <count> --dry-run`, and `tusk down --all --dry-run` print the
+ordered migration SQL without applying it.
 
 `tusk status --exit-code` exits with status `1` when migrations are pending and `0` when the schema is clean.
 

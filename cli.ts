@@ -30,6 +30,7 @@ interface ParsedCommandArgs {
   json: boolean;
   dryRun: boolean;
   checkDatabase: boolean;
+  downAll: boolean;
   downCount?: string;
   status: StatusOptions;
 }
@@ -89,7 +90,7 @@ Commands:
   create <name>   Create a new migration with the given name
   init            Generate baseline migration and mark it as applied
   up              Run all pending migrations
-  down [n]        Rollback last n migrations (defaults to all if n not specified)
+  down [n]        Roll back n migrations (defaults to 1; use --all for all)
   status          Show migration status
   validate        Validate migration files without applying them
   version         Show version number
@@ -108,6 +109,8 @@ Options:
   up/down:
     --dry-run     Print the ordered migration plan without applying SQL
     --json        Output machine-readable command data
+  down:
+    --all         Roll back all applied migrations
 
 Environment variables:
   DATABASE_URL    PostgreSQL connection string
@@ -126,6 +129,7 @@ Examples:
   tusk up
   tusk down
   tusk down 3
+  tusk down --all
   tusk status
   tusk status --exit-code
   tusk status --json
@@ -142,6 +146,7 @@ const parseCommandArgs = (command: string, rawArgs: string[]): ParsedCommandArgs
     json: false,
     dryRun: false,
     checkDatabase: false,
+    downAll: false,
     status: {
       exitCode: false,
       json: false,
@@ -159,6 +164,32 @@ const parseCommandArgs = (command: string, rawArgs: string[]): ParsedCommandArgs
       if (rawArg === "--dry-run") {
         parsed.dryRun = true;
         continue;
+      }
+
+      if (rawArg === "--all") {
+        if (parsed.downCount) {
+          throw createValidationError(
+            "Down command cannot combine --all with a count",
+            { command, args: rawArgs }
+          );
+        }
+
+        parsed.downAll = true;
+        continue;
+      }
+
+      if (rawArg.startsWith("-")) {
+        throw createValidationError(
+          `Unknown down option: ${rawArg}. Valid options: --dry-run, --json, --all`,
+          { command, arg: rawArg }
+        );
+      }
+
+      if (parsed.downAll) {
+        throw createValidationError(
+          "Down command cannot combine --all with a count",
+          { command, args: rawArgs }
+        );
       }
 
       if (parsed.downCount) {
@@ -292,6 +323,31 @@ const parseCommandArgs = (command: string, rawArgs: string[]): ParsedCommandArgs
   return parsed;
 };
 
+const parsePositiveInteger = (value: string) => {
+  if (!/^\d+$/.test(value)) {
+    return undefined;
+  }
+
+  const count = Number(value);
+  if (!Number.isSafeInteger(count) || count < 1) {
+    return undefined;
+  }
+
+  return count;
+};
+
+const getCliDownCount = (parsedArgs: ParsedCommandArgs) => {
+  if (parsedArgs.downAll) {
+    return undefined;
+  }
+
+  if (parsedArgs.downCount) {
+    return parsePositiveInteger(parsedArgs.downCount);
+  }
+
+  return 1;
+};
+
 const validateCommand = (command: string, parsedArgs: ParsedCommandArgs, arg?: string) => {
   const validCommands = ["create", "init", "up", "down", "status", "validate", "version", "help"];
 
@@ -312,8 +368,8 @@ const validateCommand = (command: string, parsedArgs: ParsedCommandArgs, arg?: s
   }
 
   if (command === "down" && parsedArgs.downCount) {
-    const count = parseInt(parsedArgs.downCount);
-    if (isNaN(count) || count < 1) {
+    const count = parsePositiveInteger(parsedArgs.downCount);
+    if (count === undefined) {
       const tuskError = createValidationError(
         "Count must be a positive integer for down command",
         { command, arg: parsedArgs.downCount }
@@ -478,7 +534,7 @@ const runDatabaseCommand = async (
     }
 
     if (command === "down") {
-      const count = parsedArgs.downCount ? parseInt(parsedArgs.downCount) : undefined;
+      const count = getCliDownCount(parsedArgs);
       if (parsedArgs.dryRun) {
         logger.info("Planning down migrations", { count });
         const plan = await createDownPlan(adapter, migrationsPath, count);
