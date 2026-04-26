@@ -116,25 +116,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "${{ steps.version.outputs.branch }}"
-          mkdir -p docs/releases
-          cat > "docs/releases/${{ steps.version.outputs.tag }}.md" <<'EOF'
-          # ${{ steps.version.outputs.tag }}
-
-          TODO: Write the release summary in human language before merging this PR.
-
-          ## What's New
-
-          - TODO: Describe the most important user-facing changes.
-
-          ## Upgrade Notes
-
-          - TODO: Note compatibility, migration, or operational changes. Use "None" if there are none.
-
-          ## Pull Requests
-
-          - TODO: Link the important pull requests included in this release.
-          EOF
-          git add package.json "docs/releases/${{ steps.version.outputs.tag }}.md"
+          git add package.json
           git commit -m "chore(release): prepare ${{ steps.version.outputs.tag }}"
 
       - name: Push release branch
@@ -151,7 +133,6 @@ jobs:
           - bump \`package.json\` from the current published line to `${{ steps.version.outputs.version }}`
 
           ## Next Step
-          - replace the TODO placeholders in \`docs/releases/${{ steps.version.outputs.tag }}.md\` with human-written release notes
           - merge this PR after CI passes
           - run the \`Publish npm Release\` workflow from \`${DEFAULT_BRANCH}\`
           EOF

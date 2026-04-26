@@ -16,15 +16,11 @@ The normal release path is a two-step release PR flow:
 
 ## Release Notes
 
-Every release must include human-written release notes in `docs/releases/vX.Y.Z.md`.
+If the publish workflow is run with GitHub release creation enabled, it creates a GitHub release using GitHub-generated release notes automatically.
 
-The prepare workflow creates a draft release-notes file with placeholders. Before merging the release PR, replace the placeholders with concise notes that explain:
+When a release deserves a fuller write-up, add an optional checked-in note at `docs/releases/vX.Y.Z.md`. Agents working on a release can write this as part of the release PR, but publishing should not depend on a person manually filling out a template or on creating a GitHub release.
 
-- what changed
-- why the change matters
-- any upgrade or compatibility notes
-
-The publish workflow refuses to publish if the matching release-notes file is missing or still contains placeholder markers such as `TODO`, `TBD`, or `FIXME`. When creating the GitHub release, the workflow uses this checked-in file as the release body instead of generated notes.
+Good release notes should explain what changed, why it matters, and any upgrade or compatibility notes.
 
 See [v0.3.0](./releases/v0.3.0.md) for the current release-note style.
 
@@ -67,9 +63,8 @@ The workflow:
 
 1. computes the next version
 2. creates a `release/vX.Y.Z` branch from `main`
-3. creates `docs/releases/vX.Y.Z.md` as a release-notes draft
-4. commits the `package.json` version bump and release-notes draft on that branch
-5. opens a pull request back to `main`
+3. commits the `package.json` version bump on that branch
+4. opens a pull request back to `main`
 
 Workflow permissions:
 
@@ -93,12 +88,11 @@ The workflow:
 
 1. runs the `Minimum Support Verification (Node 18, PostgreSQL 13)` job against the packed package smoke path
 2. reads the version directly from `package.json` on `main`
-3. verifies that `docs/releases/vX.Y.Z.md` exists and no longer contains placeholder markers
-4. verifies that the matching tag and npm version do not already exist
-5. runs `bun run test:ci` on the modern verification lane (`Node 24`, `PostgreSQL 18`)
-6. publishes with `npm publish --access public`
-7. creates and pushes the git tag
-8. optionally creates a GitHub release with the checked-in release notes
+3. verifies that the matching tag and npm version do not already exist
+4. runs `bun run test:ci` on the modern verification lane (`Node 24`, `PostgreSQL 18`)
+5. publishes with `npm publish --access public`
+6. creates and pushes the git tag
+7. optionally creates a GitHub release with generated release notes
 
 The publish workflow should use an `NPM_TOKEN` secret.
 

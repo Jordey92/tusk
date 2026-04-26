@@ -89,18 +89,6 @@ jobs:
         run: |
           version="$(node -p "require('./package.json').version")"
           tag="v${version}"
-          release_notes_file="docs/releases/${tag}.md"
-
-          if [ ! -f "${release_notes_file}" ]; then
-            echo "Missing release notes: ${release_notes_file}"
-            echo "Add human-written release notes before publishing."
-            exit 1
-          fi
-
-          if grep -Eiq 'TODO|TBD|FIXME' "${release_notes_file}"; then
-            echo "Release notes still contain placeholder markers: ${release_notes_file}"
-            exit 1
-          fi
 
           if git ls-remote --tags origin "refs/tags/${tag}" | grep -q "${tag}$"; then
             echo "Tag ${tag} already exists on origin"
@@ -114,7 +102,6 @@ jobs:
 
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
-          echo "release_notes_file=${release_notes_file}" >> "$GITHUB_OUTPUT"
 
       - name: Run CI verification
         shell: bash
@@ -158,5 +145,5 @@ jobs:
         run: |
           gh release create "${{ steps.version.outputs.tag }}" \
             --title "${{ steps.version.outputs.tag }}" \
-            --notes-file "${{ steps.version.outputs.release_notes_file }}" \
+            --generate-notes \
             --latest
