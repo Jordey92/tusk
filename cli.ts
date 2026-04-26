@@ -357,19 +357,18 @@ if (command === "version" || command === "--version" || command === "-v") {
 const run = async () => {
   try {
     const parsedArgs = parseCommandArgs(command, rawArgs);
-    const primaryArg = parsedArgs.downCount;
 
-    validateCommand(command, parsedArgs, primaryArg);
+    validateCommand(command, parsedArgs);
     logger.info("Starting tusk migration tool", {
       command,
-      arg: primaryArg,
+      arg: parsedArgs.createName ?? parsedArgs.downCount,
       rawArgs,
       migrationsPath
     });
 
     if (command === "create") {
-      logger.info("Creating migration", { name: primaryArg });
-      const files = await createMigrationFile(migrationsPath, primaryArg!);
+      logger.info("Creating migration", { name: parsedArgs.createName });
+      const files = await createMigrationFile(migrationsPath, parsedArgs.createName!);
       if (parsedArgs.json) {
         writeJson(createSuccessPayload("create", {
           ...files,

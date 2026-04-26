@@ -8,7 +8,7 @@ import { isTuskError } from "./errors";
 
 const parseAndValidate = (command: string, args: string[]) => {
   const parsed = parseCommandArgs(command, args);
-  validateCommand(command, parsed, parsed.downCount);
+  validateCommand(command, parsed);
   return parsed;
 };
 
@@ -79,7 +79,7 @@ describe("CLI parser", () => {
     const parsed = parseCommandArgs("down", ["1abc"]);
 
     expectValidationError(
-      () => validateCommand("down", parsed, parsed.downCount),
+      () => validateCommand("down", parsed),
       "Count must be a positive integer"
     );
     expectValidationError(
@@ -91,7 +91,7 @@ describe("CLI parser", () => {
   test("parses create, validate, and status command flags", () => {
     expect(parseAndValidate("create", ["widgets", "--json"])).toMatchObject({
       json: true,
-      downCount: "widgets",
+      createName: "widgets",
     });
     expect(parseAndValidate("validate", ["--db", "--json"])).toMatchObject({
       json: true,
@@ -113,11 +113,15 @@ describe("CLI parser", () => {
       "Migration name required"
     );
     expectValidationError(
+      () => parseCommandArgs("create", ["one", "two"]),
+      "Create command accepts exactly one migration name argument"
+    );
+    expectValidationError(
       () => validateCommand("status", parseCommandArgs("status", ["--json", "--quiet"])),
       "cannot be combined"
     );
     expectValidationError(
-      () => validateCommand("unknown", parseCommandArgs("unknown", [])),
+      () => validateCommand("unknown", parseCommandArgs("unknown", ["--flag"])),
       "Unknown command"
     );
   });

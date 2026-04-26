@@ -1,6 +1,6 @@
 import { createValidationError } from "./errors.js";
 
-export interface StatusOptions {
+interface StatusOptions {
   exitCode: boolean;
   json: boolean;
   quiet: boolean;
@@ -11,9 +11,12 @@ export interface ParsedCommandArgs {
   dryRun: boolean;
   checkDatabase: boolean;
   downAll: boolean;
+  createName?: string;
   downCount?: string;
   status: StatusOptions;
 }
+
+const validCommands = ["create", "init", "up", "down", "status", "validate", "version", "help"];
 
 const emptyParsedCommandArgs = (): ParsedCommandArgs => ({
   json: false,
@@ -102,7 +105,7 @@ const parseCreateArgs = (rawArgs: string[]): ParsedCommandArgs => {
     );
   }
 
-  parsed.downCount = positionalArgs[0];
+  parsed.createName = positionalArgs[0];
   return parsed;
 };
 
@@ -214,7 +217,7 @@ export const parseCommandArgs = (
   if (command === "validate") return parseValidateArgs(rawArgs);
   if (command === "status") return parseStatusArgs(rawArgs);
 
-  if (rawArgs.length > 0) {
+  if (validCommands.includes(command) && rawArgs.length > 0) {
     throw createValidationError(
       `${command} does not accept additional arguments`,
       { command, args: rawArgs }
@@ -251,11 +254,8 @@ export const getCliDownCount = (parsedArgs: ParsedCommandArgs) => {
 
 export const validateCommand = (
   command: string,
-  parsedArgs: ParsedCommandArgs,
-  arg?: string
+  parsedArgs: ParsedCommandArgs
 ) => {
-  const validCommands = ["create", "init", "up", "down", "status", "validate", "version", "help"];
-
   if (!validCommands.includes(command)) {
     const tuskError = createValidationError(
       `Unknown command: ${command}. Valid commands: ${validCommands.join(", ")}`,
@@ -264,7 +264,7 @@ export const validateCommand = (
     throw tuskError;
   }
 
-  if (command === "create" && !arg) {
+  if (command === "create" && !parsedArgs.createName) {
     const tuskError = createValidationError(
       "Migration name required for create command",
       { command }
