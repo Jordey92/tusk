@@ -5,7 +5,6 @@
     "cli.ts",
     "mcp/server.ts",
     "scripts/quality/*.ts",
-    "*.test.ts",
     "**/*.test.ts"
   ],
   "project": [
