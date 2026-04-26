@@ -14,6 +14,16 @@ The normal release path is a two-step release PR flow:
 - An npm token with publish access to the `@bydey` scope
 - A `RELEASE_PR_TOKEN` secret with permission to push branches and open pull requests
 
+## Release Notes
+
+If the publish workflow is run with GitHub release creation enabled, it creates a GitHub release using GitHub-generated release notes automatically.
+
+When a release deserves a fuller write-up, add an optional checked-in note at `docs/releases/vX.Y.Z.md`. Agents working on a release can write this as part of the release PR, but publishing should not depend on a person manually filling out a template or on creating a GitHub release.
+
+Good release notes should explain what changed, why it matters, and any upgrade or compatibility notes.
+
+See [v0.3.0](./releases/v0.3.0.md) for the current release-note style.
+
 ## Manual Local Publish
 
 From the repo root:
@@ -82,7 +92,7 @@ The workflow:
 4. runs `bun run test:ci` on the modern verification lane (`Node 24`, `PostgreSQL 18`)
 5. publishes with `npm publish --access public`
 6. creates and pushes the git tag
-7. optionally creates a GitHub release
+7. optionally creates a GitHub release with generated release notes
 
 The publish workflow should use an `NPM_TOKEN` secret.
 
