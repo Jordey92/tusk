@@ -3,7 +3,7 @@ import { readdir, writeFile } from "fs/promises";
 import { join } from "path";
 import type { Pool } from "pg";
 
-export interface CliCommandResult {
+interface CliCommandResult {
   exitCode: number;
   stdout: string;
   stderr: string;

@@ -26,7 +26,7 @@ export interface CliErrorPayload {
   };
 }
 
-export interface MigrationFilePayload {
+interface MigrationFilePayload {
   filename: string;
 }
 
