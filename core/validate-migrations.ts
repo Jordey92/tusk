@@ -48,7 +48,7 @@ interface ValidationState {
 
 const MIGRATION_FILENAME_REGEX = /^(\d+)(?:_.+)?\.(up|down)\.sql$/;
 const TRANSACTION_STATEMENT_REGEX =
-  /(?:^|;)\s*(?:BEGIN(?:\s+TRANSACTION)?|COMMIT|ROLLBACK|START\s+TRANSACTION)\b\s*;/i;
+  /(?:^|;)\s*(?:BEGIN(?:\s+TRANSACTION)?|COMMIT|ROLLBACK|START\s+TRANSACTION)\b\s*(?:;|$)/i;
 
 const stripSqlComments = (sql: string) =>
   sql
@@ -471,10 +471,10 @@ export const validateMigrations = async (
     return createResult(state.issues, state.validFiles);
   }
 
-  const sqlFiles = directoryEntries.filter((file) => file.endsWith(".sql"));
-  await Promise.all(
-    sqlFiles.map((filename) => validateMigrationFile(state, filename))
-  );
+  const sqlFiles = directoryEntries.filter((file) => file.endsWith(".sql")).sort();
+  for (const filename of sqlFiles) {
+    await validateMigrationFile(state, filename);
+  }
 
   const groups = groupMigrationFiles(state.validFiles);
   validateMigrationPairs(state, groups.directionsByBaseName);

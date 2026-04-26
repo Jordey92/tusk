@@ -45,7 +45,7 @@ const lineForOffset = (source: string, offset: number) =>
   source.slice(0, offset).split(/\r?\n/).length;
 
 const overlapsExistingMutant = (mutants: Mutant[], start: number, end: number) =>
-  mutants.some((mutant) => mutant.start === start && mutant.end === end);
+  mutants.some((mutant) => start < mutant.end && end > mutant.start);
 
 const collectMutants = (
   file: string,

@@ -75,6 +75,28 @@ describe("validateMigrations", () => {
     }
   });
 
+  test("reports transaction statements without trailing semicolons", async () => {
+    const migrationsPath = await createTempDir();
+
+    try {
+      await writeMigrationPair(
+        migrationsPath,
+        "1728123456791_create_users",
+        "CREATE TABLE users (id INTEGER PRIMARY KEY);\nCOMMIT",
+        "DROP TABLE IF EXISTS users;"
+      );
+
+      const result = await validateMigrations(migrationsPath);
+
+      expect(result.ok).toBe(false);
+      expect(result.issues.map((issue) => issue.code)).toContain(
+        "TRANSACTION_STATEMENT_NOT_ALLOWED"
+      );
+    } finally {
+      await rm(migrationsPath, { recursive: true, force: true });
+    }
+  });
+
   test("allows transaction keywords inside SQL string literals", async () => {
     const migrationsPath = await createTempDir();
 

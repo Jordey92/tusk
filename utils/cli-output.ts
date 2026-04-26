@@ -4,11 +4,11 @@ import { isTuskError } from "./errors.js";
 
 export const createSuccessPayload = <T extends object>(
   command: CliCommand,
-  data: T
+  data: T & { ok?: never; command?: never }
 ): CliSuccessPayload & T => ({
+  ...data,
   ok: true,
   command,
-  ...data,
 });
 
 export const createErrorPayload = (

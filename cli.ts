@@ -555,7 +555,7 @@ if (command === "version" || command === "--version" || command === "-v") {
 const run = async () => {
   try {
     const parsedArgs = parseCommandArgs(command, rawArgs);
-    const primaryArg = command === "create" ? parsedArgs.downCount : parsedArgs.downCount;
+    const primaryArg = parsedArgs.downCount;
 
     validateCommand(command, parsedArgs, primaryArg);
     logger.info("Starting tusk migration tool", {

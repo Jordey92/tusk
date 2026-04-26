@@ -17,6 +17,23 @@ describe("CLI output helpers", () => {
     });
   });
 
+  test("success payload data cannot override the envelope at runtime", () => {
+    const payload = createSuccessPayload(
+      "create",
+      {
+        ok: false,
+        command: "down",
+        upFile: "1_test.up.sql",
+      } as unknown as { upFile: string }
+    );
+
+    expect(payload).toEqual({
+      ok: true,
+      command: "create",
+      upFile: "1_test.up.sql",
+    });
+  });
+
   test("creates structured Tusk error payloads", () => {
     const cause = new Error("permission denied");
     const payload = createErrorPayload(
