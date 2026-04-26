@@ -276,6 +276,7 @@ If a supported floor version stops passing CI, it is a regression and should be 
 - [Testing guide](./docs/testing.md)
 - [Agent workflow](./docs/agents.md)
 - [Release guide](./docs/releasing.md)
+- [v0.3.0 release notes](./docs/releases/v0.3.0.md)
 
 ## License
 
