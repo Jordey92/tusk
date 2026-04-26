@@ -50,9 +50,10 @@
     "test:db": "bun test adapters/pg.test.ts adapters/postgresjs.test.ts core/run-migrations.test.ts core/init-migration.test.ts core/track-migrations.test.ts",
     "test:ci": "bun run build && TUSK_PACKAGE_SMOKE_SKIP_BUILD=1 bun test",
     "test:coverage": "bun test --coverage --coverage-reporter=lcov --coverage-dir=coverage core/checksum-validation.test.ts core/create-migration.test.ts core/read-migrations.test.ts core/migration-records.test.ts core/plan-migrations.test.ts core/rollback-plan.test.ts core/validate-migrations.test.ts core/init-migration.test.ts utils/checksum.test.ts utils/cli-output.test.ts utils/errors.test.ts utils/filename.test.ts utils/logger.test.ts utils/runtime.test.ts utils/version.test.ts adapters/pg/sql-generator.test.ts adapters/pg/introspection.test.ts adapters/pg/locking.test.ts adapters/pg/query.test.ts",
+    "quality:dead-code": "knip --no-progress",
     "quality:crap": "bun run test:coverage && bun scripts/quality/crap-report.ts",
     "quality:mutation": "bun scripts/quality/mutation-report.ts",
-    "quality:agentic": "bun run build && bun run quality:crap && bun run quality:mutation",
+    "quality:agentic": "bun run build && bun run quality:dead-code && bun run quality:crap && bun run quality:mutation",
     "prepublishOnly": "bun run build"
   },
   "devDependencies": {
@@ -60,6 +61,7 @@
     "@types/node": "^24.6.2",
     "@types/pg": "^8.15.5",
     "elysia": "^1.4.9",
+    "knip": "^6.7.0",
     "pg": "^8.16.3",
     "postgres": "^3.4.7",
     "typescript": "^5.9.3"
