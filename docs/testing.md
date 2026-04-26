@@ -53,6 +53,25 @@ bun run test:ci
 
 This matches the `Verify (Node 24, PostgreSQL 18)` workflow when a local PostgreSQL service is available.
 
+### Dead-code analysis
+
+Run the repeatable dead-code check:
+
+```bash
+bun run quality:dead-code
+```
+
+This uses `knip.json` to analyze the package entry point, CLI, MCP server,
+quality scripts, and test files. The config intentionally includes bins, tests,
+and script entry points so dead-code findings are useful instead of reporting
+expected project surfaces as false positives.
+
+The broader agentic quality gate also includes this check:
+
+```bash
+bun run quality:agentic
+```
+
 ### Database-backed integration coverage
 
 Run the deeper PostgreSQL-backed integration suites:
