@@ -67,6 +67,9 @@ bun run test:db
 
 - `tusk validate` is read-only unless `--db` is provided, and even then it only queries migration state.
 - `tusk up --dry-run` and `tusk down --dry-run` query migration state and print ordered SQL, but do not apply SQL.
+- `tusk down --dry-run` plans one rollback by default. Use
+  `tusk down <count> --dry-run` or `tusk down --all --dry-run` only when the
+  wider rollback scope is intentional.
 - `tusk status --json` is the preferred machine-readable status check.
 - `--json` suppresses normal informational logs from stdout so agents can parse the response directly.
 
