@@ -32,7 +32,8 @@
   "module": "dist/index.js",
   "type": "module",
   "bin": {
-    "tusk": "dist/cli.js"
+    "tusk": "dist/cli.js",
+    "tusk-mcp": "dist/mcp/server.js"
   },
   "files": [
     "dist",
@@ -43,11 +44,15 @@
   "scripts": {
     "build": "tsc",
     "test": "bun run test:unit",
-    "test:unit": "bun test core/create-migration.test.ts core/read-migrations.test.ts core/rollback-plan.test.ts utils/checksum.test.ts utils/errors.test.ts utils/filename.test.ts utils/logger.test.ts utils/runtime.test.ts utils/version.test.ts adapters/pg/sql-generator.test.ts adapters/pg/introspection.test.ts adapters/pg/locking.test.ts",
+    "test:unit": "bun test core/checksum-validation.test.ts core/create-migration.test.ts core/read-migrations.test.ts core/migration-records.test.ts core/plan-migrations.test.ts core/rollback-plan.test.ts core/validate-migrations.test.ts utils/checksum.test.ts utils/cli-output.test.ts utils/errors.test.ts utils/filename.test.ts utils/logger.test.ts utils/runtime.test.ts utils/version.test.ts adapters/pg/sql-generator.test.ts adapters/pg/introspection.test.ts adapters/pg/locking.test.ts adapters/pg/query.test.ts mcp/server.test.ts",
     "test:smoke:package": "bun test package-smoke.test.ts",
     "test:smoke": "TUSK_SMOKE_DATABASE_URL=postgresql://user:password@127.0.0.1:5433/migrate_tool_test bun test package-smoke.test.ts cli.test.ts plugins/elysia.test.ts",
     "test:db": "bun test adapters/pg.test.ts adapters/postgresjs.test.ts core/run-migrations.test.ts core/init-migration.test.ts core/track-migrations.test.ts",
     "test:ci": "bun run build && TUSK_PACKAGE_SMOKE_SKIP_BUILD=1 bun test",
+    "test:coverage": "bun test --coverage --coverage-reporter=lcov --coverage-dir=coverage core/checksum-validation.test.ts core/create-migration.test.ts core/read-migrations.test.ts core/migration-records.test.ts core/plan-migrations.test.ts core/rollback-plan.test.ts core/validate-migrations.test.ts core/init-migration.test.ts utils/checksum.test.ts utils/cli-output.test.ts utils/errors.test.ts utils/filename.test.ts utils/logger.test.ts utils/runtime.test.ts utils/version.test.ts adapters/pg/sql-generator.test.ts adapters/pg/introspection.test.ts adapters/pg/locking.test.ts adapters/pg/query.test.ts",
+    "quality:crap": "bun run test:coverage && bun scripts/quality/crap-report.ts",
+    "quality:mutation": "bun scripts/quality/mutation-report.ts",
+    "quality:agentic": "bun run build && bun run quality:crap && bun run quality:mutation",
     "prepublishOnly": "bun run build"
   },
   "devDependencies": {

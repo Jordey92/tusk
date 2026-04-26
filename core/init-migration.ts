@@ -1,7 +1,9 @@
 import { mkdir, writeFile } from "fs/promises";
 import { resolve } from "path";
-import type { DatabaseAdapter } from "../types/migrations.js";
+import type { DatabaseAdapter, QueryResultRow } from "../types/migrations.js";
+import { calculateChecksum } from "../utils/checksum.js";
 import { logger } from "../utils/logger.js";
+import { ensureMigrationsTable, markAsExecuted } from "./track-migrations.js";
 
 // Initial migration uses timestamp 0 to ensure it runs first
 const INITIAL_MIGRATION_TIMESTAMP = "0000000000000";
@@ -11,10 +13,77 @@ interface InitMigrationResult {
   upFile: string;
   downFile: string;
   tableCount: number;
+  checksum: string;
+  markedAsExecuted: boolean;
 }
 
+interface BaselineMigrationRow extends QueryResultRow {
+  checksum: string | null;
+}
+
+interface BaselineMigrationRecord {
+  exists: boolean;
+  checksum: string | null;
+}
+
+const readBaselineMigrationRecord = async (
+  adapter: DatabaseAdapter,
+  filename: string
+): Promise<BaselineMigrationRecord> => {
+  const existing = await adapter.query<BaselineMigrationRow>(
+    `SELECT checksum FROM _migrations WHERE filename = $1`,
+    [filename]
+  );
+
+  const row = existing.rows[0];
+  if (!row) {
+    return { exists: false, checksum: null };
+  }
+
+  return { exists: true, checksum: row.checksum };
+};
+
+const assertBaselineRecordCompatible = async (
+  adapter: DatabaseAdapter,
+  filename: string,
+  checksum: string
+) => {
+  const existing = await readBaselineMigrationRecord(adapter, filename);
+
+  if (!existing.checksum || existing.checksum === checksum) {
+    return;
+  }
+
+  throw new Error(
+    `Initial migration ${filename} is already recorded with a different checksum`
+  );
+};
+
+const recordBaselineMigration = async (
+  adapter: DatabaseAdapter,
+  filename: string,
+  checksum: string
+) => {
+  const existing = await readBaselineMigrationRecord(adapter, filename);
+
+  if (existing.checksum === checksum) {
+    return;
+  }
+
+  if (existing.exists) {
+    await adapter.query(
+      `UPDATE _migrations SET checksum = $2 WHERE filename = $1`,
+      [filename, checksum]
+    );
+    return;
+  }
+
+  await markAsExecuted(adapter, filename, checksum);
+};
+
 /**
- * Create initial migration files from existing database schema
+ * Create initial migration files from existing database schema and mark
+ * the generated baseline as already applied.
  */
 export const createInitialMigration = async (
   adapter: DatabaseAdapter,
@@ -39,8 +108,13 @@ export const createInitialMigration = async (
   const upFilename = `${INITIAL_MIGRATION_TIMESTAMP}_${INITIAL_MIGRATION_NAME}.up.sql`;
   const downFilename = `${INITIAL_MIGRATION_TIMESTAMP}_${INITIAL_MIGRATION_NAME}.down.sql`;
 
-  // Ensure migrations directory exists
   const path = resolve(migrationsPath);
+  const checksum = calculateChecksum(upSQL);
+
+  await ensureMigrationsTable(adapter);
+  await assertBaselineRecordCompatible(adapter, upFilename, checksum);
+
+  // Ensure migrations directory exists
   await mkdir(path, { recursive: true });
 
   // Write migration files
@@ -50,15 +124,20 @@ export const createInitialMigration = async (
   await writeFile(upPath, upSQL);
   await writeFile(downPath, downSQL);
 
+  await recordBaselineMigration(adapter, upFilename, checksum);
+
   logger.info("Initial migration created successfully", {
     upFile: upFilename,
     downFile: downFilename,
     tableCount: introspectedSchema.tables.length,
+    checksum,
   });
 
   return {
     upFile: upFilename,
     downFile: downFilename,
     tableCount: introspectedSchema.tables.length,
+    checksum,
+    markedAsExecuted: true,
   };
 };

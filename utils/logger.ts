@@ -31,27 +31,27 @@ const formatMessage = (level: LogLevel, message: string, context?: StructuredCon
   return baseMessage;
 };
 
-const createLogger = (level: LogLevel = getLogLevel()): Logger => ({
+const createLogger = (level?: LogLevel): Logger => ({
   debug: (message: string, context?: StructuredContext) => {
-    if (shouldLog("debug", level)) {
+    if (shouldLog("debug", level ?? getLogLevel())) {
       console.log(formatMessage("debug", message, context));
     }
   },
 
   info: (message: string, context?: StructuredContext) => {
-    if (shouldLog("info", level)) {
+    if (shouldLog("info", level ?? getLogLevel())) {
       console.log(formatMessage("info", message, context));
     }
   },
 
   warn: (message: string, context?: StructuredContext) => {
-    if (shouldLog("warn", level)) {
+    if (shouldLog("warn", level ?? getLogLevel())) {
       console.warn(formatMessage("warn", message, context));
     }
   },
 
   error: (message: string, context?: StructuredContext) => {
-    if (shouldLog("error", level)) {
+    if (shouldLog("error", level ?? getLogLevel())) {
       console.error(formatMessage("error", message, context));
     }
   },

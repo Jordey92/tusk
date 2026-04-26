@@ -1,0 +1,37 @@
+{
+  "crap": {
+    "lcovPath": "coverage/lcov.info",
+    "sourceRoots": ["core", "utils", "adapters/pg"],
+    "exclude": ["**/*.test.ts"],
+    "threshold": 30,
+    "reportPath": ".tmp/quality/crap-report.json"
+  },
+  "mutation": {
+    "minimumScore": 85,
+    "timeoutMs": 15000,
+    "maxMutantsPerFile": 30,
+    "reportPath": ".tmp/quality/mutation-report.json",
+    "targets": [
+      {
+        "file": "core/checksum-validation.ts",
+        "testCommand": "bun test core/checksum-validation.test.ts core/plan-migrations.test.ts"
+      },
+      {
+        "file": "core/plan-migrations.ts",
+        "testCommand": "bun test core/plan-migrations.test.ts"
+      },
+      {
+        "file": "core/validate-migrations.ts",
+        "testCommand": "bun test core/validate-migrations.test.ts"
+      },
+      {
+        "file": "core/init-migration.ts",
+        "testCommand": "bun test core/init-migration.test.ts"
+      },
+      {
+        "file": "utils/cli-output.ts",
+        "testCommand": "bun test utils/cli-output.test.ts cli.test.ts"
+      }
+    ]
+  }
+}
