@@ -149,13 +149,15 @@ describe("package smoke test", () => {
 
     if (packageSmokeDatabaseUrl) {
       const pool = new Pool({ connectionString: packageSmokeDatabaseUrl });
+      const smokeName = `smoke_test_${Date.now()}`;
+
       try {
         ({ upFile } = await exerciseMigrationLifecycle({
           runCli: runPackagedCli,
           migrationsPath: join(projectDir, "migrations"),
           pool,
-          migrationName: "smoke_test",
-          tableName: "smoke_test",
+          migrationName: smokeName,
+          tableName: smokeName,
         }));
       } finally {
         await pool.end();
@@ -177,6 +179,5 @@ describe("package smoke test", () => {
     );
     expect(apiResult.exitCode).toBe(0);
     expect(apiResult.stdout).toContain(upFile!);
-
-  });
+  }, 20_000);
 });

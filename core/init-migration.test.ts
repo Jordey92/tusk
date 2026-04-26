@@ -7,6 +7,7 @@ import { createPgAdapter } from "../adapters/pg";
 import { cleanupMigrations, createTestPool } from "../utils/test-helper";
 import { getCurrentDir } from "../utils/runtime";
 import { createInitialMigration } from "./init-migration";
+import { ensureMigrationsTable } from "./track-migrations";
 
 const pool = createTestPool();
 const adapter = createPgAdapter(pool);
@@ -64,8 +65,69 @@ describe("init migration", () => {
     expect(result.upFile).toContain("0000000000000_initial.up.sql");
     expect(result.downFile).toContain("0000000000000_initial.down.sql");
     expect(result.tableCount).toBe(2);
+    expect(result.markedAsExecuted).toBe(true);
+    expect(result.checksum).toMatch(/^[a-f0-9]{64}$/);
     expect(existsSync(resolve(testMigrationsPath, result.upFile))).toBe(true);
     expect(existsSync(resolve(testMigrationsPath, result.downFile))).toBe(true);
+
+    const migrationRecord = await pool.query(
+      `SELECT checksum FROM _migrations WHERE filename = $1`,
+      [result.upFile]
+    );
+
+    expect(migrationRecord.rows).toHaveLength(1);
+    expect(migrationRecord.rows[0].checksum).toBe(result.checksum);
+  });
+
+  test("allows rerunning init when the recorded baseline still matches", async () => {
+    const { result } = await readGeneratedMigration(() => createBasicTables(pool));
+
+    const rerunResult = await createInitialMigration(adapter, testMigrationsPath);
+    const migrationRecord = await pool.query(
+      `SELECT checksum FROM _migrations WHERE filename = $1`,
+      [result.upFile]
+    );
+
+    expect(rerunResult.checksum).toBe(result.checksum);
+    expect(rerunResult.markedAsExecuted).toBe(true);
+    expect(migrationRecord.rows).toHaveLength(1);
+    expect(migrationRecord.rows[0].checksum).toBe(result.checksum);
+  });
+
+  test("adds a checksum to an existing legacy baseline record", async () => {
+    await createBasicTables(pool);
+    await ensureMigrationsTable(adapter);
+    await pool.query(
+      `INSERT INTO _migrations (filename) VALUES ('0000000000000_initial.up.sql')`
+    );
+
+    const result = await createInitialMigration(adapter, testMigrationsPath);
+    const migrationRecord = await pool.query(
+      `SELECT checksum FROM _migrations WHERE filename = $1`,
+      [result.upFile]
+    );
+
+    expect(migrationRecord.rows).toHaveLength(1);
+    expect(migrationRecord.rows[0].checksum).toBe(result.checksum);
+  });
+
+  test("rejects rerunning init when the recorded baseline would change", async () => {
+    const { result, upContent } = await readGeneratedMigration(() =>
+      createBasicTables(pool)
+    );
+
+    await pool.query(`ALTER TABLE users ADD COLUMN active BOOLEAN DEFAULT true`);
+
+    await expect(
+      createInitialMigration(adapter, testMigrationsPath)
+    ).rejects.toThrow("already recorded with a different checksum");
+
+    const unchangedUpContent = await readFile(
+      resolve(testMigrationsPath, result.upFile),
+      "utf-8"
+    );
+
+    expect(unchangedUpContent).toBe(upContent);
   });
 
   test("preserves dependency order in generated up and down migrations", async () => {

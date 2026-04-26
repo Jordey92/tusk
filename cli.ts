@@ -4,15 +4,14 @@ import "dotenv/config";
 import { Pool } from "pg";
 import { createPgAdapter } from "./adapters/pg.js";
 import { runUp, runDown } from "./core/run-migrations.js";
-import {
-  ensureMigrationsTable,
-  getExecutedMigrationsWithChecksums,
-} from "./core/track-migrations.js";
 import { createMigrationFile } from "./core/create-migration.js";
 import { createInitialMigration } from "./core/init-migration.js";
-import { readMigrations } from "./core/read-migrations.js";
+import { getMigrationStatus } from "./core/migration-status.js";
+import { createDownPlan, createUpPlan, type MigrationPlan } from "./core/plan-migrations.js";
+import { validateMigrations } from "./core/validate-migrations.js";
 import { logger } from "./utils/logger.js";
 import { createConfigurationError, createValidationError, formatTuskError, isTuskError } from "./utils/errors.js";
+import { createErrorPayload, createSuccessPayload, writeJson } from "./utils/cli-output.js";
 import { getCurrentDir } from "./utils/runtime.js";
 import { getPackageVersion } from "./utils/version.js";
 import type { ConnectionConfig } from "./types/migrations.js";
@@ -28,6 +27,9 @@ interface StatusOptions {
 }
 
 interface ParsedCommandArgs {
+  json: boolean;
+  dryRun: boolean;
+  checkDatabase: boolean;
   downCount?: string;
   status: StatusOptions;
 }
@@ -85,10 +87,11 @@ Usage: tusk <command> [options]
 
 Commands:
   create <name>   Create a new migration with the given name
-  init            Generate initial migration from existing database schema
+  init            Generate baseline migration and mark it as applied
   up              Run all pending migrations
   down [n]        Rollback last n migrations (defaults to all if n not specified)
   status          Show migration status
+  validate        Validate migration files without applying them
   version         Show version number
   help            Show this help message
 
@@ -99,6 +102,12 @@ Options:
     --exit-code   Exit 1 when migrations are pending, 0 when clean
     --json        Output machine-readable status as JSON
     --quiet       Show only the summary line
+  validate:
+    --db          Include read-only database state checks
+    --json        Output machine-readable validation data
+  up/down:
+    --dry-run     Print the ordered migration plan without applying SQL
+    --json        Output machine-readable command data
 
 Environment variables:
   DATABASE_URL    PostgreSQL connection string
@@ -121,12 +130,18 @@ Examples:
   tusk status --exit-code
   tusk status --json
   tusk status --quiet
+  tusk validate
+  tusk validate --db --json
+  tusk up --dry-run
   tusk --version
 `);
 };
 
 const parseCommandArgs = (command: string, rawArgs: string[]): ParsedCommandArgs => {
   const parsed: ParsedCommandArgs = {
+    json: false,
+    dryRun: false,
+    checkDatabase: false,
     status: {
       exitCode: false,
       json: false,
@@ -135,22 +150,105 @@ const parseCommandArgs = (command: string, rawArgs: string[]): ParsedCommandArgs
   };
 
   if (command === "down") {
-    if (rawArgs.length > 1) {
-      throw createValidationError(
-        "Down command accepts at most one optional count argument",
-        { command, args: rawArgs }
-      );
+    for (const rawArg of rawArgs) {
+      if (rawArg === "--json") {
+        parsed.json = true;
+        continue;
+      }
+
+      if (rawArg === "--dry-run") {
+        parsed.dryRun = true;
+        continue;
+      }
+
+      if (parsed.downCount) {
+        throw createValidationError(
+          "Down command accepts at most one optional count argument",
+          { command, args: rawArgs }
+        );
+      }
+
+      parsed.downCount = rawArg;
     }
 
-    parsed.downCount = rawArgs[0];
     return parsed;
   }
 
   if (command === "create") {
-    if (rawArgs.length > 1) {
+    const positionalArgs = [];
+
+    for (const rawArg of rawArgs) {
+      if (rawArg === "--json") {
+        parsed.json = true;
+        continue;
+      }
+
+      positionalArgs.push(rawArg);
+    }
+
+    if (positionalArgs.length > 1) {
       throw createValidationError(
         "Create command accepts exactly one migration name argument",
-        { command, args: rawArgs }
+        { command, args: positionalArgs }
+      );
+    }
+
+    parsed.downCount = positionalArgs[0];
+    return parsed;
+  }
+
+  if (command === "up") {
+    for (const rawArg of rawArgs) {
+      if (rawArg === "--json") {
+        parsed.json = true;
+        continue;
+      }
+
+      if (rawArg === "--dry-run") {
+        parsed.dryRun = true;
+        continue;
+      }
+
+      throw createValidationError(
+        `Unknown up option: ${rawArg}. Valid options: --dry-run, --json`,
+        { command, arg: rawArg }
+      );
+    }
+
+    return parsed;
+  }
+
+  if (command === "init") {
+    for (const rawArg of rawArgs) {
+      if (rawArg === "--json") {
+        parsed.json = true;
+        continue;
+      }
+
+      throw createValidationError(
+        `Unknown init option: ${rawArg}. Valid options: --json`,
+        { command, arg: rawArg }
+      );
+    }
+
+    return parsed;
+  }
+
+  if (command === "validate") {
+    for (const rawArg of rawArgs) {
+      if (rawArg === "--json") {
+        parsed.json = true;
+        continue;
+      }
+
+      if (rawArg === "--db") {
+        parsed.checkDatabase = true;
+        continue;
+      }
+
+      throw createValidationError(
+        `Unknown validate option: ${rawArg}. Valid options: --db, --json`,
+        { command, arg: rawArg }
       );
     }
 
@@ -171,6 +269,7 @@ const parseCommandArgs = (command: string, rawArgs: string[]): ParsedCommandArgs
 
       if (rawArg === "--json") {
         parsed.status.json = true;
+        parsed.json = true;
         continue;
       }
 
@@ -194,7 +293,7 @@ const parseCommandArgs = (command: string, rawArgs: string[]): ParsedCommandArgs
 };
 
 const validateCommand = (command: string, parsedArgs: ParsedCommandArgs, arg?: string) => {
-  const validCommands = ["create", "init", "up", "down", "status", "version", "help"];
+  const validCommands = ["create", "init", "up", "down", "status", "validate", "version", "help"];
 
   if (!validCommands.includes(command)) {
     const tuskError = createValidationError(
@@ -233,6 +332,85 @@ const validateCommand = (command: string, parsedArgs: ParsedCommandArgs, arg?: s
 
 type DatabaseCommand = "init" | "up" | "down" | "status";
 
+const printStatus = (
+  status: Awaited<ReturnType<typeof getMigrationStatus>>,
+  quiet: boolean
+) => {
+  if (!quiet) {
+    console.log("\nMigration Status:");
+    console.log("─".repeat(60));
+  }
+
+  if (!quiet && status.executed.length > 0) {
+    console.log("\nExecuted:");
+    status.executed.forEach((migration) => {
+      const date = migration.executedAt
+        ? new Date(migration.executedAt).toLocaleString("en-US", {
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit"
+          })
+        : "unknown";
+      console.log(`  ✓ ${migration.filename} (${date})`);
+    });
+  }
+
+  if (!quiet && status.pending.length > 0) {
+    console.log("\nPending:");
+    status.pending.forEach((migration) => {
+      console.log(`  ⏳ ${migration.filename}`);
+    });
+  }
+
+  if (!quiet) {
+    console.log("\n─".repeat(60));
+    console.log(`Total: ${status.summary.executed} executed, ${status.summary.pending} pending\n`);
+  } else {
+    console.log(`${status.summary.executed} executed, ${status.summary.pending} pending`);
+  }
+};
+
+const printPlan = (plan: MigrationPlan) => {
+  const action = plan.direction === "up" ? "execute" : "roll back";
+  console.log(`Dry run: ${plan.summary.planned} migration(s) would ${action}`);
+
+  for (const migration of plan.migrations) {
+    console.log("\n" + "─".repeat(60));
+    console.log(`${migration.filename}`);
+    if (migration.rollbackOf) {
+      console.log(`Rollback of: ${migration.rollbackOf}`);
+    }
+    if (migration.checksum) {
+      console.log(`Checksum: ${migration.checksum}`);
+    }
+    console.log("\n" + migration.sql.trim());
+  }
+
+  if (plan.migrations.length > 0) {
+    console.log("\n" + "─".repeat(60));
+  }
+};
+
+const printValidation = (result: Awaited<ReturnType<typeof validateMigrations>>) => {
+  if (result.issues.length === 0) {
+    console.log(`✓ Validation passed (${result.summary.files} migration file(s))`);
+    return;
+  }
+
+  for (const issue of result.issues) {
+    const prefix = issue.severity === "error" ? "ERROR" : "WARN";
+    const file = issue.filename ? ` ${issue.filename}` : "";
+    console.log(`[${prefix}] ${issue.code}${file}: ${issue.message}`);
+  }
+
+  console.log(
+    `Validation ${result.ok ? "passed" : "failed"}: ` +
+      `${result.summary.errors} error(s), ${result.summary.warnings} warning(s)`
+  );
+};
+
 const runDatabaseCommand = async (
   command: DatabaseCommand,
   parsedArgs: ParsedCommandArgs
@@ -242,111 +420,109 @@ const runDatabaseCommand = async (
   const adapter = createPgAdapter(pool);
 
   try {
-    await ensureMigrationsTable(adapter);
-
     if (command === "init") {
       logger.info("Generating initial migration from database");
       const initResult = await createInitialMigration(adapter, migrationsPath);
-      console.log(`✓ Created ${initResult.upFile}`);
-      console.log(`✓ Created ${initResult.downFile}`);
-      console.log(`✓ Introspected ${initResult.tableCount} table(s)`);
+      if (parsedArgs.json) {
+        writeJson(createSuccessPayload("init", {
+          upFile: initResult.upFile,
+          downFile: initResult.downFile,
+          tableCount: initResult.tableCount,
+          checksum: initResult.checksum,
+          markedAsExecuted: initResult.markedAsExecuted,
+          migrationsPath,
+        }));
+      } else {
+        console.log(`✓ Created ${initResult.upFile}`);
+        console.log(`✓ Created ${initResult.downFile}`);
+        console.log(`✓ Introspected ${initResult.tableCount} table(s)`);
+        console.log(`✓ Marked ${initResult.upFile} as applied`);
+      }
       logger.info("Initial migration created successfully", {
         upFile: initResult.upFile,
         downFile: initResult.downFile,
-        tableCount: initResult.tableCount
+        tableCount: initResult.tableCount,
+        checksum: initResult.checksum,
+        markedAsExecuted: initResult.markedAsExecuted
       });
       return 0;
     }
 
     if (command === "up") {
+      if (parsedArgs.dryRun) {
+        logger.info("Planning up migrations");
+        const plan = await createUpPlan(adapter, migrationsPath);
+
+        if (parsedArgs.json) {
+          writeJson(createSuccessPayload("up", {
+            dryRun: true,
+            direction: plan.direction,
+            migrations: plan.migrations,
+            summary: plan.summary,
+          }));
+        } else {
+          printPlan(plan);
+        }
+
+        return 0;
+      }
+
       logger.info("Running up migrations");
       const upResult = await runUp(adapter, migrationsPath);
-      console.log(`✓ Executed ${upResult.executed} migration(s)`);
+      if (parsedArgs.json) {
+        writeJson(createSuccessPayload("up", upResult));
+      } else {
+        console.log(`✓ Executed ${upResult.executed} migration(s)`);
+      }
       return 0;
     }
 
     if (command === "down") {
       const count = parsedArgs.downCount ? parseInt(parsedArgs.downCount) : undefined;
+      if (parsedArgs.dryRun) {
+        logger.info("Planning down migrations", { count });
+        const plan = await createDownPlan(adapter, migrationsPath, count);
+
+        if (parsedArgs.json) {
+          writeJson(createSuccessPayload("down", {
+            dryRun: true,
+            direction: plan.direction,
+            migrations: plan.migrations,
+            summary: plan.summary,
+          }));
+        } else {
+          printPlan(plan);
+        }
+
+        return 0;
+      }
+
       logger.info("Running down migrations", { count });
       const downResult = await runDown(adapter, migrationsPath, count);
-      console.log(`✓ Rolled back ${downResult.executed} migration(s)`);
+      if (parsedArgs.json) {
+        writeJson(createSuccessPayload("down", downResult));
+      } else {
+        console.log(`✓ Rolled back ${downResult.executed} migration(s)`);
+      }
       return 0;
     }
 
     logger.info("Checking migration status");
-    const allMigrations = await readMigrations(migrationsPath, "up");
-    const executedMigrations = await getExecutedMigrationsWithChecksums(adapter);
-    const executedFilenames = new Set(executedMigrations.map((m) => m.filename));
-    const executed = allMigrations.filter((m) => executedFilenames.has(m.filename));
-    const pending = allMigrations.filter((m) => !executedFilenames.has(m.filename));
+    const status = await getMigrationStatus(adapter, migrationsPath);
 
     if (parsedArgs.status.json) {
-      const payload = {
-        executed: executed.map((migration) => {
-          const record = executedMigrations.find((m) => m.filename === migration.filename);
+      writeJson(createSuccessPayload("status", status));
 
-          return {
-            filename: migration.filename,
-            executedAt: record?.executed_at
-              ? new Date(record.executed_at).toISOString()
-              : null,
-          };
-        }),
-        pending: pending.map((migration) => ({
-          filename: migration.filename,
-        })),
-        summary: {
-          executed: executed.length,
-          pending: pending.length,
-        },
-      };
-
-      console.log(JSON.stringify(payload));
-
-      if (parsedArgs.status.exitCode && pending.length > 0) {
+      if (parsedArgs.status.exitCode && status.summary.pending > 0) {
         return 1;
       }
 
       return 0;
     }
 
-    if (!parsedArgs.status.quiet) {
-      console.log("\nMigration Status:");
-      console.log("─".repeat(60));
-    }
+    printStatus(status, parsedArgs.status.quiet);
 
-    if (!parsedArgs.status.quiet && executed.length > 0) {
-      console.log("\nExecuted:");
-      executed.forEach((migration) => {
-        const record = executedMigrations.find((m) => m.filename === migration.filename);
-        const date = record?.executed_at
-          ? new Date(record.executed_at).toLocaleString("en-US", {
-              year: "numeric",
-              month: "short",
-              day: "numeric",
-              hour: "2-digit",
-              minute: "2-digit"
-            })
-          : "unknown";
-        console.log(`  ✓ ${migration.filename} (${date})`);
-      });
-    }
-
-    if (!parsedArgs.status.quiet && pending.length > 0) {
-      console.log("\nPending:");
-      pending.forEach((migration) => {
-        console.log(`  ⏳ ${migration.filename}`);
-      });
-    }
-
-    if (!parsedArgs.status.quiet) {
-      console.log("\n─".repeat(60));
-      console.log(`Total: ${executed.length} executed, ${pending.length} pending\n`);
-    } else {
-      console.log(`${executed.length} executed, ${pending.length} pending`);
-    }
-
-    if (parsedArgs.status.exitCode && pending.length > 0) {
+    if (parsedArgs.status.exitCode && status.summary.pending > 0) {
       return 1;
     }
 
@@ -359,6 +535,11 @@ const runDatabaseCommand = async (
 const migrationsPath = process.env.MIGRATIONS_PATH || "./migrations";
 const command = process.argv[2];
 const rawArgs = process.argv.slice(3);
+const rawJsonRequested = rawArgs.includes("--json");
+
+if (rawJsonRequested) {
+  process.env.LOG_LEVEL = "error";
+}
 
 // Handle flags and help/version commands
 if (!command || command === "help" || command === "--help" || command === "-h") {
@@ -374,7 +555,7 @@ if (command === "version" || command === "--version" || command === "-v") {
 const run = async () => {
   try {
     const parsedArgs = parseCommandArgs(command, rawArgs);
-    const primaryArg = command === "create" ? rawArgs[0] : parsedArgs.downCount;
+    const primaryArg = command === "create" ? parsedArgs.downCount : parsedArgs.downCount;
 
     validateCommand(command, parsedArgs, primaryArg);
     logger.info("Starting tusk migration tool", {
@@ -387,10 +568,51 @@ const run = async () => {
     if (command === "create") {
       logger.info("Creating migration", { name: primaryArg });
       const files = await createMigrationFile(migrationsPath, primaryArg!);
-      console.log(`✓ Created ${files.upFile}`);
-      console.log(`✓ Created ${files.downFile}`);
+      if (parsedArgs.json) {
+        writeJson(createSuccessPayload("create", {
+          ...files,
+          migrationsPath,
+        }));
+      } else {
+        console.log(`✓ Created ${files.upFile}`);
+        console.log(`✓ Created ${files.downFile}`);
+      }
       logger.info("Migration files created successfully", files);
       process.exit(0);
+    }
+
+    if (command === "validate") {
+      if (parsedArgs.checkDatabase) {
+        const config = loadDatabaseConfig();
+        const pool = new Pool(config);
+        const adapter = createPgAdapter(pool);
+
+        try {
+          const result = await validateMigrations(migrationsPath, {
+            adapter,
+            checkDatabase: true,
+          });
+
+          if (parsedArgs.json) {
+            writeJson({ command: "validate", ...result });
+          } else {
+            printValidation(result);
+          }
+
+          process.exit(result.ok ? 0 : 1);
+        } finally {
+          await pool.end();
+        }
+      }
+
+      const result = await validateMigrations(migrationsPath);
+      if (parsedArgs.json) {
+        writeJson({ command: "validate", ...result });
+      } else {
+        printValidation(result);
+      }
+
+      process.exit(result.ok ? 0 : 1);
     }
 
     if (command === "init" || command === "up" || command === "down" || command === "status") {
@@ -403,6 +625,11 @@ const run = async () => {
     logger.info("Migration tool completed successfully");
     process.exit(0);
   } catch (error) {
+    if (rawJsonRequested) {
+      writeJson(createErrorPayload(error, command));
+      process.exit(1);
+    }
+
     if (isTuskError(error)) {
       logger.error("Tusk error occurred", { error: formatTuskError(error) });
       console.error(formatTuskError(error));

@@ -1,0 +1,72 @@
+import { describe, expect, test } from "bun:test";
+import { createValidationError, createMigrationFileError } from "./errors";
+import { createErrorPayload, createSuccessPayload } from "./cli-output";
+
+describe("CLI output helpers", () => {
+  test("creates success payloads with a stable envelope", () => {
+    const payload = createSuccessPayload("create", {
+      upFile: "1_test.up.sql",
+      downFile: "1_test.down.sql",
+    });
+
+    expect(payload).toEqual({
+      ok: true,
+      command: "create",
+      upFile: "1_test.up.sql",
+      downFile: "1_test.down.sql",
+    });
+  });
+
+  test("creates structured Tusk error payloads", () => {
+    const cause = new Error("permission denied");
+    const payload = createErrorPayload(
+      createMigrationFileError("1_test.up.sql", "bad SQL", cause),
+      "validate"
+    );
+
+    expect(payload).toEqual({
+      ok: false,
+      command: "validate",
+      error: {
+        code: "MIGRATION_FILE_INVALID",
+        message: "Invalid migration file: 1_test.up.sql. bad SQL",
+        cause: "permission denied",
+        context: {
+          filename: "1_test.up.sql",
+          reason: "bad SQL",
+        },
+      },
+    });
+  });
+
+  test("omits empty optional error fields", () => {
+    const payload = createErrorPayload(
+      createValidationError("bad input", {}),
+      "status"
+    );
+
+    expect(payload).toEqual({
+      ok: false,
+      command: "status",
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "bad input",
+      },
+    });
+  });
+
+  test("creates unexpected error payloads for unknown errors", () => {
+    const errorPayload = createErrorPayload(new Error("boom"), "up");
+    const primitivePayload = createErrorPayload("boom", "up");
+
+    expect(errorPayload).toEqual({
+      ok: false,
+      command: "up",
+      error: {
+        code: "UNEXPECTED_ERROR",
+        message: "boom",
+      },
+    });
+    expect(primitivePayload.error.message).toBe("boom");
+  });
+});

@@ -15,9 +15,31 @@ export type {
   IntrospectedSchema,
 } from "./types/schema.js";
 export type { MigrationRecord } from "./core/track-migrations.js";
+export type {
+  MigrationPlan,
+  MigrationPlanDirection,
+  MigrationPlanEntry,
+} from "./core/plan-migrations.js";
+export type {
+  ValidationIssue,
+  ValidationResult,
+  ValidationSeverity,
+  ValidateMigrationsOptions,
+} from "./core/validate-migrations.js";
+export type {
+  CliErrorPayload,
+  CliSuccessPayload,
+  MigrationCommandPayload,
+  MigrationCreatePayload,
+  InitialMigrationPayload,
+  MigrationStatusPayload,
+} from "./types/cli.js";
 
 export { runUp, runDown } from "./core/run-migrations.js";
 export { readMigrations } from "./core/read-migrations.js";
+export { createUpPlan, createDownPlan } from "./core/plan-migrations.js";
+export { validateMigrations } from "./core/validate-migrations.js";
+export { getMigrationStatus } from "./core/migration-status.js";
 export {
   ensureMigrationsTable,
   getExecutedMigrations,

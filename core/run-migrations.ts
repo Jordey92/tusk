@@ -1,10 +1,11 @@
 import type { DatabaseAdapter, RunResult } from "../types/migrations.js";
 import { getCorrespondingFilename } from "../utils/filename.js";
 import { logger } from "../utils/logger.js";
-import { createDatabaseError, createMigrationExecutionError, createRollbackError, formatTuskError, createValidationError } from "../utils/errors.js";
+import { createDatabaseError, createMigrationExecutionError, createRollbackError, formatTuskError } from "../utils/errors.js";
 import { readMigrations } from "./read-migrations.js";
 import { calculateChecksum } from "../utils/checksum.js";
 import { planRollbackMigrations } from "./rollback-plan.js";
+import { assertExecutedMigrationChecksums } from "./checksum-validation.js";
 import {
   ensureMigrationsTable,
   getLastExecutedMigrations,
@@ -40,29 +41,7 @@ export const runUp = async (
     const executedMigrations = await getExecutedMigrationsWithChecksums(adapter);
     const executedFilenames = new Set(executedMigrations.map(m => m.filename));
 
-    for (const executedMigration of executedMigrations) {
-      if (!executedMigration.checksum) {
-        continue;
-      }
-
-      const migrationFile = migrationsFromDirectory.find(
-        m => m.filename === executedMigration.filename
-      );
-
-      if (migrationFile) {
-        const currentChecksum = calculateChecksum(migrationFile.sql);
-        if (currentChecksum !== executedMigration.checksum) {
-          const tuskError = createValidationError(
-            `Migration file ${executedMigration.filename} has been modified after execution. ` +
-            `This is not allowed. Original checksum: ${executedMigration.checksum}, ` +
-            `current checksum: ${currentChecksum}`,
-            { filename: executedMigration.filename }
-          );
-          logger.error("Migration checksum mismatch", { error: formatTuskError(tuskError) });
-          throw tuskError;
-        }
-      }
-    }
+    assertExecutedMigrationChecksums(migrationsFromDirectory, executedMigrations);
 
     logger.debug("Migration checksums verified");
 

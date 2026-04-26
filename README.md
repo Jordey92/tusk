@@ -94,6 +94,8 @@ MIGRATIONS_PATH=./migrations
 LOG_LEVEL=info
 ```
 
+Set `MIGRATIONS_PATH` to use a different migration directory.
+
 Create your first migration:
 
 ```bash
@@ -117,10 +119,26 @@ npx tusk status --json
 npx tusk status --quiet
 ```
 
+Validate migration files before applying them:
+
+```bash
+npx tusk validate
+npx tusk validate --json
+npx tusk validate --db --json
+```
+
+Preview exactly what would run:
+
+```bash
+npx tusk up --dry-run
+npx tusk up --dry-run --json
+```
+
 Roll back the last migration:
 
 ```bash
 npx tusk down 1
+npx tusk down 1 --dry-run
 ```
 
 ## Starting From an Existing Database
@@ -132,6 +150,8 @@ npx tusk init
 ```
 
 This creates `0000000000000_initial.up.sql` and `0000000000000_initial.down.sql` so future schema changes can be managed through normal migrations.
+
+The generated initial migration is also recorded in `_migrations` as already applied. That makes takeover explicit: `tusk up` will skip the baseline, new migrations can run normally, and `tusk down 1` can roll back the baseline if it is the latest applied migration.
 
 ## Programmatic Use
 
@@ -197,14 +217,33 @@ tusk init
 tusk up
 tusk down [count]
 tusk status
+tusk validate
 tusk version
 ```
+
+`tusk up --dry-run` and `tusk down [count] --dry-run` print the ordered migration SQL without applying it.
 
 `tusk status --exit-code` exits with status `1` when migrations are pending and `0` when the schema is clean.
 
 `tusk status --quiet` suppresses the detailed sections and prints only the summary line, which is useful for scripts and CI logs.
 
-`tusk status --json` prints machine-readable status data with `executed`, `pending`, and `summary` fields. It can be combined with `--exit-code`, but not with `--quiet`.
+`tusk status --json` prints machine-readable status data with `ok`, `command`, `executed`, `pending`, and `summary` fields. It can be combined with `--exit-code`, but not with `--quiet`.
+
+`tusk validate` checks migration filenames, pairs, executable SQL, duplicate timestamps, and transaction-control statements. Add `--db` to check executed migration checksums against the configured database without modifying migration state.
+
+`--json` is supported by `create`, `init`, `up`, `down`, `status`, and `validate` for machine-readable automation output.
+
+## Agent and MCP Use
+
+For AI agents and automation, prefer the safe loop in [Agent workflow](./docs/agents.md): `validate --json`, `validate --db --json`, `up --dry-run --json`, then apply only after the plan is reviewed.
+
+Tusk also includes a stdio MCP server:
+
+```bash
+tusk-mcp
+```
+
+It exposes tools for validation, status, dry-run planning, and migration file creation.
 
 ## Support Policy
 
@@ -224,6 +263,7 @@ If a supported floor version stops passing CI, it is a regression and should be 
 
 - [Framework integrations](./docs/integrations.md)
 - [Testing guide](./docs/testing.md)
+- [Agent workflow](./docs/agents.md)
 - [Release guide](./docs/releasing.md)
 
 ## License
