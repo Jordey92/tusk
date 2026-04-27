@@ -22,7 +22,7 @@ When a release deserves a fuller write-up, add an optional checked-in note at `d
 
 Good release notes should explain what changed, why it matters, and any upgrade or compatibility notes.
 
-See [v0.3.0](./releases/v0.3.0.md) for the current release-note style.
+See [v0.5.0](./releases/v0.5.0.md) for the current release-note style.
 
 ## Manual Local Publish
 
