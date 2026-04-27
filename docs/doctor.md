@@ -79,10 +79,12 @@ pairs, duplicate timestamps, SQL content, and transaction-control statements.
 : Detects the database engine and provider. PostgreSQL and Aurora PostgreSQL
 are treated as supported PostgreSQL targets. Amazon Redshift is reported as a
 failure because it is PostgreSQL-like, but not a normal PostgreSQL database for
-Tusk migrations.
+Tusk migrations. Unknown PostgreSQL-compatible engines fail closed instead of
+being treated as PostgreSQL.
 
 `database.version`
-: Confirms the PostgreSQL major version is at or above Tusk's supported floor.
+: Confirms the PostgreSQL major version can be determined and is at or above
+Tusk's supported floor.
 
 `database.migrationTable`
 : Checks whether `_migrations` is readable. Missing metadata is a warning, not

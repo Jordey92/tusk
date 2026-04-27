@@ -29,8 +29,8 @@ const queryResult = <T extends QueryResultRow>(rows: T[]) => ({
 });
 
 interface VersionAdapterOptions {
-  serverVersion?: string;
-  serverVersionNum?: string;
+  serverVersion?: string | null;
+  serverVersionNum?: string | null;
   migrationTableExists?: boolean;
   hasChecksum?: boolean;
   auroraVersion?: string;
@@ -53,8 +53,19 @@ const createVersionAdapter = (
       return queryResult([
         {
           version,
-          server_version: options.serverVersion ?? "8.0.2",
-          server_version_num: options.serverVersionNum ?? "80002",
+        },
+      ] as T[]);
+    }
+
+    if (sql.includes("current_setting")) {
+      return queryResult([
+        {
+          server_version: options.serverVersion === undefined
+            ? "8.0.2"
+            : options.serverVersion,
+          server_version_num: options.serverVersionNum === undefined
+            ? "80002"
+            : options.serverVersionNum,
         },
       ] as T[]);
     }
@@ -96,6 +107,13 @@ const createHealthyAdapter = () => {
         return queryResult([
           {
             version: "PostgreSQL 16.9 on arm64-apple-darwin",
+          },
+        ] as T[]);
+      }
+
+      if (sql.includes("current_setting")) {
+        return queryResult([
+          {
             server_version: "16.9",
             server_version_num: "160009",
           },
@@ -132,6 +150,9 @@ const createHealthyAdapter = () => {
 
   return { adapter, lockCalls };
 };
+
+const checkIds = (report: Awaited<ReturnType<typeof runDoctor>>) =>
+  report.checks.map((check) => check.id);
 
 describe("doctor", () => {
   test("fails when database configuration is missing", async () => {
@@ -238,6 +259,93 @@ describe("doctor", () => {
     }
   });
 
+  test("detects Redshift before reading PostgreSQL server settings", async () => {
+    const migrationsPath = await createTempDir();
+    const queries: string[] = [];
+    const adapter = {
+      query: async <T extends QueryResultRow = QueryResultRow>(sql: string) => {
+        queries.push(sql);
+
+        if (sql.includes("current_setting")) {
+          throw new Error("Redshift rejected current_setting");
+        }
+
+        if (sql.includes("version()")) {
+          return queryResult([
+            {
+              version: "PostgreSQL 8.0.2, Redshift 1.0.12345",
+            },
+          ] as T[]);
+        }
+
+        return queryResult([] as T[]);
+      },
+      acquireMigrationLock: async () => {},
+      releaseMigrationLock: async () => {},
+    } as unknown as DatabaseAdapter;
+
+    try {
+      await writeMigrationPair(migrationsPath);
+
+      const report = await runDoctor({
+        migrationsPath,
+        tuskVersion: "0.4.0",
+        database: {
+          configured: true,
+          adapter,
+        },
+      });
+
+      expect(report.ok).toBe(false);
+      expect(report.database.provider).toBe("redshift");
+      expect(report.checks).toContainEqual(
+        expect.objectContaining({
+          id: "database.engine",
+          status: "fail",
+        })
+      );
+      expect(queries.some((query) => query.includes("current_setting"))).toBe(false);
+    } finally {
+      await rm(migrationsPath, { recursive: true, force: true });
+    }
+  });
+
+  test("fails unknown PostgreSQL-compatible database engines", async () => {
+    const migrationsPath = await createTempDir();
+
+    try {
+      await writeMigrationPair(migrationsPath);
+
+      const report = await runDoctor({
+        migrationsPath,
+        tuskVersion: "0.4.0",
+        database: {
+          configured: true,
+          adapter: createVersionAdapter("CockroachDB CCL v25.1.0", {
+            serverVersion: "25.1.0",
+            serverVersionNum: "250100",
+          }),
+        },
+      });
+
+      expect(report.ok).toBe(false);
+      expect(report.database).toMatchObject({
+        engine: "unknown",
+        provider: "unknown",
+        supported: false,
+      });
+      expect(report.checks).toContainEqual(
+        expect.objectContaining({
+          id: "database.engine",
+          status: "fail",
+        })
+      );
+      expect(checkIds(report)).not.toContain("database.version");
+    } finally {
+      await rm(migrationsPath, { recursive: true, force: true });
+    }
+  });
+
   test("fails PostgreSQL versions below the supported floor", async () => {
     const migrationsPath = await createTempDir();
 
@@ -252,6 +360,40 @@ describe("doctor", () => {
           adapter: createVersionAdapter("PostgreSQL 12.22 on x86_64-pc-linux-gnu", {
             serverVersion: "12.22",
             serverVersionNum: "120022",
+          }),
+        },
+      });
+
+      expect(report.ok).toBe(false);
+      expect(report.database).toMatchObject({
+        provider: "postgresql",
+        supported: false,
+      });
+      expect(report.checks).toContainEqual(
+        expect.objectContaining({
+          id: "database.version",
+          status: "fail",
+        })
+      );
+    } finally {
+      await rm(migrationsPath, { recursive: true, force: true });
+    }
+  });
+
+  test("fails when PostgreSQL version cannot be determined", async () => {
+    const migrationsPath = await createTempDir();
+
+    try {
+      await writeMigrationPair(migrationsPath);
+
+      const report = await runDoctor({
+        migrationsPath,
+        tuskVersion: "0.4.0",
+        database: {
+          configured: true,
+          adapter: createVersionAdapter("PostgreSQL version unavailable", {
+            serverVersion: null,
+            serverVersionNum: null,
           }),
         },
       });
@@ -428,6 +570,47 @@ describe("doctor", () => {
         })
       );
       expect(report.checks.map((check) => check.status)).not.toContain("fail");
+    } finally {
+      await rm(migrationsPath, { recursive: true, force: true });
+    }
+  });
+
+  test("reports advisory lock release failures without duplicating connection checks", async () => {
+    const migrationsPath = await createTempDir();
+
+    try {
+      await writeMigrationPair(migrationsPath);
+      const { adapter } = createHealthyAdapter();
+      const failingReleaseAdapter = {
+        ...adapter,
+        releaseMigrationLock: async () => {
+          throw new Error("release failed");
+        },
+      } as DatabaseAdapter;
+
+      const report = await runDoctor({
+        migrationsPath,
+        tuskVersion: "0.4.0",
+        database: {
+          configured: true,
+          adapter: failingReleaseAdapter,
+        },
+      });
+
+      const connectionChecks = report.checks.filter(
+        (check) => check.id === "database.connection"
+      );
+
+      expect(report.ok).toBe(true);
+      expect(connectionChecks).toHaveLength(1);
+      expect(connectionChecks[0]).toMatchObject({ status: "pass" });
+      expect(report.checks).toContainEqual(
+        expect.objectContaining({
+          id: "database.advisoryLock",
+          status: "warn",
+          message: expect.stringContaining("could not be released"),
+        })
+      );
     } finally {
       await rm(migrationsPath, { recursive: true, force: true });
     }

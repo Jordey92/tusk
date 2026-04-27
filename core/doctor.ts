@@ -40,6 +40,9 @@ interface RunDoctorOptions {
 
 interface VersionRow extends QueryResultRow {
   version: string;
+}
+
+interface ServerVersionRow extends QueryResultRow {
   server_version: string | null;
   server_version_num: string | null;
 }
@@ -166,6 +169,30 @@ const parseMajorVersion = (
   return match ? Number(match[1]) : undefined;
 };
 
+const parseMajorVersionFromRawVersion = (rawVersion: string) => {
+  const match = rawVersion.match(/^PostgreSQL\s+(\d+)/i);
+  return match ? Number(match[1]) : undefined;
+};
+
+const maybeReadPostgresServerVersion = async (adapter: DatabaseAdapter) => {
+  try {
+    const result = await adapter.query<ServerVersionRow>(`
+      SELECT
+        current_setting('server_version') AS server_version,
+        current_setting('server_version_num') AS server_version_num
+    `);
+    return {
+      serverVersion: result.rows[0]?.server_version ?? undefined,
+      serverVersionNum: result.rows[0]?.server_version_num ?? undefined,
+    };
+  } catch {
+    return {
+      serverVersion: undefined,
+      serverVersionNum: undefined,
+    };
+  }
+};
+
 const maybeReadAuroraVersion = async (adapter: DatabaseAdapter) => {
   try {
     const result = await adapter.query<AuroraVersionRow>(
@@ -181,35 +208,44 @@ const inspectDatabaseEngine = async (
   adapter: DatabaseAdapter
 ): Promise<DatabaseEngineInfo> => {
   const result = await adapter.query<VersionRow>(`
-    SELECT
-      version() AS version,
-      current_setting('server_version', true) AS server_version,
-      current_setting('server_version_num', true) AS server_version_num
+    SELECT version() AS version
   `);
   const row = result.rows[0];
   const rawVersion = row?.version ?? "";
   const normalizedVersion = rawVersion.toLowerCase();
-  const serverVersion = row?.server_version ?? undefined;
-  const majorVersion = parseMajorVersion(serverVersion, row?.server_version_num);
 
   if (normalizedVersion.includes("redshift")) {
     return {
       engine: "redshift",
       provider: "redshift",
-      serverVersion,
-      majorVersion,
       supported: false,
       rawVersion,
     };
   }
 
+  if (!normalizedVersion.startsWith("postgresql")) {
+    return {
+      engine: "unknown",
+      provider: "unknown",
+      supported: false,
+      rawVersion,
+    };
+  }
+
+  const postgresVersion = await maybeReadPostgresServerVersion(adapter);
+  const serverVersion = postgresVersion.serverVersion ?? rawVersion;
+  const majorVersion =
+    parseMajorVersion(
+      postgresVersion.serverVersion,
+      postgresVersion.serverVersionNum
+    ) ?? parseMajorVersionFromRawVersion(rawVersion);
   const auroraVersion = await maybeReadAuroraVersion(adapter);
   return {
     engine: "postgresql",
     provider: auroraVersion ? "aurora-postgresql" : "postgresql",
     serverVersion: auroraVersion ? `${serverVersion ?? "unknown"} (Aurora ${auroraVersion})` : serverVersion,
     majorVersion,
-    supported: majorVersion === undefined || majorVersion >= SUPPORTED_POSTGRES_MAJOR,
+    supported: majorVersion !== undefined && majorVersion >= SUPPORTED_POSTGRES_MAJOR,
     rawVersion,
   };
 };
@@ -234,6 +270,16 @@ const checkDatabaseEngine = (
     return;
   }
 
+  if (engineInfo.provider === "unknown") {
+    addCheck(checks, {
+      id: "database.engine",
+      status: "fail",
+      message: "Database engine is not a supported PostgreSQL target",
+      context: { version: engineInfo.rawVersion },
+    });
+    return;
+  }
+
   addCheck(checks, {
     id: "database.engine",
     status: "pass",
@@ -244,7 +290,7 @@ const checkDatabaseEngine = (
   if (engineInfo.majorVersion === undefined) {
     addCheck(checks, {
       id: "database.version",
-      status: "warn",
+      status: "fail",
       message: "PostgreSQL major version could not be determined",
     });
     return;
@@ -264,8 +310,20 @@ const checkMigrationTable = async (
   database: DoctorDatabase,
   adapter: DatabaseAdapter
 ) => {
-  const tableState = await getMigrationTableStateReadOnly(adapter);
-  database.migrationTable = tableState;
+  let tableState;
+
+  try {
+    tableState = await getMigrationTableStateReadOnly(adapter);
+    database.migrationTable = tableState;
+  } catch (error) {
+    addCheck(checks, {
+      id: "database.migrationTable",
+      status: "fail",
+      message: "_migrations table state could not be read",
+      context: { cause: formatError(error) },
+    });
+    return;
+  }
 
   addCheck(checks, {
     id: "database.migrationTable",
@@ -348,11 +406,20 @@ const checkAdvisoryLock = async (
   checks: DoctorCheck[],
   adapter: DatabaseAdapter
 ) => {
-  let acquired = false;
-
   try {
     await adapter.acquireMigrationLock();
-    acquired = true;
+  } catch (error) {
+    addCheck(checks, {
+      id: "database.advisoryLock",
+      status: "warn",
+      message: "Advisory migration lock could not be acquired",
+      context: { cause: formatError(error) },
+    });
+    return;
+  }
+
+  try {
+    await adapter.releaseMigrationLock();
     addCheck(checks, {
       id: "database.advisoryLock",
       status: "pass",
@@ -362,13 +429,9 @@ const checkAdvisoryLock = async (
     addCheck(checks, {
       id: "database.advisoryLock",
       status: "warn",
-      message: "Advisory migration lock could not be acquired",
+      message: "Advisory migration lock could not be released",
       context: { cause: formatError(error) },
     });
-  } finally {
-    if (acquired) {
-      await adapter.releaseMigrationLock();
-    }
   }
 };
 
@@ -404,24 +467,10 @@ const checkDatabase = async (
     return;
   }
 
+  let engineInfo;
+
   try {
-    const engineInfo = await inspectDatabaseEngine(input.adapter);
-    database.connected = true;
-    addCheck(checks, {
-      id: "database.connection",
-      status: "pass",
-      message: "Database connection works",
-    });
-
-    checkDatabaseEngine(checks, database, engineInfo);
-    if (!engineInfo.supported) {
-      return;
-    }
-
-    await checkMigrationTable(checks, database, input.adapter);
-    await checkDatabaseDrift(checks, migrationsPath, input.adapter);
-    await checkDatabaseStatus(checks, database, migrationsPath, input.adapter);
-    await checkAdvisoryLock(checks, input.adapter);
+    engineInfo = await inspectDatabaseEngine(input.adapter);
   } catch (error) {
     addCheck(checks, {
       id: "database.connection",
@@ -429,7 +478,25 @@ const checkDatabase = async (
       message: "Database connection failed",
       context: { cause: formatError(error) },
     });
+    return;
   }
+
+  database.connected = true;
+  addCheck(checks, {
+    id: "database.connection",
+    status: "pass",
+    message: "Database connection works",
+  });
+
+  checkDatabaseEngine(checks, database, engineInfo);
+  if (!engineInfo.supported) {
+    return;
+  }
+
+  await checkMigrationTable(checks, database, input.adapter);
+  await checkDatabaseDrift(checks, migrationsPath, input.adapter);
+  await checkDatabaseStatus(checks, database, migrationsPath, input.adapter);
+  await checkAdvisoryLock(checks, input.adapter);
 };
 
 export const runDoctor = async (
