@@ -9,6 +9,7 @@ import { createInitialMigration } from "./core/init-migration.js";
 import { getMigrationStatus } from "./core/migration-status.js";
 import { createDownPlan, createUpPlan, type MigrationPlan } from "./core/plan-migrations.js";
 import { validateMigrations } from "./core/validate-migrations.js";
+import { runDoctor } from "./core/doctor.js";
 import { logger } from "./utils/logger.js";
 import { createConfigurationError, formatTuskError, isTuskError } from "./utils/errors.js";
 import { createErrorPayload, createSuccessPayload, writeJson } from "./utils/cli-output.js";
@@ -20,6 +21,7 @@ import {
 } from "./utils/cli-parser.js";
 import { getCurrentDir } from "./utils/runtime.js";
 import { getPackageVersion } from "./utils/version.js";
+import type { DoctorReport } from "./types/doctor.js";
 import type { ConnectionConfig } from "./types/migrations.js";
 
 interface DatabaseConfig extends ConnectionConfig {
@@ -84,6 +86,7 @@ Commands:
   down [n]        Roll back n migrations (defaults to 1; use --all for all)
   status          Show migration status
   validate        Validate migration files without applying them
+  doctor          Check whether Tusk can safely operate here
   version         Show version number
   help            Show this help message
 
@@ -97,6 +100,8 @@ Options:
   validate:
     --db          Include read-only database state checks
     --json        Output machine-readable validation data
+  doctor:
+    --json        Output machine-readable doctor data
   up/down:
     --dry-run     Print the ordered migration plan without applying SQL
     --json        Output machine-readable command data
@@ -127,6 +132,8 @@ Examples:
   tusk status --quiet
   tusk validate
   tusk validate --db --json
+  tusk doctor
+  tusk doctor --json
   tusk up --dry-run
   tusk --version
 `);
@@ -211,6 +218,54 @@ const printValidation = (result: Awaited<ReturnType<typeof validateMigrations>>)
     `Validation ${result.ok ? "passed" : "failed"}: ` +
       `${result.summary.errors} error(s), ${result.summary.warnings} warning(s)`
   );
+};
+
+const doctorStatusSymbol = (status: DoctorReport["checks"][number]["status"]) => {
+  if (status === "pass") return "✓";
+  if (status === "warn") return "!";
+  if (status === "fail") return "✗";
+  return "-";
+};
+
+const printDoctor = (report: DoctorReport) => {
+  console.log("\nTusk Doctor");
+  console.log("─".repeat(60));
+
+  for (const check of report.checks) {
+    console.log(`${doctorStatusSymbol(check.status)} ${check.message}`);
+  }
+
+  console.log("─".repeat(60));
+  console.log(
+    `Summary: ${report.summary.passed} passed, ` +
+      `${report.summary.warnings} warning(s), ` +
+      `${report.summary.errors} error(s), ` +
+      `${report.summary.skipped} skipped`
+  );
+};
+
+const createDoctorDatabaseInput = () => {
+  try {
+    const config = loadDatabaseConfig();
+    const pool = new Pool(config);
+    return {
+      database: {
+        configured: true as const,
+        adapter: createPgAdapter(pool),
+      },
+      cleanup: async () => {
+        await pool.end();
+      },
+    };
+  } catch (error) {
+    return {
+      database: {
+        configured: false as const,
+        error,
+      },
+      cleanup: async () => {},
+    };
+  }
 };
 
 const runDatabaseCommand = async (
@@ -414,6 +469,28 @@ const run = async () => {
       }
 
       process.exit(result.ok ? 0 : 1);
+    }
+
+    if (command === "doctor") {
+      const doctorDatabase = createDoctorDatabaseInput();
+
+      try {
+        const report = await runDoctor({
+          migrationsPath,
+          tuskVersion: await getVersion(),
+          database: doctorDatabase.database,
+        });
+
+        if (parsedArgs.json) {
+          writeJson({ command: "doctor", ...report });
+        } else {
+          printDoctor(report);
+        }
+
+        process.exit(report.ok ? 0 : 1);
+      } finally {
+        await doctorDatabase.cleanup();
+      }
     }
 
     if (command === "init" || command === "up" || command === "down" || command === "status") {
