@@ -398,7 +398,6 @@ if (rawJsonRequested) {
   process.env.LOG_LEVEL = "error";
 }
 
-// Handle flags and help/version commands
 if (!command || command === "help" || command === "--help" || command === "-h") {
   showHelp();
   process.exit(0);

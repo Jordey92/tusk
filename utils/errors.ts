@@ -76,6 +76,9 @@ export const createValidationError = (message: string, context?: StructuredConte
 export const createConfigurationError = (message: string, context?: StructuredContext): TuskError =>
   createTuskError("CONFIGURATION_ERROR", message, undefined, context);
 
+export const toError = (error: unknown): Error =>
+  error instanceof Error ? error : new Error(String(error));
+
 export const formatTuskError = (error: TuskError): string => {
   let message = `[${error.code}] ${error.message}`;
 

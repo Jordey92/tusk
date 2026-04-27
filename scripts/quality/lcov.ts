@@ -1,10 +1,10 @@
 import { readFile } from "fs/promises";
 
-export interface FileCoverage {
+interface FileCoverage {
   lines: Map<number, number>;
 }
 
-export type CoverageMap = Map<string, FileCoverage>;
+type CoverageMap = Map<string, FileCoverage>;
 
 export const parseLcov = async (path: string): Promise<CoverageMap> => {
   const raw = await readFile(path, "utf-8");

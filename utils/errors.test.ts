@@ -8,6 +8,7 @@ import {
   createRollbackError,
   createValidationError,
   createConfigurationError,
+  toError,
   formatTuskError,
   isTuskError,
   type TuskError,
@@ -174,6 +175,21 @@ describe("Error Utilities", () => {
 
       expect(error.code).toBe("CONFIGURATION_ERROR");
       expect(error.context).toBeUndefined();
+    });
+  });
+
+  describe("toError", () => {
+    test("returns the original Error instance unchanged", () => {
+      const cause = new Error("Already an error");
+
+      expect(toError(cause)).toBe(cause);
+    });
+
+    test("wraps non-Error values in an Error", () => {
+      const normalized = toError({ reason: "boom" });
+
+      expect(normalized).toBeInstanceOf(Error);
+      expect(normalized.message).toBe("[object Object]");
     });
   });
 

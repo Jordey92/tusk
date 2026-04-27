@@ -2,9 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { createMigrationFile } from "./create-migration";
 
 describe("createMigrationFile", () => {
-
   test("should create both up and down migration files", async () => {
-    const { mkdtemp, rmdir, access, unlink } = await import("fs/promises");
+    const { mkdtemp, rm, access } = await import("fs/promises");
     const { tmpdir } = await import("os");
     const { join } = await import("path");
 
@@ -19,28 +18,18 @@ describe("createMigrationFile", () => {
       expect(typeof result.upFile).toBe("string");
       expect(typeof result.downFile).toBe("string");
 
-      // Verify files exist
       await access(join(tempDir, result.upFile));
       await access(join(tempDir, result.downFile));
 
-      // Verify naming convention
       expect(result.upFile).toMatch(/^\d+_test_migration\.up\.sql$/);
       expect(result.downFile).toMatch(/^\d+_test_migration\.down\.sql$/);
-
     } finally {
-      // Clean up files first, then directory
-      if (result) {
-        try {
-          await unlink(join(tempDir, result.upFile));
-          await unlink(join(tempDir, result.downFile));
-        } catch {}
-      }
-      await rmdir(tempDir);
+      await rm(tempDir, { recursive: true, force: true });
     }
   });
 
   test("should create files with correct template content", async () => {
-    const { mkdtemp, rmdir, readFile, unlink } = await import("fs/promises");
+    const { mkdtemp, rm, readFile } = await import("fs/promises");
     const { tmpdir } = await import("os");
     const { join } = await import("path");
 
@@ -53,29 +42,20 @@ describe("createMigrationFile", () => {
       const upContent = await readFile(join(tempDir, result.upFile), "utf-8");
       const downContent = await readFile(join(tempDir, result.downFile), "utf-8");
 
-      // Verify up file content
       expect(upContent).toContain("-- Migration: content_test");
       expect(upContent).toContain("-- Created:");
       expect(upContent).toContain("-- Write your migration SQL here");
 
-      // Verify down file content
       expect(downContent).toContain("-- Rollback: content_test");
       expect(downContent).toContain("-- Created:");
       expect(downContent).toContain("-- Write your rollback SQL here");
-
     } finally {
-      if (result) {
-        try {
-          await unlink(join(tempDir, result.upFile));
-          await unlink(join(tempDir, result.downFile));
-        } catch {}
-      }
-      await rmdir(tempDir);
+      await rm(tempDir, { recursive: true, force: true });
     }
   });
 
-  test("should generate unique timestamps for concurrent calls", async () => {
-    const { mkdtemp, rmdir, unlink } = await import("fs/promises");
+  test("should create unique filenames for concurrent calls", async () => {
+    const { mkdtemp, rm } = await import("fs/promises");
     const { tmpdir } = await import("os");
     const { join } = await import("path");
 
@@ -83,7 +63,6 @@ describe("createMigrationFile", () => {
     let results: { upFile: string; downFile: string }[] = [];
 
     try {
-      // Create multiple migrations rapidly
       const promises = [
         createMigrationFile(tempDir, "first"),
         createMigrationFile(tempDir, "second"),
@@ -92,36 +71,23 @@ describe("createMigrationFile", () => {
 
       results = await Promise.all(promises);
 
-      // Extract timestamps from filenames
-      const timestamps = results.map(result =>
-        result.upFile.split("_")[0]
-      );
+      const upFiles = results.map((result) => result.upFile);
+      const downFiles = results.map((result) => result.downFile);
 
-      // All timestamps should be different (or at least not all the same)
-      // Note: Due to the speed of execution, some timestamps might be the same
-      // but we expect at least some variation or all should be valid numbers
-      const uniqueTimestamps = new Set(timestamps);
-      expect(uniqueTimestamps.size).toBeGreaterThanOrEqual(1);
+      expect(new Set(upFiles).size).toBe(upFiles.length);
+      expect(new Set(downFiles).size).toBe(downFiles.length);
 
-      // Verify all timestamps are valid numbers
-      timestamps.forEach(timestamp => {
-        expect(parseInt(timestamp)).toBeGreaterThan(0);
+      upFiles.forEach((upFile) => {
+        const timestamp = upFile.split("_")[0];
+        expect(Number.parseInt(timestamp, 10)).toBeGreaterThan(0);
       });
-
     } finally {
-      // Clean up all created files
-      for (const result of results) {
-        try {
-          await unlink(join(tempDir, result.upFile));
-          await unlink(join(tempDir, result.downFile));
-        } catch {}
-      }
-      await rmdir(tempDir);
+      await rm(tempDir, { recursive: true, force: true });
     }
   });
 
   test("should handle filenames with underscores and special characters", async () => {
-    const { mkdtemp, rmdir, unlink } = await import("fs/promises");
+    const { mkdtemp, rm } = await import("fs/promises");
     const { tmpdir } = await import("os");
     const { join } = await import("path");
 
@@ -138,18 +104,12 @@ describe("createMigrationFile", () => {
       expect(result.downFile).toMatch(/^\d+_add_user_emails-v2@2024\.down\.sql$/);
 
     } finally {
-      if (result) {
-        try {
-          await unlink(join(tempDir, result.upFile));
-          await unlink(join(tempDir, result.downFile));
-        } catch {}
-      }
-      await rmdir(tempDir);
+      await rm(tempDir, { recursive: true, force: true });
     }
   });
 
   test("should handle very long filenames", async () => {
-    const { mkdtemp, rmdir, unlink } = await import("fs/promises");
+    const { mkdtemp, rm } = await import("fs/promises");
     const { tmpdir } = await import("os");
     const { join } = await import("path");
 
@@ -164,18 +124,12 @@ describe("createMigrationFile", () => {
       expect(result.downFile).toContain(longName);
 
     } finally {
-      if (result) {
-        try {
-          await unlink(join(tempDir, result.upFile));
-          await unlink(join(tempDir, result.downFile));
-        } catch {}
-      }
-      await rmdir(tempDir);
+      await rm(tempDir, { recursive: true, force: true });
     }
   });
 
   test("should handle relative paths correctly", async () => {
-    const { mkdtemp, rmdir, access, unlink } = await import("fs/promises");
+    const { mkdtemp, rm, access } = await import("fs/promises");
     const { tmpdir } = await import("os");
     const { join, relative } = await import("path");
 
@@ -183,27 +137,18 @@ describe("createMigrationFile", () => {
     let result: { upFile: string; downFile: string };
 
     try {
-      // Use relative path
       const relativePath = relative(process.cwd(), tempDir);
       result = await createMigrationFile(relativePath, "relative_test");
 
-      // Files should still be created
       await access(join(tempDir, result.upFile));
       await access(join(tempDir, result.downFile));
-
     } finally {
-      if (result) {
-        try {
-          await unlink(join(tempDir, result.upFile));
-          await unlink(join(tempDir, result.downFile));
-        } catch {}
-      }
-      await rmdir(tempDir);
+      await rm(tempDir, { recursive: true, force: true });
     }
   });
 
   test("should create directory if it does not exist", async () => {
-    const { mkdtemp, rm, access, unlink } = await import("fs/promises");
+    const { mkdtemp, rm, access } = await import("fs/promises");
     const { tmpdir } = await import("os");
     const { join } = await import("path");
 
@@ -217,18 +162,12 @@ describe("createMigrationFile", () => {
       await access(join(nestedDir, result.upFile));
       await access(join(nestedDir, result.downFile));
     } finally {
-      if (result) {
-        try {
-          await unlink(join(nestedDir, result.upFile));
-          await unlink(join(nestedDir, result.downFile));
-        } catch {}
-      }
       await rm(tempDir, { recursive: true, force: true });
     }
   });
 
   test("should handle empty filename", async () => {
-    const { mkdtemp, rmdir, unlink } = await import("fs/promises");
+    const { mkdtemp, rm } = await import("fs/promises");
     const { tmpdir } = await import("os");
     const { join } = await import("path");
 
@@ -238,23 +177,15 @@ describe("createMigrationFile", () => {
     try {
       result = await createMigrationFile(tempDir, "");
 
-      // Should create files with just timestamp
       expect(result.upFile).toMatch(/^\d+_\.up\.sql$/);
       expect(result.downFile).toMatch(/^\d+_\.down\.sql$/);
-
     } finally {
-      if (result) {
-        try {
-          await unlink(join(tempDir, result.upFile));
-          await unlink(join(tempDir, result.downFile));
-        } catch {}
-      }
-      await rmdir(tempDir);
+      await rm(tempDir, { recursive: true, force: true });
     }
   });
 
   test("should create files with different timestamps when called sequentially", async () => {
-    const { mkdtemp, rmdir, unlink } = await import("fs/promises");
+    const { mkdtemp, rm } = await import("fs/promises");
     const { tmpdir } = await import("os");
     const { join } = await import("path");
 
@@ -265,7 +196,6 @@ describe("createMigrationFile", () => {
     try {
       result1 = await createMigrationFile(tempDir, "first");
 
-      // Small delay to ensure different timestamps
       await new Promise(resolve => setTimeout(resolve, 1));
 
       result2 = await createMigrationFile(tempDir, "second");
@@ -275,26 +205,13 @@ describe("createMigrationFile", () => {
 
       expect(timestamp1).not.toBe(timestamp2);
       expect(parseInt(timestamp2)).toBeGreaterThan(parseInt(timestamp1));
-
     } finally {
-      if (result1) {
-        try {
-          await unlink(join(tempDir, result1.upFile));
-          await unlink(join(tempDir, result1.downFile));
-        } catch {}
-      }
-      if (result2) {
-        try {
-          await unlink(join(tempDir, result2.upFile));
-          await unlink(join(tempDir, result2.downFile));
-        } catch {}
-      }
-      await rmdir(tempDir);
+      await rm(tempDir, { recursive: true, force: true });
     }
   });
 
   test("should work with nested directory paths", async () => {
-    const { mkdtemp, rmdir, mkdir, access, unlink } = await import("fs/promises");
+    const { mkdtemp, rm, mkdir, access } = await import("fs/promises");
     const { tmpdir } = await import("os");
     const { join } = await import("path");
 
@@ -309,15 +226,8 @@ describe("createMigrationFile", () => {
 
       await access(join(nestedDir, result.upFile));
       await access(join(nestedDir, result.downFile));
-
     } finally {
-      if (result) {
-        try {
-          await unlink(join(nestedDir, result.upFile));
-          await unlink(join(nestedDir, result.downFile));
-        } catch {}
-      }
-      await rmdir(tempDir, { recursive: true });
+      await rm(tempDir, { recursive: true, force: true });
     }
   });
 });

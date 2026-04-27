@@ -1,21 +1,10 @@
-import type { DatabaseAdapter, TransactionClient } from "../types/migrations.js";
+import type {
+  DatabaseAdapter,
+  MigrationRecord,
+  TransactionClient,
+} from "../types/migrations.js";
 import { logger } from "../utils/logger.js";
-
-interface MigrationRow {
-  filename: string;
-}
-
-interface MigrationRowWithChecksum {
-  filename: string;
-  checksum: string | null;
-  executed_at: Date;
-}
-
-export interface MigrationRecord {
-  filename: string;
-  checksum: string | null;
-  executed_at: Date;
-}
+import type { MigrationFilenameRow, MigrationRecordRow } from "./migration-row-types.js";
 
 export const ensureMigrationsTable = async (adapter: DatabaseAdapter) => {
   await adapter.query(`
@@ -45,7 +34,7 @@ export const ensureMigrationsTable = async (adapter: DatabaseAdapter) => {
 export const getExecutedMigrations = async (
   adapter: DatabaseAdapter
 ): Promise<Set<string>> => {
-  const result = await adapter.query<MigrationRow>(`
+  const result = await adapter.query<MigrationFilenameRow>(`
     SELECT filename FROM _migrations
   `);
 
@@ -57,7 +46,7 @@ export const getLastExecutedMigrations = async (
   count?: number
 ): Promise<string[]> => {
   const limit = count ?? Number.MAX_SAFE_INTEGER;
-  const result = await adapter.query<MigrationRow>(
+  const result = await adapter.query<MigrationFilenameRow>(
     `SELECT filename FROM _migrations ORDER BY id DESC LIMIT $1`,
     [limit]
   );
@@ -94,7 +83,7 @@ export const markAsRolledBack = async (
 export const getExecutedMigrationsWithChecksums = async (
   adapter: DatabaseAdapter
 ): Promise<MigrationRecord[]> => {
-  const result = await adapter.query<MigrationRowWithChecksum>(`
+  const result = await adapter.query<MigrationRecordRow>(`
     SELECT filename, checksum, executed_at
     FROM _migrations
     ORDER BY id ASC

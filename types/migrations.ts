@@ -15,6 +15,12 @@ export interface Migration {
   sql: string;
 }
 
+export interface MigrationRecord {
+  filename: string;
+  checksum: string | null;
+  executed_at: Date;
+}
+
 export interface ConnectionConfig {
   host?: string;
   port?: number;

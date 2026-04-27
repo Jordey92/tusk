@@ -6,8 +6,16 @@ import { fileURLToPath } from "url";
 import { createPgAdapter } from "../adapters/pg.js";
 import { createMigrationFile } from "../core/create-migration.js";
 import { getMigrationStatus } from "../core/migration-status.js";
-import { createDownPlan, createUpPlan } from "../core/plan-migrations.js";
-import { validateMigrations } from "../core/validate-migrations.js";
+import {
+  createDownPlan,
+  createUpPlan,
+  type MigrationPlan,
+} from "../core/plan-migrations.js";
+import {
+  validateMigrations,
+  type ValidationResult,
+} from "../core/validate-migrations.js";
+import type { MigrationStatusPayload } from "../types/cli.js";
 import { getPackageVersion } from "../utils/version.js";
 
 type JsonValue =
@@ -25,7 +33,14 @@ interface JsonRpcRequest {
   params?: Record<string, JsonValue> & {
     name?: string;
     arguments?: Record<string, JsonValue>;
+    protocolVersion?: string;
   };
+}
+
+interface JsonSchemaProperty {
+  type: "string" | "boolean" | "number";
+  default?: JsonValue;
+  minimum?: number;
 }
 
 interface ToolDefinition {
@@ -33,10 +48,66 @@ interface ToolDefinition {
   description: string;
   inputSchema: {
     type: "object";
-    properties: Record<string, unknown>;
+    properties: Record<string, JsonSchemaProperty>;
     required?: string[];
   };
 }
+
+type ToolResult =
+  | ValidationResult
+  | MigrationStatusPayload
+  | MigrationPlan
+  | Awaited<ReturnType<typeof createMigrationFile>>;
+
+interface ToolErrorResult {
+  error: string;
+}
+
+interface ToolResponse {
+  content: Array<{
+    type: "text";
+    text: string;
+  }>;
+  isError: boolean;
+}
+
+interface InitializeResult {
+  protocolVersion: string;
+  capabilities: {
+    tools: Record<string, never>;
+  };
+  serverInfo: {
+    name: string;
+    version: string;
+  };
+}
+
+interface ToolsListResult {
+  tools: ToolDefinition[];
+}
+
+type JsonRpcResult =
+  | InitializeResult
+  | ToolsListResult
+  | ToolResponse
+  | Record<string, never>;
+
+interface JsonRpcSuccessMessage {
+  jsonrpc: "2.0";
+  id: JsonRpcRequest["id"];
+  result: JsonRpcResult;
+}
+
+interface JsonRpcErrorMessage {
+  jsonrpc: "2.0";
+  id: JsonRpcRequest["id"];
+  error: {
+    code: number;
+    message: string;
+  };
+}
+
+type JsonRpcMessage = JsonRpcSuccessMessage | JsonRpcErrorMessage;
 
 const defaultMigrationsPath = "./migrations";
 
@@ -109,10 +180,8 @@ const asString = (
 const asOptionalString = (value: JsonValue | undefined): string | undefined =>
   typeof value === "string" && value.length > 0 ? value : undefined;
 
-const asBoolean = (
-  value: JsonValue | undefined,
-  fallback = false
-): boolean => typeof value === "boolean" ? value : fallback;
+const asBoolean = (value: JsonValue | undefined): boolean =>
+  typeof value === "boolean" ? value : false;
 
 const optionalPositiveInteger = (
   args: Record<string, JsonValue>,
@@ -163,7 +232,7 @@ const withAdapter = async <T>(
 const callTool = async (
   name: string,
   args: Record<string, JsonValue> = {}
-): Promise<unknown> => {
+): Promise<ToolResult> => {
   const migrationsPath = asString(args.migrationsPath, defaultMigrationsPath);
 
   if (name === "tusk_validate") {
@@ -212,7 +281,10 @@ const callTool = async (
   throw new Error(`Unknown tool: ${name}`);
 };
 
-const createToolResponse = (result: unknown, isError = false) => ({
+const createToolResponse = (
+  result: ToolResult | ToolErrorResult,
+  isError = false
+): ToolResponse => ({
   content: [
     {
       type: "text",
@@ -222,11 +294,11 @@ const createToolResponse = (result: unknown, isError = false) => ({
   isError,
 });
 
-const writeMessage = (message: unknown) => {
+const writeMessage = (message: JsonRpcMessage) => {
   process.stdout.write(`${JSON.stringify(message)}\n`);
 };
 
-const writeResult = (id: JsonRpcRequest["id"], result: unknown) => {
+const writeResult = (id: JsonRpcRequest["id"], result: JsonRpcResult) => {
   writeMessage({
     jsonrpc: "2.0",
     id,

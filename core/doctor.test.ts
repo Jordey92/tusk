@@ -36,10 +36,18 @@ interface VersionAdapterOptions {
   auroraVersion?: string;
 }
 
+type DoctorTestAdapter = Pick<
+  DatabaseAdapter,
+  "query" | "acquireMigrationLock" | "releaseMigrationLock"
+>;
+
+const toDatabaseAdapter = (adapter: DoctorTestAdapter): DatabaseAdapter =>
+  adapter as DatabaseAdapter;
+
 const createVersionAdapter = (
   version: string,
   options: VersionAdapterOptions = {}
-) => ({
+) => toDatabaseAdapter({
   query: async <T extends QueryResultRow = QueryResultRow>(sql: string) => {
     if (sql.includes("aurora_version()")) {
       return queryResult(
@@ -92,12 +100,12 @@ const createVersionAdapter = (
   },
   acquireMigrationLock: async () => {},
   releaseMigrationLock: async () => {},
-}) as unknown as DatabaseAdapter;
+});
 
 const createHealthyAdapter = () => {
   const lockCalls: string[] = [];
 
-  const adapter = {
+  const adapter: DoctorTestAdapter = {
     query: async <T extends QueryResultRow = QueryResultRow>(sql: string) => {
       if (sql.includes("aurora_version()")) {
         return queryResult([] as T[]);
@@ -146,9 +154,9 @@ const createHealthyAdapter = () => {
     releaseMigrationLock: async () => {
       lockCalls.push("release");
     },
-  } as unknown as DatabaseAdapter;
+  };
 
-  return { adapter, lockCalls };
+  return { adapter: toDatabaseAdapter(adapter), lockCalls };
 };
 
 const checkIds = (report: Awaited<ReturnType<typeof runDoctor>>) =>
@@ -288,7 +296,7 @@ describe("doctor", () => {
   test("detects Redshift before reading PostgreSQL server settings", async () => {
     const migrationsPath = await createTempDir();
     const queries: string[] = [];
-    const adapter = {
+    const adapter: DoctorTestAdapter = {
       query: async <T extends QueryResultRow = QueryResultRow>(sql: string) => {
         queries.push(sql);
 
@@ -308,7 +316,7 @@ describe("doctor", () => {
       },
       acquireMigrationLock: async () => {},
       releaseMigrationLock: async () => {},
-    } as unknown as DatabaseAdapter;
+    };
 
     try {
       await writeMigrationPair(migrationsPath);
@@ -318,7 +326,7 @@ describe("doctor", () => {
         tuskVersion: "0.4.0",
         database: {
           configured: true,
-          adapter,
+          adapter: toDatabaseAdapter(adapter),
         },
       });
 

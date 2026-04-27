@@ -43,7 +43,6 @@ describe("getFilesFromDirectory", () => {
   });
 
   test("should handle empty directory", async () => {
-    // Create a temporary empty directory for testing
     const { mkdtemp, rmdir } = await import("fs/promises");
     const { tmpdir } = await import("os");
     const { join } = await import("path");
@@ -104,7 +103,6 @@ describe("getSqlFilesFromList", () => {
       "migration.down.sql",
       "migration.rollback.sql"
     ], "up");
-    // Only "migration.up.sql" should match, not the others
     expect(sqlFiles.length).toBe(1);
     expect(sqlFiles).toContain("migration.up.sql");
     expect(sqlFiles).not.toContain("migration.sql");
@@ -196,7 +194,6 @@ describe("readSqlFile", () => {
   });
 
   test("should handle empty SQL files", async () => {
-    // Create a temporary empty SQL file
     const { writeFile, unlink, mkdtemp } = await import("fs/promises");
     const { tmpdir } = await import("os");
     const { join } = await import("path");
@@ -216,7 +213,6 @@ describe("readSqlFile", () => {
   });
 
   test("should handle files with special content", async () => {
-    // Create a temporary SQL file with special characters
     const { writeFile, unlink, mkdtemp, rmdir } = await import("fs/promises");
     const { tmpdir } = await import("os");
     const { join } = await import("path");

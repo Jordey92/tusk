@@ -1,6 +1,6 @@
 import ts from "typescript";
 
-export interface FunctionComplexity {
+interface FunctionComplexity {
   name: string;
   startLine: number;
   endLine: number;

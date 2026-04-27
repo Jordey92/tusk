@@ -1,7 +1,6 @@
-import type { Migration } from "../types/migrations.js";
+import type { Migration, MigrationRecord } from "../types/migrations.js";
 import { calculateChecksum } from "../utils/checksum.js";
 import { createValidationError } from "../utils/errors.js";
-import type { MigrationRecord } from "./track-migrations.js";
 
 export const assertExecutedMigrationChecksums = (
   migrationsFromDirectory: Migration[],

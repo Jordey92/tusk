@@ -18,13 +18,17 @@ describe("CLI output helpers", () => {
   });
 
   test("success payload data cannot override the envelope at runtime", () => {
+    const data: { upFile: string } = {
+      upFile: "1_test.up.sql",
+    };
+    Object.assign(data, {
+      ok: false,
+      command: "down",
+    });
+
     const payload = createSuccessPayload(
       "create",
-      {
-        ok: false,
-        command: "down",
-        upFile: "1_test.up.sql",
-      } as unknown as { upFile: string }
+      data
     );
 
     expect(payload).toEqual({

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { DatabaseAdapter } from "../types/migrations";
+import type { DatabaseAdapter, QueryParam } from "../types/migrations";
 import {
   getExecutedMigrationRecordsReadOnly,
   getLastExecutedMigrationFilenamesReadOnly,
@@ -18,7 +18,7 @@ const createAdapter = (options: {
   const filenames = options.filenames ?? [];
 
   const adapter = {
-    query: async (sql: string, params?: unknown[]) => {
+    query: async (sql: string, params?: QueryParam[]) => {
       queries.push(sql);
 
       if (sql.includes("to_regclass")) {
@@ -60,9 +60,9 @@ const createAdapter = (options: {
         rowCount: filenames.length,
       };
     },
-  } as unknown as DatabaseAdapter;
+  } satisfies Pick<DatabaseAdapter, "query">;
 
-  return { adapter, queries };
+  return { adapter: adapter as DatabaseAdapter, queries };
 };
 
 describe("read-only migration records", () => {

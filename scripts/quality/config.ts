@@ -1,6 +1,6 @@
 import { readFile } from "fs/promises";
 
-export interface QualityConfig {
+interface QualityConfig {
   crap: {
     lcovPath: string;
     sourceRoots: string[];
