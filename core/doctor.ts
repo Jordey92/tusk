@@ -91,11 +91,18 @@ const addCheck = (checks: DoctorCheck[], check: DoctorCheck) => {
 const formatError = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 
+const isResolvedTuskVersion = (tuskVersion: string) => {
+  const normalizedVersion = tuskVersion.trim().toLowerCase();
+  return normalizedVersion !== "" && normalizedVersion !== "unknown";
+};
+
 const checkTuskVersion = (checks: DoctorCheck[], tuskVersion: string) => {
+  const resolved = isResolvedTuskVersion(tuskVersion);
+
   addCheck(checks, {
     id: "tusk.version",
-    status: tuskVersion ? "pass" : "warn",
-    message: tuskVersion
+    status: resolved ? "pass" : "warn",
+    message: resolved
       ? `Tusk version resolved: ${tuskVersion}`
       : "Tusk version could not be resolved",
   });

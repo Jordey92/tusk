@@ -155,6 +155,32 @@ const checkIds = (report: Awaited<ReturnType<typeof runDoctor>>) =>
   report.checks.map((check) => check.id);
 
 describe("doctor", () => {
+  test("warns when the Tusk version is unknown", async () => {
+    const migrationsPath = await createTempDir();
+
+    try {
+      await writeMigrationPair(migrationsPath);
+
+      const report = await runDoctor({
+        migrationsPath,
+        tuskVersion: "unknown",
+        database: {
+          configured: false,
+        },
+      });
+
+      expect(report.checks).toContainEqual(
+        expect.objectContaining({
+          id: "tusk.version",
+          status: "warn",
+          message: "Tusk version could not be resolved",
+        })
+      );
+    } finally {
+      await rm(migrationsPath, { recursive: true, force: true });
+    }
+  });
+
   test("fails when database configuration is missing", async () => {
     const migrationsPath = await createTempDir();
 
