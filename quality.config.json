@@ -25,6 +25,10 @@
         "testCommand": "bun test core/validate-migrations.test.ts"
       },
       {
+        "file": "core/doctor.ts",
+        "testCommand": "bun run build && bun test core/doctor.test.ts cli.test.ts"
+      },
+      {
         "file": "core/init-migration.ts",
         "testCommand": "bun test core/init-migration.test.ts"
       },

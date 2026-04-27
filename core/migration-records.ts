@@ -15,6 +15,11 @@ interface MigrationRecordRow extends QueryResultRow {
   executed_at: Date;
 }
 
+interface MigrationTableState {
+  exists: boolean;
+  hasChecksum: boolean;
+}
+
 const migrationTableExists = async (adapter: DatabaseAdapter): Promise<boolean> => {
   const result = await adapter.query<MigrationTableExistsRow>(
     `SELECT to_regclass('_migrations')::text AS migration_table`
@@ -38,15 +43,25 @@ const migrationTableHasChecksum = async (
   return result.rows[0]?.has_checksum === true;
 };
 
+export const getMigrationTableStateReadOnly = async (
+  adapter: DatabaseAdapter
+): Promise<MigrationTableState> => {
+  const exists = await migrationTableExists(adapter);
+  return {
+    exists,
+    hasChecksum: exists ? await migrationTableHasChecksum(adapter) : false,
+  };
+};
+
 export const getExecutedMigrationRecordsReadOnly = async (
   adapter: DatabaseAdapter
 ): Promise<MigrationRecord[]> => {
-  if (!(await migrationTableExists(adapter))) {
+  const tableState = await getMigrationTableStateReadOnly(adapter);
+  if (!tableState.exists) {
     return [];
   }
 
-  const hasChecksum = await migrationTableHasChecksum(adapter);
-  const checksumSelection = hasChecksum ? "checksum" : "NULL::text AS checksum";
+  const checksumSelection = tableState.hasChecksum ? "checksum" : "NULL::text AS checksum";
   const result = await adapter.query<MigrationRecordRow>(`
     SELECT filename, ${checksumSelection}, executed_at
     FROM _migrations

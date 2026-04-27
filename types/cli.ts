@@ -7,6 +7,7 @@ export type CliCommand =
   | "down"
   | "status"
   | "validate"
+  | "doctor"
   | "version"
   | "help";
 

@@ -127,6 +127,13 @@ npx tusk validate --json
 npx tusk validate --db --json
 ```
 
+Check whether the project and database are ready for Tusk:
+
+```bash
+npx tusk doctor
+npx tusk doctor --json
+```
+
 Preview exactly what would run:
 
 ```bash
@@ -222,6 +229,7 @@ tusk down [count]
 tusk down --all
 tusk status
 tusk validate
+tusk doctor
 tusk version
 ```
 
@@ -242,11 +250,13 @@ ordered migration SQL without applying it.
 
 `tusk validate` checks migration filenames, pairs, executable SQL, duplicate timestamps, and transaction-control statements. Add `--db` to check executed migration checksums against the configured database without modifying migration state.
 
-`--json` is supported by `create`, `init`, `up`, `down`, `status`, and `validate` for machine-readable automation output.
+`tusk doctor` runs a read-only health check over the migration directory, database configuration, connection, PostgreSQL compatibility, migration metadata, checksum drift, status readability, and advisory lock support. It exits `0` when there are no failing checks and `1` when action is needed. Use `tusk doctor --json` for automation.
+
+`--json` is supported by `create`, `init`, `up`, `down`, `status`, `validate`, and `doctor` for machine-readable automation output.
 
 ## Agent and MCP Use
 
-For AI agents and automation, prefer the safe loop in [Agent workflow](./docs/agents.md): `validate --json`, `validate --db --json`, `up --dry-run --json`, then apply only after the plan is reviewed.
+For AI agents and automation, prefer the safe loop in [Agent workflow](./docs/agents.md): `doctor --json`, `validate --json`, `validate --db --json`, `up --dry-run --json`, then apply only after the plan is reviewed.
 
 Tusk also includes a stdio MCP server:
 
@@ -273,6 +283,7 @@ If a supported floor version stops passing CI, it is a regression and should be 
 ## More
 
 - [Framework integrations](./docs/integrations.md)
+- [Doctor command](./docs/doctor.md)
 - [Testing guide](./docs/testing.md)
 - [Agent workflow](./docs/agents.md)
 - [Release guide](./docs/releasing.md)

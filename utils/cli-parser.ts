@@ -16,7 +16,7 @@ export interface ParsedCommandArgs {
   status: StatusOptions;
 }
 
-const validCommands = ["create", "init", "up", "down", "status", "validate", "version", "help"];
+const validCommands = ["create", "init", "up", "down", "status", "validate", "doctor", "version", "help"];
 
 const emptyParsedCommandArgs = (): ParsedCommandArgs => ({
   json: false,
@@ -206,6 +206,25 @@ const parseStatusArgs = (rawArgs: string[]): ParsedCommandArgs => {
   return parsed;
 };
 
+const parseDoctorArgs = (rawArgs: string[]): ParsedCommandArgs => {
+  const command = "doctor";
+  const parsed = emptyParsedCommandArgs();
+
+  for (const rawArg of rawArgs) {
+    if (rawArg === "--json") {
+      parsed.json = true;
+      continue;
+    }
+
+    throw createValidationError(
+      `Unknown doctor option: ${rawArg}. Valid options: --json`,
+      { command, arg: rawArg }
+    );
+  }
+
+  return parsed;
+};
+
 export const parseCommandArgs = (
   command: string,
   rawArgs: string[]
@@ -216,6 +235,7 @@ export const parseCommandArgs = (
   if (command === "init") return parseInitArgs(rawArgs);
   if (command === "validate") return parseValidateArgs(rawArgs);
   if (command === "status") return parseStatusArgs(rawArgs);
+  if (command === "doctor") return parseDoctorArgs(rawArgs);
 
   if (validCommands.includes(command) && rawArgs.length > 0) {
     throw createValidationError(

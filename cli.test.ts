@@ -107,6 +107,55 @@ describe("cli smoke test", () => {
     expect(payload.migrationsPath).toBe("migrations");
   });
 
+  test("doctor --json reports missing database configuration without throwing", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "tusk-cli-doctor-json-"));
+    const migrationsPath = join(workspace, "migrations");
+    cleanupPaths.push(workspace);
+
+    await mkdir(migrationsPath);
+    await writeFile(
+      join(migrationsPath, "1728123456789_create_widgets.up.sql"),
+      "CREATE TABLE widgets (id INTEGER PRIMARY KEY);"
+    );
+    await writeFile(
+      join(migrationsPath, "1728123456789_create_widgets.down.sql"),
+      "DROP TABLE IF EXISTS widgets;"
+    );
+
+    const result = await runCli(
+      ["doctor", "--json"],
+      {
+        DATABASE_URL: "",
+        DB_NAME: "",
+        DB_USER: "",
+        DB_PASSWORD: "",
+        MIGRATIONS_PATH: "migrations",
+        LOG_LEVEL: "info",
+      },
+      workspace
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe("");
+
+    const payload = JSON.parse(result.stdout) as {
+      ok: boolean;
+      command: string;
+      checks: Array<{ id: string; status: string }>;
+    };
+
+    expect(payload.ok).toBe(false);
+    expect(payload.command).toBe("doctor");
+    expect(payload.checks).toContainEqual(expect.objectContaining({
+      id: "database.config",
+      status: "fail",
+    }));
+    expect(payload.checks).toContainEqual(expect.objectContaining({
+      id: "migrations.valid",
+      status: "pass",
+    }));
+  });
+
   test("create, up, status, and down work against a fresh database", async () => {
     const database = await createTemporaryDatabase("cli_smoke");
     const workspace = await mkdtemp(join(tmpdir(), "tusk-cli-smoke-"));

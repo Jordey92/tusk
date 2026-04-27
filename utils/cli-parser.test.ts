@@ -107,6 +107,12 @@ describe("CLI parser", () => {
     });
   });
 
+  test("parses doctor JSON output", () => {
+    expect(parseAndValidate("doctor", ["--json"])).toMatchObject({
+      json: true,
+    });
+  });
+
   test("rejects invalid command combinations", () => {
     expectValidationError(
       () => validateCommand("create", parseCommandArgs("create", [])),
@@ -123,6 +129,10 @@ describe("CLI parser", () => {
     expectValidationError(
       () => validateCommand("unknown", parseCommandArgs("unknown", ["--flag"])),
       "Unknown command"
+    );
+    expectValidationError(
+      () => parseCommandArgs("doctor", ["--verbose"]),
+      "Unknown doctor option"
     );
   });
 });

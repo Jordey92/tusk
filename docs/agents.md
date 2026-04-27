@@ -24,32 +24,39 @@ tusk validate --json
 docker compose up -d db
 ```
 
-5. Validate against migration state using read-only database checks.
+5. Run a read-only doctor preflight against the project and database.
+
+```bash
+DATABASE_URL=postgresql://user:password@127.0.0.1:5433/migrate_tool_test \
+  tusk doctor --json
+```
+
+6. Validate against migration state using read-only database checks.
 
 ```bash
 DATABASE_URL=postgresql://user:password@127.0.0.1:5433/migrate_tool_test \
   tusk validate --db --json
 ```
 
-6. Review the exact SQL plan before applying it.
+7. Review the exact SQL plan before applying it.
 
 ```bash
 tusk up --dry-run --json
 ```
 
-7. Apply the migration to the local database.
+8. Apply the migration to the local database.
 
 ```bash
 tusk up --json
 ```
 
-8. Confirm schema state.
+9. Confirm schema state.
 
 ```bash
 tusk status --json
 ```
 
-9. Run the relevant test tier.
+10. Run the relevant test tier.
 
 ```bash
 bun run build
@@ -66,6 +73,9 @@ bun run test:db
 ## Safe Command Contracts
 
 - `tusk validate` is read-only unless `--db` is provided, and even then it only queries migration state.
+- `tusk doctor` is read-only and checks project setup, database configuration,
+  PostgreSQL compatibility, migration metadata, checksum drift, status
+  readability, and advisory lock support.
 - `tusk up --dry-run` and `tusk down --dry-run` query migration state and print ordered SQL, but do not apply SQL.
 - `tusk down --dry-run` plans one rollback by default. Use
   `tusk down <count> --dry-run` or `tusk down --all --dry-run` only when the
@@ -94,7 +104,7 @@ Commands that receive `--json` return structured errors on stdout:
 
 ## Production Safety
 
-Agents should not run `tusk up`, `tusk down`, or `tusk init` against production or shared external databases unless the user explicitly provides that target for the current task. Prefer `validate --db --json`, `status --json`, and `up --dry-run --json` before any mutating command.
+Agents should not run `tusk up`, `tusk down`, or `tusk init` against production or shared external databases unless the user explicitly provides that target for the current task. Prefer `doctor --json`, `validate --db --json`, `status --json`, and `up --dry-run --json` before any mutating command.
 
 ## MCP Server
 
