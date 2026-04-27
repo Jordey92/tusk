@@ -54,7 +54,7 @@ describe("createMigrationFile", () => {
     }
   });
 
-  test("should generate unique timestamps for concurrent calls", async () => {
+  test("should create unique filenames for concurrent calls", async () => {
     const { mkdtemp, rm } = await import("fs/promises");
     const { tmpdir } = await import("os");
     const { join } = await import("path");
@@ -71,15 +71,15 @@ describe("createMigrationFile", () => {
 
       results = await Promise.all(promises);
 
-      const timestamps = results.map(result =>
-        result.upFile.split("_")[0]
-      );
+      const upFiles = results.map((result) => result.upFile);
+      const downFiles = results.map((result) => result.downFile);
 
-      const uniqueTimestamps = new Set(timestamps);
-      expect(uniqueTimestamps.size).toBeGreaterThanOrEqual(1);
+      expect(new Set(upFiles).size).toBe(upFiles.length);
+      expect(new Set(downFiles).size).toBe(downFiles.length);
 
-      timestamps.forEach(timestamp => {
-        expect(parseInt(timestamp)).toBeGreaterThan(0);
+      upFiles.forEach((upFile) => {
+        const timestamp = upFile.split("_")[0];
+        expect(Number.parseInt(timestamp, 10)).toBeGreaterThan(0);
       });
     } finally {
       await rm(tempDir, { recursive: true, force: true });
