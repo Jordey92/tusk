@@ -1,6 +1,6 @@
 {
   "name": "@bydey/tusk",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "SQL-first PostgreSQL migrations for Node.js and Bun",
   "author": "Bydey",
   "license": "MIT",
