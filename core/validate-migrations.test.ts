@@ -180,10 +180,10 @@ describe("validateMigrations", () => {
             rowCount: 1,
           };
         },
-      } as unknown as DatabaseAdapter;
+      } satisfies Pick<DatabaseAdapter, "query">;
 
       const result = await validateMigrations(migrationsPath, {
-        adapter,
+        adapter: adapter as DatabaseAdapter,
         checkDatabase: true,
       });
 

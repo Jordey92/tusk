@@ -12,7 +12,7 @@ const parseAndValidate = (command: string, args: string[]) => {
   return parsed;
 };
 
-const expectValidationError = (callback: () => unknown, message: string) => {
+const expectValidationError = (callback: () => void, message: string) => {
   try {
     callback();
     throw new Error("Expected validation error");

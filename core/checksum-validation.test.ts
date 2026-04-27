@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { Migration } from "../types/migrations";
+import type { Migration, MigrationRecord } from "../types/migrations";
 import { calculateChecksum } from "../utils/checksum";
 import { assertExecutedMigrationChecksums } from "./checksum-validation";
-import type { MigrationRecord } from "./track-migrations";
 
 const migration: Migration = {
   filename: "1728123456789_create_widgets.up.sql",

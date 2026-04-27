@@ -3,6 +3,7 @@ export type {
   TransactionClient,
   QueryResult,
   Migration,
+  MigrationRecord,
 } from "./types/migrations.js";
 export type { ElysiaMigrateConfig } from "./plugins/elysia.js";
 export type {
@@ -14,7 +15,6 @@ export type {
   TableInfo,
   IntrospectedSchema,
 } from "./types/schema.js";
-export type { MigrationRecord } from "./core/track-migrations.js";
 export type {
   MigrationPlan,
   MigrationPlanDirection,

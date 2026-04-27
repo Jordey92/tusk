@@ -1,5 +1,12 @@
-import type { DatabaseAdapter, QueryResultRow } from "../types/migrations.js";
-import type { MigrationRecord } from "./track-migrations.js";
+import type {
+  DatabaseAdapter,
+  MigrationRecord,
+  QueryResultRow,
+} from "../types/migrations.js";
+import type {
+  MigrationFilenameRow,
+  MigrationRecordRow,
+} from "./migration-row-types.js";
 
 interface MigrationTableExistsRow extends QueryResultRow {
   migration_table: string | null;
@@ -7,12 +14,6 @@ interface MigrationTableExistsRow extends QueryResultRow {
 
 interface MigrationChecksumColumnRow extends QueryResultRow {
   has_checksum: boolean;
-}
-
-interface MigrationRecordRow extends QueryResultRow {
-  filename: string;
-  checksum: string | null;
-  executed_at: Date;
 }
 
 interface MigrationTableState {
@@ -84,7 +85,7 @@ export const getLastExecutedMigrationFilenamesReadOnly = async (
   }
 
   const limit = count ?? Number.MAX_SAFE_INTEGER;
-  const result = await adapter.query<MigrationRecordRow>(
+  const result = await adapter.query<MigrationFilenameRow>(
     `SELECT filename FROM _migrations ORDER BY id DESC LIMIT $1`,
     [limit]
   );

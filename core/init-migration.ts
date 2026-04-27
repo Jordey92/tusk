@@ -5,7 +5,7 @@ import { calculateChecksum } from "../utils/checksum.js";
 import { logger } from "../utils/logger.js";
 import { ensureMigrationsTable, markAsExecuted } from "./track-migrations.js";
 
-// Initial migration uses timestamp 0 to ensure it runs first
+// Timestamp 0 keeps the baseline ordered before later migrations.
 const INITIAL_MIGRATION_TIMESTAMP = "0000000000000";
 const INITIAL_MIGRATION_NAME = "initial";
 
@@ -92,7 +92,6 @@ export const createInitialMigration = async (
 ): Promise<InitMigrationResult> => {
   logger.info("Creating initial migration from existing schema", { migrationsPath, schema });
 
-  // Introspect the database
   const introspectedSchema = await adapter.introspectDatabase(schema);
 
   if (introspectedSchema.tables.length === 0) {
@@ -100,11 +99,9 @@ export const createInitialMigration = async (
     throw new Error("No tables found in database to introspect");
   }
 
-  // Generate UP and DOWN migrations
   const upSQL = adapter.generateUpMigration(introspectedSchema);
   const downSQL = adapter.generateDownMigration(introspectedSchema);
 
-  // Create migration filenames
   const upFilename = `${INITIAL_MIGRATION_TIMESTAMP}_${INITIAL_MIGRATION_NAME}.up.sql`;
   const downFilename = `${INITIAL_MIGRATION_TIMESTAMP}_${INITIAL_MIGRATION_NAME}.down.sql`;
 
@@ -114,10 +111,8 @@ export const createInitialMigration = async (
   await ensureMigrationsTable(adapter);
   await assertBaselineRecordCompatible(adapter, upFilename, checksum);
 
-  // Ensure migrations directory exists
   await mkdir(path, { recursive: true });
 
-  // Write migration files
   const upPath = resolve(path, upFilename);
   const downPath = resolve(path, downFilename);
 

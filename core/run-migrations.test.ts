@@ -90,7 +90,7 @@ describe("run migrations", () => {
 
     test("should throw error when migration SQL fails", async () => {
       // Create temporary directory with invalid SQL
-      const { mkdtemp, rmdir, writeFile, unlink } = await import("fs/promises");
+      const { mkdtemp, rm, writeFile } = await import("fs/promises");
       const { tmpdir } = await import("os");
       const { join } = await import("path");
 
@@ -104,16 +104,13 @@ describe("run migrations", () => {
           runUp(adapter, tempDir)
         ).rejects.toThrow("Migration failed: 123_bad_sql.up.sql");
       } finally {
-        try {
-          await unlink(badSqlFile);
-        } catch {}
-        await rmdir(tempDir);
+        await rm(tempDir, { recursive: true, force: true });
       }
     });
 
     test("should not mark migration as executed if SQL fails", async () => {
       // Create temporary directory with invalid SQL
-      const { mkdtemp, rmdir, writeFile, unlink } = await import("fs/promises");
+      const { mkdtemp, rm, writeFile } = await import("fs/promises");
       const { tmpdir } = await import("os");
       const { join } = await import("path");
 
@@ -123,20 +120,15 @@ describe("run migrations", () => {
       try {
         await writeFile(badSqlFile, "INVALID SQL STATEMENT;");
 
-        try {
-          await runUp(adapter, tempDir);
-        } catch (error) {
-          // Expected to fail
-        }
+        await expect(runUp(adapter, tempDir)).rejects.toThrow(
+          "Migration failed: 123_should_rollback.up.sql"
+        );
 
         // Verify migration was not marked as executed
         const executed = await getExecutedMigrations(adapter);
         expect(executed.has("123_should_rollback.up.sql")).toBe(false);
       } finally {
-        try {
-          await unlink(badSqlFile);
-        } catch {}
-        await rmdir(tempDir);
+        await rm(tempDir, { recursive: true, force: true });
       }
     });
   });
@@ -249,7 +241,7 @@ describe("run migrations", () => {
 
     test("should throw error when rollback SQL fails", async () => {
       // Create temporary directory with good up file and bad down file
-      const { mkdtemp, rmdir, writeFile, unlink } = await import("fs/promises");
+      const { mkdtemp, rm, writeFile } = await import("fs/promises");
       const { tmpdir } = await import("os");
       const { join } = await import("path");
 
@@ -270,17 +262,13 @@ describe("run migrations", () => {
         ).rejects.toThrow("Rollback failed: 123_bad_down.down.sql");
 
       } finally {
-        try {
-          await unlink(upFile);
-          await unlink(downFile);
-        } catch {}
-        await rmdir(tempDir);
+        await rm(tempDir, { recursive: true, force: true });
       }
     });
 
     test("should not mark migration as rolled back if rollback SQL fails", async () => {
       // Create temporary directory with good up file and bad down file
-      const { mkdtemp, rmdir, writeFile, unlink } = await import("fs/promises");
+      const { mkdtemp, rm, writeFile } = await import("fs/promises");
       const { tmpdir } = await import("os");
       const { join } = await import("path");
 
@@ -300,22 +288,16 @@ describe("run migrations", () => {
         expect(executed.has("123_rollback_fail.up.sql")).toBe(true);
 
         // Try to run down - should fail and leave migration marked as executed
-        try {
-          await runDown(adapter, tempDir);
-        } catch (error) {
-          // Expected to fail
-        }
+        await expect(runDown(adapter, tempDir)).rejects.toThrow(
+          "Rollback failed: 123_rollback_fail.down.sql"
+        );
 
         // Verify migration is still marked as executed (rollback failed)
         executed = await getExecutedMigrations(adapter);
         expect(executed.has("123_rollback_fail.up.sql")).toBe(true);
 
       } finally {
-        try {
-          await unlink(upFile);
-          await unlink(downFile);
-        } catch {}
-        await rmdir(tempDir);
+        await rm(tempDir, { recursive: true, force: true });
       }
     });
 

@@ -178,17 +178,15 @@ describe("PostgresJS Adapter", () => {
     });
 
     test("should rollback transaction on error", async () => {
-      try {
-        await adapter.transaction(async (client) => {
+      await expect(
+        adapter.transaction(async (client) => {
           await client.query(
             "INSERT INTO users (email, name) VALUES ($1, $2)",
             ["rollback@example.com", "Rollback User"]
           );
           throw new Error("Intentional error");
-        });
-      } catch (error) {
-        // Expected to throw
-      }
+        })
+      ).rejects.toThrow("Intentional error");
 
       const result = await adapter.query(
         "SELECT * FROM users WHERE email = $1",

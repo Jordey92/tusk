@@ -1,7 +1,11 @@
 import { readdir, readFile, access } from "fs/promises";
 import { resolve } from "path";
 import type { Migration } from "../types/migrations.js";
-import { createMigrationDirectoryError, createMigrationFileError } from "../utils/errors.js";
+import {
+  createMigrationDirectoryError,
+  createMigrationFileError,
+  toError,
+} from "../utils/errors.js";
 
 const UP_DOWN_REGEX = /\.(up|down)\.sql$/;
 
@@ -11,10 +15,7 @@ export const getFilesFromDirectory = async (path: string) => {
   try {
     await access(absolutePath);
   } catch (error) {
-    const tuskError = createMigrationDirectoryError(
-      absolutePath,
-      error instanceof Error ? error : new Error(String(error))
-    );
+    const tuskError = createMigrationDirectoryError(absolutePath, toError(error));
     throw tuskError;
   }
 

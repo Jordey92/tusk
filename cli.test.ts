@@ -2,16 +2,14 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
-import { exerciseMigrationLifecycle } from "./utils/cli-smoke";
+import type { ValidationIssue } from "./core/validate-migrations";
+import {
+  exerciseMigrationLifecycle,
+  type CliCommandResult,
+} from "./utils/cli-smoke";
 import { createTemporaryDatabase } from "./utils/test-helper";
 
 const cliEntrypoint = resolve(process.cwd(), "cli.ts");
-
-interface CliResult {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-}
 
 const decode = async (stream: ReadableStream<Uint8Array> | null) => {
   if (!stream) {
@@ -25,7 +23,7 @@ const runCli = async (
   args: string[],
   env: Record<string, string>,
   cwd: string
-): Promise<CliResult> => {
+): Promise<CliCommandResult> => {
   const child = Bun.spawn([process.execPath, cliEntrypoint, ...args], {
     cwd,
     env: {
@@ -686,7 +684,7 @@ describe("cli smoke test", () => {
     const payload = JSON.parse(result.stdout) as {
       ok: boolean;
       command: string;
-      issues: unknown[];
+      issues: ValidationIssue[];
       summary: { errors: number; warnings: number; files: number };
     };
 

@@ -10,13 +10,10 @@ import {
 } from "fs/promises";
 import { join, resolve } from "path";
 import { Pool } from "pg";
-import { exerciseMigrationLifecycle } from "./utils/cli-smoke";
-
-interface CommandResult {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-}
+import {
+  exerciseMigrationLifecycle,
+  type CliCommandResult,
+} from "./utils/cli-smoke";
 
 const repoRoot = process.cwd();
 const nodeBinary = process.env.NODE_BINARY || "node";
@@ -39,7 +36,7 @@ const runCommand = async (
   cmd: string[],
   cwd: string,
   envOverrides: Record<string, string> = {}
-): Promise<CommandResult> => {
+): Promise<CliCommandResult> => {
   const child = Bun.spawn(cmd, {
     cwd,
     env: {
