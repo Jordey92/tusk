@@ -18,6 +18,7 @@ import {
 import { readMigrations } from "./read-migrations.js";
 import { calculateChecksum } from "../utils/checksum.js";
 import { planRollbackMigrations } from "./rollback-plan.js";
+import { normalizeRollbackTarget, type RollbackTarget } from "./rollback-target.js";
 import { assertExecutedMigrationChecksums } from "./checksum-validation.js";
 import {
   ensureMigrationsTable,
@@ -26,6 +27,7 @@ import {
   markAsExecuted,
   markAsRolledBack,
 } from "./track-migrations.js";
+import { getExecutedMigrationCountReadOnly } from "./migration-records.js";
 
 interface MigrationBatchOptions {
   adapter: DatabaseAdapter;
@@ -147,9 +149,18 @@ export const runUp = async (
 export const runDown = async (
   adapter: DatabaseAdapter,
   migrationsPath: string,
-  count?: number
+  target?: RollbackTarget
 ): Promise<RunResult> => {
-  logger.info("Starting migration down process", { migrationsPath, count });
+  const rollbackTarget = normalizeRollbackTarget(target);
+  const count = rollbackTarget.mode === "count"
+    ? rollbackTarget.count
+    : undefined;
+
+  logger.info("Starting migration down process", {
+    migrationsPath,
+    count,
+    all: rollbackTarget.mode === "all",
+  });
 
   await adapter.acquireMigrationLock();
 
@@ -157,6 +168,7 @@ export const runDown = async (
     await ensureMigrationsTable(adapter);
     const migrationsFromDirectory = await readMigrations(migrationsPath, "down");
 
+    const availableRollbackCount = await getExecutedMigrationCountReadOnly(adapter);
     const lastExecuted = await getLastExecutedMigrations(adapter, count);
     const migrationsToRollback = planRollbackMigrations(
       lastExecuted,
@@ -167,6 +179,7 @@ export const runDown = async (
       total: migrationsFromDirectory.length,
       toRollback: migrationsToRollback.length,
       requestedCount: count,
+      all: rollbackTarget.mode === "all",
     });
 
     const pending = await executeMigrationBatch({
@@ -188,7 +201,15 @@ export const runDown = async (
     logger.info("Migration down process completed", {
       executed: migrationsToRollback.length,
     });
-    return { executed: migrationsToRollback.length, pending };
+    return {
+      executed: migrationsToRollback.length,
+      pending,
+      requestedCount: rollbackTarget.mode === "count"
+        ? rollbackTarget.requestedCount
+        : undefined,
+      availableRollbackCount,
+      rollbackAll: rollbackTarget.mode === "all",
+    };
   } finally {
     await adapter.releaseMigrationLock();
   }

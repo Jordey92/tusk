@@ -89,4 +89,7 @@ export interface DatabaseAdapter extends QueryClient {
 export type RunResult = {
   executed: number;
   pending: number;
+  requestedCount?: number;
+  availableRollbackCount?: number;
+  rollbackAll?: boolean;
 };

@@ -38,6 +38,8 @@ Add or review CLI contract tests for:
 - `tusk down <count>`
 - `tusk down --all`
 - `tusk down --dry-run`
+- invalid rollback counts (`0`, negative, non-numeric)
+- missing rollback files before partial rollback
 - `tusk init`
 - `tusk status --json`
 - `tusk validate --json`

@@ -80,6 +80,11 @@ bun run test:db
 - `tusk down --dry-run` plans one rollback by default. Use
   `tusk down <count> --dry-run` or `tusk down --all --dry-run` only when the
   wider rollback scope is intentional.
+- `tusk down` and `tusk down 1` roll back exactly one latest applied migration.
+  `tusk down <count>` rolls back newest first; if the count is larger than the
+  applied migration count, Tusk rolls back all available applied migrations and
+  reports the available count. Missing `.down.sql` files must fail planning
+  before partial rollback.
 - `tusk status --json` is the preferred machine-readable status check.
 - `--json` suppresses normal informational logs from stdout so agents can parse the response directly.
 

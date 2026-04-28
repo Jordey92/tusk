@@ -146,10 +146,23 @@ argument cannot accidentally undo the full migration history:
 
 ```bash
 npx tusk down
+npx tusk down 1
 npx tusk down --dry-run
 npx tusk down 3
 npx tusk down --all
 ```
+
+Rollback contract:
+
+- `tusk down` and `tusk down 1` roll back exactly the latest applied migration.
+- `tusk down n` rolls back the latest `n` applied migrations, newest first.
+- `tusk down --all` rolls back every applied migration, newest first.
+- If `n` is greater than the number of applied migrations, Tusk rolls back all
+  available applied migrations and says how many were available.
+- If no migrations are applied, Tusk exits successfully with
+  `No applied migrations to roll back`.
+- Rollbacks use only matching `.down.sql` files. If any required rollback file
+  is missing, Tusk fails while planning before applying the rollback batch.
 
 ## Starting From an Existing Database
 
@@ -244,10 +257,13 @@ tusk doctor
 tusk version
 ```
 
-`tusk down` rolls back one migration by default. This is intentionally narrow:
-the safest rollback is the latest migration only, and broader rollback should be
-explicit. Use `tusk down <count>` to roll back several migrations, or
-`tusk down --all` to roll back every applied migration.
+`tusk down` and `tusk down 1` roll back one migration by default. This is
+intentionally narrow: the safest rollback is the latest migration only, and
+broader rollback should be explicit. Use `tusk down <count>` to roll back
+several migrations, or `tusk down --all` to roll back every applied migration.
+Rollback batches run newest first and use only matching `.down.sql` files. If a
+requested count is larger than the applied migration count, Tusk rolls back all
+available applied migrations and reports the smaller available count.
 
 `tusk up --dry-run`, `tusk down --dry-run`,
 `tusk down <count> --dry-run`, and `tusk down --all --dry-run` print the
