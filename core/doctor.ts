@@ -451,6 +451,7 @@ const checkDatabase = async (
   checks: DoctorCheck[],
   database: DoctorDatabase,
   migrationsPath: string,
+  migrationsPathExists: boolean,
   input: DoctorDatabaseInput
 ) => {
   if ("error" in input && isDriverNotFoundError(input.error)) {
@@ -515,8 +516,10 @@ const checkDatabase = async (
   }
 
   await checkMigrationTable(checks, database, input.adapter);
-  await checkDatabaseDrift(checks, migrationsPath, input.adapter);
-  await checkDatabaseStatus(checks, database, migrationsPath, input.adapter);
+  if (migrationsPathExists) {
+    await checkDatabaseDrift(checks, migrationsPath, input.adapter);
+    await checkDatabaseStatus(checks, database, migrationsPath, input.adapter);
+  }
   await checkAdvisoryLock(checks, input.adapter);
 };
 
@@ -537,7 +540,13 @@ export const runDoctor = async (
   if (migrationsPathExists) {
     await checkMigrationFiles(checks, options.migrationsPath);
   }
-  await checkDatabase(checks, database, options.migrationsPath, options.database);
+  await checkDatabase(
+    checks,
+    database,
+    options.migrationsPath,
+    migrationsPathExists,
+    options.database
+  );
 
   const summary = createSummary(checks);
 

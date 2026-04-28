@@ -253,6 +253,46 @@ describe("doctor", () => {
     expect(report.summary.skipped).toBe(0);
   });
 
+  test("skips file-dependent database checks when the migrations path is missing", async () => {
+    const migrationsPath = join(tmpdir(), `tusk-missing-db-${Date.now()}`);
+    const { adapter, lockCalls } = createHealthyAdapter();
+
+    const report = await runDoctor({
+      migrationsPath,
+      tuskVersion: "0.4.0",
+      database: {
+        configured: true,
+        adapter,
+      },
+    });
+
+    expect(report.ok).toBe(false);
+    expect(report.summary.errors).toBe(1);
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        id: "migrations.path",
+        status: "fail",
+      })
+    );
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        id: "database.connection",
+        status: "pass",
+      })
+    );
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        id: "database.migrationTable",
+        status: "pass",
+      })
+    );
+    expect(report.database.status).toBeUndefined();
+    expect(lockCalls).toEqual(["acquire", "release"]);
+    expect(checkIds(report)).not.toContain("migrations.valid");
+    expect(checkIds(report)).not.toContain("database.drift");
+    expect(checkIds(report)).not.toContain("database.status");
+  });
+
   test("warns clearly when the migrations directory is empty", async () => {
     const migrationsPath = await createTempDir();
 
