@@ -54,7 +54,7 @@ Add focused tests for `_migrations` compatibility:
 
 - current table with checksums
 - legacy table without checksums
-- adopted baseline from `tusk init`
+- adopted baseline from `tusk init --from-db`
 - checksum drift detection
 - read-only commands against legacy metadata
 - mutating commands upgrading metadata safely when needed
@@ -71,7 +71,8 @@ Extend the packed-package smoke path so it proves the npm artifact can:
 - report status
 - dry-run down
 - roll back one migration
-- create/adopt a baseline with `init`
+- create the local project structure with `init`
+- adopt a baseline with `init --from-db`
 
 This is the highest-value check because users install the package, not the source tree.
 
@@ -130,7 +131,7 @@ For existing-database adoption, run:
 
 ```bash
 tusk doctor --json
-tusk init --json
+tusk init --from-db --json
 tusk status --json
 tusk up --dry-run --json
 tusk create add_post_baseline_table --json

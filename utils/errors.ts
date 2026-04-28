@@ -2,12 +2,26 @@ import type { StructuredContext } from "../types/structured.js";
 
 type TuskErrorCode =
   | "DATABASE_CONNECTION_FAILED"
+  | "DRIVER_NOT_FOUND"
   | "MIGRATION_DIRECTORY_NOT_FOUND"
   | "MIGRATION_FILE_INVALID"
   | "MIGRATION_EXECUTION_FAILED"
   | "ROLLBACK_FAILED"
   | "VALIDATION_ERROR"
   | "CONFIGURATION_ERROR";
+
+const DRIVER_NOT_FOUND_MESSAGE = `No supported Postgres client found.
+
+Tusk needs a Postgres client to connect to your database.
+
+Install one of:
+
+  bun add pg
+  bun add postgres
+
+Recommended:
+
+  bun add pg`;
 
 export class TuskError extends Error {
   code: TuskErrorCode;
@@ -37,6 +51,9 @@ export const createTuskError = (
 
 export const createDatabaseError = (message: string, cause?: Error, context?: StructuredContext): TuskError =>
   createTuskError("DATABASE_CONNECTION_FAILED", message, cause, context);
+
+export const createDriverNotFoundError = (): TuskError =>
+  createTuskError("DRIVER_NOT_FOUND", DRIVER_NOT_FOUND_MESSAGE);
 
 export const createMigrationDirectoryError = (path: string, cause?: Error): TuskError =>
   createTuskError(
@@ -96,3 +113,6 @@ export const formatTuskError = (error: TuskError): string => {
 export const isTuskError = (error: unknown): error is TuskError => {
   return error instanceof TuskError;
 };
+
+export const isDriverNotFoundError = (error: unknown): error is TuskError =>
+  error instanceof TuskError && error.code === "DRIVER_NOT_FOUND";

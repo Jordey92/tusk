@@ -91,7 +91,7 @@ DB_USER=postgres
 DB_PASSWORD=secret
 
 MIGRATIONS_PATH=./migrations
-LOG_LEVEL=info
+LOG_LEVEL=warn
 ```
 
 Set `MIGRATIONS_PATH` to use a different migration directory.
@@ -166,10 +166,20 @@ Rollback contract:
 
 ## Starting From an Existing Database
 
-If your schema already exists, Tusk can derive a baseline migration from the live database:
+For a new project, initialise the local migration directory first:
 
 ```bash
 npx tusk init
+```
+
+This creates `./migrations` when it is missing. Add matching `.up.sql` and
+`.down.sql` files there, then run `tusk doctor` and `tusk up`.
+
+If your schema already exists, Tusk can derive a baseline migration from the
+live database with the explicit adoption flag:
+
+```bash
+npx tusk init --from-db
 ```
 
 This creates `0000000000000_initial.up.sql` and `0000000000000_initial.down.sql` so future schema changes can be managed through normal migrations.
@@ -237,6 +247,7 @@ By default the plugin runs `up` on startup.
 ```text
 tusk create <name>
 tusk init
+tusk init --from-db
 tusk up
 tusk down [count]
 tusk down --all

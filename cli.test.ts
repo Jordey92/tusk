@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import type { ValidationIssue } from "./core/validate-migrations";
@@ -106,6 +106,38 @@ describe("cli smoke test", () => {
     expect(createdFiles.some((file) => file.endsWith(".down.sql"))).toBe(true);
   });
 
+  test("cli startup path does not statically import pg", async () => {
+    const cliSource = await readFile(cliEntrypoint, "utf-8");
+
+    expect(cliSource).not.toContain("from \"pg\"");
+  });
+
+  test("init creates the migrations directory without database settings", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "tusk-cli-init-local-"));
+    cleanupPaths.push(workspace);
+
+    const result = await runCli(
+      ["init"],
+      {
+        DATABASE_URL: "",
+        DB_HOST: "",
+        DB_PORT: "",
+        DB_NAME: "",
+        DB_USER: "",
+        DB_PASSWORD: "",
+        MIGRATIONS_PATH: "migrations",
+        LOG_LEVEL: "error",
+      },
+      workspace
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Created migrations directory: migrations");
+    expect(result.stdout).toContain("Next steps:");
+    expect(result.stderr).toBe("");
+    expect(await readdir(join(workspace, "migrations"))).toEqual([]);
+  });
+
   test("create --json returns machine-readable file data", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "tusk-cli-create-json-"));
     cleanupPaths.push(workspace);
@@ -186,6 +218,29 @@ describe("cli smoke test", () => {
     }));
   });
 
+  test("doctor human output does not show info logs by default", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "tusk-cli-doctor-human-"));
+    cleanupPaths.push(workspace);
+
+    const result = await runCli(
+      ["doctor"],
+      {
+        DATABASE_URL: "",
+        DB_NAME: "",
+        DB_USER: "",
+        DB_PASSWORD: "",
+        MIGRATIONS_PATH: "migrations",
+        LOG_LEVEL: "",
+      },
+      workspace
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain("Tusk Doctor");
+    expect(result.stdout).not.toContain("[INFO]");
+    expect(result.stderr).toBe("");
+  });
+
   test("create, up, status, and down work against a fresh database", async () => {
     const database = await createTemporaryDatabase("cli_smoke");
     const workspace = await mkdtemp(join(tmpdir(), "tusk-cli-smoke-"));
@@ -212,7 +267,7 @@ describe("cli smoke test", () => {
     }
   });
 
-  test("init --json records the generated baseline as executed", async () => {
+  test("init --from-db --json records the generated baseline as executed", async () => {
     const database = await createTemporaryDatabase("cli_init_baseline");
     const workspace = await mkdtemp(join(tmpdir(), "tusk-cli-init-"));
     cleanupPaths.push(workspace);
@@ -231,7 +286,7 @@ describe("cli smoke test", () => {
         );
       `);
 
-      const result = await runCli(["init", "--json"], env, workspace);
+      const result = await runCli(["init", "--from-db", "--json"], env, workspace);
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
 
@@ -244,6 +299,7 @@ describe("cli smoke test", () => {
         checksum: string;
         markedAsExecuted: boolean;
         migrationsPath: string;
+        fromDb: boolean;
       };
 
       expect(payload.ok).toBe(true);
@@ -254,6 +310,7 @@ describe("cli smoke test", () => {
       expect(payload.checksum).toMatch(/^[a-f0-9]{64}$/);
       expect(payload.markedAsExecuted).toBe(true);
       expect(payload.migrationsPath).toBe("migrations");
+      expect(payload.fromDb).toBe(true);
 
       const status = await runCli(["status", "--json"], env, workspace);
       expect(status.exitCode).toBe(0);

@@ -1,18 +1,28 @@
 #!/usr/bin/env node
 
 import "dotenv/config";
-import { Pool } from "pg";
-import { createPgAdapter } from "./adapters/pg.js";
+import {
+  createManagedPostgresAdapter,
+  resolvePostgresClientDriver,
+  type ManagedPostgresAdapter,
+} from "./adapters/postgres-client.js";
 import { runUp, runDown } from "./core/run-migrations.js";
 import { createMigrationFile } from "./core/create-migration.js";
 import { createInitialMigration } from "./core/init-migration.js";
+import { initializeProject } from "./core/init-project.js";
 import { getMigrationStatus } from "./core/migration-status.js";
 import { createDownPlan, createUpPlan, type MigrationPlan } from "./core/plan-migrations.js";
 import { validateMigrations } from "./core/validate-migrations.js";
 import { runDoctor } from "./core/doctor.js";
 import { logger } from "./utils/logger.js";
-import { createConfigurationError, formatTuskError, isTuskError } from "./utils/errors.js";
+import {
+  createConfigurationError,
+  formatTuskError,
+  isDriverNotFoundError,
+  isTuskError,
+} from "./utils/errors.js";
 import { createErrorPayload, createSuccessPayload, writeJson } from "./utils/cli-output.js";
+import { formatDoctorReport } from "./utils/doctor-output.js";
 import {
   getCliDownCount,
   parseCommandArgs,
@@ -21,7 +31,6 @@ import {
 } from "./utils/cli-parser.js";
 import { getCurrentDir } from "./utils/runtime.js";
 import { getPackageVersion } from "./utils/version.js";
-import type { DoctorReport } from "./types/doctor.js";
 import type { ConnectionConfig } from "./types/migrations.js";
 import type { RollbackTarget } from "./core/rollback-target.js";
 
@@ -82,7 +91,8 @@ Usage: tusk <command> [options]
 
 Commands:
   create <name>   Create a new migration with the given name
-  init            Generate baseline migration and mark it as applied
+  init            Initialise a Tusk project locally
+  init --from-db  Generate baseline migration and mark it as applied
   up              Run all pending migrations
   down [n]        Roll back n migrations (defaults to 1; use --all for all)
   status          Show migration status
@@ -94,6 +104,9 @@ Commands:
 Options:
   --version, -v   Show version number
   --help, -h      Show this help message
+  init:
+    --from-db     Adopt an existing database schema as an applied baseline
+    --json        Output machine-readable init data
   status:
     --exit-code   Exit 1 when migrations are pending, 0 when clean
     --json        Output machine-readable status as JSON
@@ -118,11 +131,12 @@ Environment variables:
     DB_USER       Database user (required)
     DB_PASSWORD   Database password (required)
   MIGRATIONS_PATH Migration files directory (default: ./migrations)
-  LOG_LEVEL       Logging level: debug, info, warn, error (default: info)
+  LOG_LEVEL       Logging level: debug, info, warn, error (default: warn)
 
 Examples:
   tusk create add_user_table
   tusk init
+  tusk init --from-db
   tusk up
   tusk down
   tusk down 3
@@ -140,7 +154,7 @@ Examples:
 `);
 };
 
-type DatabaseCommand = "init" | "up" | "down" | "status";
+type DatabaseCommand = "up" | "down" | "status";
 
 const printStatus = (
   status: Awaited<ReturnType<typeof getMigrationStatus>>,
@@ -257,47 +271,70 @@ const printValidation = (result: Awaited<ReturnType<typeof validateMigrations>>)
   );
 };
 
-const doctorStatusSymbol = (status: DoctorReport["checks"][number]["status"]) => {
-  if (status === "pass") return "✓";
-  if (status === "warn") return "!";
-  if (status === "fail") return "✗";
-  return "-";
+const printDoctor = (report: Awaited<ReturnType<typeof runDoctor>>) => {
+  console.log(formatDoctorReport(report));
 };
 
-const printDoctor = (report: DoctorReport) => {
-  console.log("\nTusk Doctor");
-  console.log("─".repeat(60));
-
-  for (const check of report.checks) {
-    console.log(`${doctorStatusSymbol(check.status)} ${check.message}`);
-  }
-
-  console.log("─".repeat(60));
-  console.log(
-    `Summary: ${report.summary.passed} passed, ` +
-      `${report.summary.warnings} warning(s), ` +
-      `${report.summary.errors} error(s), ` +
-      `${report.summary.skipped} skipped`
-  );
+const createDatabaseConnection = async (): Promise<ManagedPostgresAdapter> => {
+  const config = loadDatabaseConfig();
+  return createManagedPostgresAdapter(config);
 };
 
-const createDoctorDatabaseInput = () => {
+const createDriverNotFoundDoctorInput = (error: unknown) => {
   try {
-    const config = loadDatabaseConfig();
-    const pool = new Pool(config);
+    loadDatabaseConfig();
     return {
       database: {
         configured: true as const,
-        adapter: createPgAdapter(pool),
+        error,
       },
-      cleanup: async () => {
-        await pool.end();
-      },
+      cleanup: async () => {},
     };
+  } catch {
+    return {
+      database: {
+        configured: false as const,
+        error,
+      },
+      cleanup: async () => {},
+    };
+  }
+};
+
+const createDoctorDatabaseInput = async () => {
+  try {
+    await resolvePostgresClientDriver();
+  } catch (error) {
+    return createDriverNotFoundDoctorInput(error);
+  }
+
+  let config: DatabaseConfig;
+
+  try {
+    config = loadDatabaseConfig();
   } catch (error) {
     return {
       database: {
         configured: false as const,
+        error,
+      },
+      cleanup: async () => {},
+    };
+  }
+
+  try {
+    const database = await createManagedPostgresAdapter(config);
+    return {
+      database: {
+        configured: true as const,
+        adapter: database.adapter,
+      },
+      cleanup: database.cleanup,
+    };
+  } catch (error) {
+    return {
+      database: {
+        configured: true as const,
         error,
       },
       cleanup: async () => {},
@@ -309,39 +346,10 @@ const runDatabaseCommand = async (
   command: DatabaseCommand,
   parsedArgs: ParsedCommandArgs
 ): Promise<number> => {
-  const config = loadDatabaseConfig();
-  const pool = new Pool(config);
-  const adapter = createPgAdapter(pool);
+  const database = await createDatabaseConnection();
+  const adapter = database.adapter;
 
   try {
-    if (command === "init") {
-      logger.info("Generating initial migration from database");
-      const initResult = await createInitialMigration(adapter, migrationsPath);
-      if (parsedArgs.json) {
-        writeJson(createSuccessPayload("init", {
-          upFile: initResult.upFile,
-          downFile: initResult.downFile,
-          tableCount: initResult.tableCount,
-          checksum: initResult.checksum,
-          markedAsExecuted: initResult.markedAsExecuted,
-          migrationsPath,
-        }));
-      } else {
-        console.log(`✓ Created ${initResult.upFile}`);
-        console.log(`✓ Created ${initResult.downFile}`);
-        console.log(`✓ Introspected ${initResult.tableCount} table(s)`);
-        console.log(`✓ Marked ${initResult.upFile} as applied`);
-      }
-      logger.info("Initial migration created successfully", {
-        upFile: initResult.upFile,
-        downFile: initResult.downFile,
-        tableCount: initResult.tableCount,
-        checksum: initResult.checksum,
-        markedAsExecuted: initResult.markedAsExecuted
-      });
-      return 0;
-    }
-
     if (command === "up") {
       if (parsedArgs.dryRun) {
         logger.info("Planning up migrations");
@@ -422,7 +430,69 @@ const runDatabaseCommand = async (
 
     return 0;
   } finally {
-    await pool.end();
+    await database.cleanup();
+  }
+};
+
+const printInitNextSteps = () => {
+  console.log("\nNext steps:");
+  console.log("  1. Add an .up.sql and .down.sql migration pair");
+  console.log("  2. Run tusk doctor");
+  console.log("  3. Run tusk up");
+};
+
+const runInitCommand = async (
+  parsedArgs: ParsedCommandArgs
+): Promise<number> => {
+  if (!parsedArgs.initFromDb) {
+    logger.info("Initialising Tusk project", { migrationsPath });
+    const result = await initializeProject(migrationsPath);
+
+    if (parsedArgs.json) {
+      writeJson(createSuccessPayload("init", result));
+    } else {
+      const message = result.created
+        ? `Created migrations directory: ${migrationsPath}`
+        : `Migrations directory already exists: ${migrationsPath}`;
+      console.log(`✓ ${message}`);
+      printInitNextSteps();
+    }
+
+    return 0;
+  }
+
+  logger.info("Generating initial migration from database");
+  const database = await createDatabaseConnection();
+  const adapter = database.adapter;
+
+  try {
+    const initResult = await createInitialMigration(adapter, migrationsPath);
+    if (parsedArgs.json) {
+      writeJson(createSuccessPayload("init", {
+        upFile: initResult.upFile,
+        downFile: initResult.downFile,
+        tableCount: initResult.tableCount,
+        checksum: initResult.checksum,
+        markedAsExecuted: initResult.markedAsExecuted,
+        migrationsPath,
+        fromDb: true,
+      }));
+    } else {
+      console.log(`✓ Created ${initResult.upFile}`);
+      console.log(`✓ Created ${initResult.downFile}`);
+      console.log(`✓ Introspected ${initResult.tableCount} table(s)`);
+      console.log(`✓ Marked ${initResult.upFile} as applied`);
+    }
+    logger.info("Initial migration created successfully", {
+      upFile: initResult.upFile,
+      downFile: initResult.downFile,
+      tableCount: initResult.tableCount,
+      checksum: initResult.checksum,
+      markedAsExecuted: initResult.markedAsExecuted
+    });
+    return 0;
+  } finally {
+    await database.cleanup();
   }
 };
 
@@ -475,13 +545,11 @@ const run = async () => {
 
     if (command === "validate") {
       if (parsedArgs.checkDatabase) {
-        const config = loadDatabaseConfig();
-        const pool = new Pool(config);
-        const adapter = createPgAdapter(pool);
+        const database = await createDatabaseConnection();
 
         try {
           const result = await validateMigrations(migrationsPath, {
-            adapter,
+            adapter: database.adapter,
             checkDatabase: true,
           });
 
@@ -493,7 +561,7 @@ const run = async () => {
 
           process.exit(result.ok ? 0 : 1);
         } finally {
-          await pool.end();
+          await database.cleanup();
         }
       }
 
@@ -508,7 +576,7 @@ const run = async () => {
     }
 
     if (command === "doctor") {
-      const doctorDatabase = createDoctorDatabaseInput();
+      const doctorDatabase = await createDoctorDatabaseInput();
 
       try {
         const report = await runDoctor({
@@ -529,7 +597,13 @@ const run = async () => {
       }
     }
 
-    if (command === "init" || command === "up" || command === "down" || command === "status") {
+    if (command === "init") {
+      const exitCode = await runInitCommand(parsedArgs);
+      logger.info("Migration tool completed successfully");
+      process.exit(exitCode);
+    }
+
+    if (command === "up" || command === "down" || command === "status") {
       const exitCode = await runDatabaseCommand(command, parsedArgs);
       logger.info("Migration tool completed successfully");
       process.exit(exitCode);
@@ -546,7 +620,7 @@ const run = async () => {
 
     if (isTuskError(error)) {
       logger.error("Tusk error occurred", { error: formatTuskError(error) });
-      console.error(formatTuskError(error));
+      console.error(isDriverNotFoundError(error) ? error.message : formatTuskError(error));
     } else {
       logger.error("Unexpected error occurred", {
         error: error instanceof Error ? error.message : String(error),
