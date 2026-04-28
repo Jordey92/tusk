@@ -16,6 +16,14 @@ export interface DoctorSummary {
   skipped: number;
 }
 
+interface DoctorMigrationTableIssue {
+  code: string;
+  message: string;
+  column?: string;
+  expected?: string;
+  actual?: string;
+}
+
 interface DoctorEnvironment {
   tuskVersion: string;
   migrationsPath: string;
@@ -32,6 +40,9 @@ export interface DoctorDatabase {
   migrationTable?: {
     exists: boolean;
     hasChecksum: boolean;
+    valid?: boolean;
+    issues?: DoctorMigrationTableIssue[];
+    legacyChecksumColumnMissing?: boolean;
   };
   status?: {
     executed: number;

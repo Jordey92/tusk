@@ -6,6 +6,7 @@ type TuskErrorCode =
   | "MIGRATION_DIRECTORY_NOT_FOUND"
   | "MIGRATION_FILE_INVALID"
   | "MIGRATION_EXECUTION_FAILED"
+  | "METADATA_TABLE_INVALID"
   | "ROLLBACK_FAILED"
   | "VALIDATION_ERROR"
   | "CONFIGURATION_ERROR";
@@ -78,6 +79,12 @@ export const createMigrationExecutionError = (filename: string, cause?: Error): 
     cause,
     { filename }
   );
+
+export const createMetadataTableError = (
+  message: string,
+  context?: StructuredContext
+): TuskError =>
+  createTuskError("METADATA_TABLE_INVALID", message, undefined, context);
 
 export const createRollbackError = (filename: string, cause?: Error): TuskError =>
   createTuskError(

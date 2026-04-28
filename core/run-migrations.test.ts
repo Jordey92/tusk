@@ -88,6 +88,39 @@ describe("run migrations", () => {
       ).rejects.toThrow("Migrations directory not found");
     });
 
+    test("should fail before applying migrations when metadata table shape is invalid", async () => {
+      await adapter.query("CREATE TABLE _migrations (id TEXT);");
+
+      await expect(runUp(adapter, "./fixtures/migrations")).rejects.toThrow(
+        "_migrations table has an invalid shape"
+      );
+    });
+
+    test("should fail when an applied migration file is missing on disk", async () => {
+      const { mkdtemp, rm, writeFile, unlink } = await import("fs/promises");
+      const { tmpdir } = await import("os");
+      const { join } = await import("path");
+
+      const tempDir = await mkdtemp(join(tmpdir(), "tusk-test-missing-up-"));
+      const upFile = join(tempDir, "123_missing_up.up.sql");
+      const downFile = join(tempDir, "123_missing_up.down.sql");
+
+      try {
+        await writeFile(upFile, "CREATE TABLE test_missing_up (id INT);");
+        await writeFile(downFile, "DROP TABLE test_missing_up;");
+
+        await runUp(adapter, tempDir);
+        await unlink(upFile);
+
+        await expect(runUp(adapter, tempDir)).rejects.toThrow(
+          "is missing from the migrations directory"
+        );
+      } finally {
+        await adapter.query("DROP TABLE IF EXISTS test_missing_up;");
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
     test("should throw error when migration SQL fails", async () => {
       // Create temporary directory with invalid SQL
       const { mkdtemp, rm, writeFile } = await import("fs/promises");
@@ -253,6 +286,14 @@ describe("run migrations", () => {
       await expect(
         runDown(adapter, "./non-existent-directory")
       ).rejects.toThrow("Migrations directory not found");
+    });
+
+    test("should fail before rollback planning when metadata table shape is invalid", async () => {
+      await adapter.query("CREATE TABLE _migrations (id TEXT);");
+
+      await expect(runDown(adapter, "./fixtures/migrations")).rejects.toThrow(
+        "_migrations table has an invalid shape"
+      );
     });
 
     test("should throw error when rollback SQL fails", async () => {

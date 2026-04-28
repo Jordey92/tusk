@@ -4,6 +4,7 @@ import { cleanupMigrations, createTestPool } from "../utils/test-helper";
 import {
   ensureMigrationsTable,
   getExecutedMigrations,
+  getExecutedMigrationsWithChecksums,
   getLastExecutedMigrations,
   markAsExecuted,
   markAsRolledBack,
@@ -77,6 +78,44 @@ describe("track migrations", () => {
         data_type: "character varying",
         is_nullable: "YES"
       });
+    });
+
+    test("should upgrade a legacy table missing the checksum column", async () => {
+      const adapter = createPgAdapter(pool);
+
+      await adapter.query(`
+        CREATE TABLE _migrations (
+          id SERIAL PRIMARY KEY,
+          filename VARCHAR(255) NOT NULL UNIQUE,
+          executed_at TIMESTAMP DEFAULT NOW()
+        )
+      `);
+      await adapter.query(
+        `INSERT INTO _migrations (filename) VALUES ('123_legacy.up.sql')`
+      );
+
+      await ensureMigrationsTable(adapter);
+
+      const columns = await adapter.query(`
+        SELECT column_name, data_type
+        FROM information_schema.columns
+        WHERE table_name = '_migrations'
+          AND column_name = 'checksum'
+      `);
+      const records = await getExecutedMigrationsWithChecksums(adapter);
+
+      expect(columns.rows).toEqual([
+        expect.objectContaining({
+          column_name: "checksum",
+          data_type: "character varying",
+        }),
+      ]);
+      expect(records).toEqual([
+        expect.objectContaining({
+          filename: "123_legacy.up.sql",
+          checksum: null,
+        }),
+      ]);
     });
   });
 

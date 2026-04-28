@@ -13,6 +13,7 @@ import type {
 } from "../types/doctor.js";
 import { readMigrations } from "./read-migrations.js";
 import {
+  formatMigrationTableShapeIssues,
   getExecutedMigrationRecordsReadOnly,
   getMigrationTableStateReadOnly,
 } from "./migration-records.js";
@@ -321,7 +322,7 @@ const checkMigrationTable = async (
   checks: DoctorCheck[],
   database: DoctorDatabase,
   adapter: DatabaseAdapter
-) => {
+): Promise<boolean> => {
   let tableState;
 
   try {
@@ -334,7 +335,26 @@ const checkMigrationTable = async (
       message: "_migrations table state could not be read",
       context: { cause: formatError(error) },
     });
-    return;
+    return false;
+  }
+
+  if (tableState.exists && !tableState.valid) {
+    addCheck(checks, {
+      id: "database.migrationTable",
+      status: "fail",
+      message: "_migrations table has an invalid shape",
+      context: {
+        issues: tableState.issues.map((issue) => ({
+          code: issue.code,
+          message: issue.message,
+          column: issue.column,
+          expected: issue.expected,
+          actual: issue.actual,
+        })),
+        details: formatMigrationTableShapeIssues(tableState.issues),
+      },
+    });
+    return false;
   }
 
   addCheck(checks, {
@@ -354,6 +374,8 @@ const checkMigrationTable = async (
         ? "_migrations exists without checksum metadata; legacy records can be read but drift checks are limited"
         : "Checksum metadata will be created when Tusk initializes migration state",
   });
+
+  return true;
 };
 
 const checkDatabaseDrift = async (
@@ -376,6 +398,12 @@ const checkDatabaseDrift = async (
     context: {
       errors: result.summary.errors,
       warnings: result.summary.warnings,
+      issues: result.issues.map((issue) => ({
+        code: issue.code,
+        severity: issue.severity,
+        message: issue.message,
+        filename: issue.filename,
+      })),
     },
   });
 };
@@ -515,8 +543,12 @@ const checkDatabase = async (
     return;
   }
 
-  await checkMigrationTable(checks, database, input.adapter);
-  if (migrationsPathExists) {
+  const migrationTableIsTrustworthy = await checkMigrationTable(
+    checks,
+    database,
+    input.adapter
+  );
+  if (migrationTableIsTrustworthy && migrationsPathExists) {
     await checkDatabaseDrift(checks, migrationsPath, input.adapter);
     await checkDatabaseStatus(checks, database, migrationsPath, input.adapter);
   }

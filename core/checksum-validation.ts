@@ -16,7 +16,11 @@ export const assertExecutedMigrationChecksums = (
     );
 
     if (!migrationFile) {
-      continue;
+      throw createValidationError(
+        `Executed migration ${executedMigration.filename} is missing from the migrations directory. ` +
+          "Restore the migration file or repair migration metadata before running migrations.",
+        { filename: executedMigration.filename }
+      );
     }
 
     const currentChecksum = calculateChecksum(migrationFile.sql);

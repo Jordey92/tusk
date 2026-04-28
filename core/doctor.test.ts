@@ -29,11 +29,44 @@ const queryResult = <T extends QueryResultRow>(rows: T[]) => ({
   rowCount: rows.length,
 });
 
+const createMigrationTableColumns = (hasChecksum = true) => [
+  { column_name: "id", formatted_type: "integer", is_not_null: true },
+  {
+    column_name: "filename",
+    formatted_type: "character varying(255)",
+    is_not_null: true,
+  },
+  {
+    column_name: "executed_at",
+    formatted_type: "timestamp without time zone",
+    is_not_null: false,
+  },
+  ...(hasChecksum
+    ? [
+        {
+          column_name: "checksum",
+          formatted_type: "character varying(64)",
+          is_not_null: false,
+        },
+      ]
+    : []),
+];
+
+const migrationTableConstraints: Array<{
+  constraint_type: "p" | "u";
+  columns: string[];
+}> = [
+  { constraint_type: "p", columns: ["id"] },
+  { constraint_type: "u", columns: ["filename"] },
+];
+
 interface VersionAdapterOptions {
   serverVersion?: string | null;
   serverVersionNum?: string | null;
   migrationTableExists?: boolean;
   hasChecksum?: boolean;
+  migrationTableColumns?: ReturnType<typeof createMigrationTableColumns>;
+  migrationTableConstraints?: typeof migrationTableConstraints;
   auroraVersion?: string;
 }
 
@@ -79,6 +112,19 @@ const createVersionAdapter = (
       ] as T[]);
     }
 
+    if (sql.includes("pg_constraint")) {
+      return queryResult(
+        (options.migrationTableConstraints ?? migrationTableConstraints) as T[]
+      );
+    }
+
+    if (sql.includes("pg_attribute")) {
+      return queryResult(
+        (options.migrationTableColumns ??
+          createMigrationTableColumns(options.hasChecksum !== false)) as T[]
+      );
+    }
+
     if (sql.includes("to_regclass")) {
       return queryResult([
         {
@@ -87,10 +133,6 @@ const createVersionAdapter = (
             : null,
         },
       ] as T[]);
-    }
-
-    if (sql.includes("information_schema.columns")) {
-      return queryResult([{ has_checksum: options.hasChecksum === true }] as T[]);
     }
 
     if (sql.includes("FROM _migrations")) {
@@ -129,12 +171,16 @@ const createHealthyAdapter = () => {
         ] as T[]);
       }
 
-      if (sql.includes("to_regclass")) {
-        return queryResult([{ migration_table: "_migrations" }] as T[]);
+      if (sql.includes("pg_constraint")) {
+        return queryResult(migrationTableConstraints as T[]);
       }
 
-      if (sql.includes("information_schema.columns")) {
-        return queryResult([{ has_checksum: true }] as T[]);
+      if (sql.includes("pg_attribute")) {
+        return queryResult(createMigrationTableColumns(true) as T[]);
+      }
+
+      if (sql.includes("to_regclass")) {
+        return queryResult([{ migration_table: "_migrations" }] as T[]);
       }
 
       if (sql.includes("FROM _migrations")) {
@@ -672,6 +718,47 @@ describe("doctor", () => {
         executed: 0,
         pending: 1,
       });
+    } finally {
+      await rm(migrationsPath, { recursive: true, force: true });
+    }
+  });
+
+  test("fails and skips dependent checks when the migration table shape is invalid", async () => {
+    const migrationsPath = await createTempDir();
+
+    try {
+      await writeMigrationPair(migrationsPath);
+
+      const report = await runDoctor({
+        migrationsPath,
+        tuskVersion: "0.4.0",
+        database: {
+          configured: true,
+          adapter: createVersionAdapter("PostgreSQL 16.9 on x86_64-pc-linux-gnu", {
+            serverVersion: "16.9",
+            serverVersionNum: "160009",
+            migrationTableExists: true,
+            migrationTableColumns: createMigrationTableColumns(true).filter(
+              (column) => column.column_name !== "filename"
+            ),
+          }),
+        },
+      });
+
+      expect(report.ok).toBe(false);
+      expect(report.checks).toContainEqual(
+        expect.objectContaining({
+          id: "database.migrationTable",
+          status: "fail",
+          message: "_migrations table has an invalid shape",
+        })
+      );
+      expect(report.database.migrationTable).toMatchObject({
+        exists: true,
+        valid: false,
+      });
+      expect(checkIds(report)).not.toContain("database.drift");
+      expect(checkIds(report)).not.toContain("database.status");
     } finally {
       await rm(migrationsPath, { recursive: true, force: true });
     }

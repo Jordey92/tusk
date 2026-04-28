@@ -17,9 +17,50 @@ const writeMigrationPair = async (
   await writeFile(join(migrationsPath, `${baseName}.down.sql`), downSql);
 };
 
+const migrationTableColumns = [
+  { column_name: "id", formatted_type: "integer", is_not_null: true },
+  {
+    column_name: "filename",
+    formatted_type: "character varying(255)",
+    is_not_null: true,
+  },
+  {
+    column_name: "executed_at",
+    formatted_type: "timestamp without time zone",
+    is_not_null: false,
+  },
+  {
+    column_name: "checksum",
+    formatted_type: "character varying(64)",
+    is_not_null: false,
+  },
+];
+
+const migrationTableConstraints: Array<{
+  constraint_type: "p" | "u";
+  columns: string[];
+}> = [
+  { constraint_type: "p", columns: ["id"] },
+  { constraint_type: "u", columns: ["filename"] },
+];
+
 const createAdapter = (executedFilenames: string[] = []) => {
   const adapter = {
     query: async (sql: string, params?: QueryParam[]) => {
+      if (sql.includes("pg_constraint")) {
+        return {
+          rows: migrationTableConstraints,
+          rowCount: migrationTableConstraints.length,
+        };
+      }
+
+      if (sql.includes("pg_attribute")) {
+        return {
+          rows: migrationTableColumns,
+          rowCount: migrationTableColumns.length,
+        };
+      }
+
       if (sql.includes("to_regclass")) {
         return {
           rows: [{ migration_table: executedFilenames.length > 0 ? "_migrations" : null }],

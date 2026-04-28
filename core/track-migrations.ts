@@ -4,6 +4,7 @@ import type {
   TransactionClient,
 } from "../types/migrations.js";
 import { logger } from "../utils/logger.js";
+import { assertMigrationTableShape } from "./migration-records.js";
 import type { MigrationFilenameRow, MigrationRecordRow } from "./migration-row-types.js";
 
 export const ensureMigrationsTable = async (adapter: DatabaseAdapter) => {
@@ -11,7 +12,8 @@ export const ensureMigrationsTable = async (adapter: DatabaseAdapter) => {
     CREATE TABLE IF NOT EXISTS _migrations (
       id SERIAL PRIMARY KEY,
       filename VARCHAR(255) NOT NULL UNIQUE,
-      executed_at TIMESTAMP DEFAULT NOW()
+      executed_at TIMESTAMP DEFAULT NOW(),
+      checksum VARCHAR(64)
     );
   `);
 
@@ -28,12 +30,14 @@ export const ensureMigrationsTable = async (adapter: DatabaseAdapter) => {
     END $$;
   `);
 
+  await assertMigrationTableShape(adapter);
   logger.debug("Migrations table structure ensured");
 };
 
 export const getExecutedMigrations = async (
   adapter: DatabaseAdapter
 ): Promise<Set<string>> => {
+  await assertMigrationTableShape(adapter);
   const result = await adapter.query<MigrationFilenameRow>(`
     SELECT filename FROM _migrations
   `);
@@ -45,6 +49,7 @@ export const getLastExecutedMigrations = async (
   adapter: DatabaseAdapter,
   count?: number
 ): Promise<string[]> => {
+  await assertMigrationTableShape(adapter);
   const limit = count ?? Number.MAX_SAFE_INTEGER;
   const result = await adapter.query<MigrationFilenameRow>(
     `SELECT filename FROM _migrations ORDER BY id DESC LIMIT $1`,
@@ -83,6 +88,7 @@ export const markAsRolledBack = async (
 export const getExecutedMigrationsWithChecksums = async (
   adapter: DatabaseAdapter
 ): Promise<MigrationRecord[]> => {
+  await assertMigrationTableShape(adapter);
   const result = await adapter.query<MigrationRecordRow>(`
     SELECT filename, checksum, executed_at
     FROM _migrations

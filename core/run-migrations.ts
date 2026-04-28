@@ -12,6 +12,7 @@ import {
   createMigrationExecutionError,
   createRollbackError,
   formatTuskError,
+  isTuskError,
   type TuskError,
   toError,
 } from "../utils/errors.js";
@@ -88,6 +89,10 @@ export const runUp = async (
       await ensureMigrationsTable(adapter);
       logger.debug("Migrations table ensured");
     } catch (error) {
+      if (isTuskError(error)) {
+        throw error;
+      }
+
       const tuskError = createDatabaseError(
         "Failed to ensure migrations table exists. Check database connection.",
         toError(error)

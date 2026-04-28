@@ -17,6 +17,33 @@ const writeMigrationPair = async (
   await writeFile(join(migrationsPath, `${baseName}.down.sql`), downSql);
 };
 
+const validMigrationTableColumns = [
+  { column_name: "id", formatted_type: "integer", is_not_null: true },
+  {
+    column_name: "filename",
+    formatted_type: "character varying(255)",
+    is_not_null: true,
+  },
+  {
+    column_name: "executed_at",
+    formatted_type: "timestamp without time zone",
+    is_not_null: false,
+  },
+  {
+    column_name: "checksum",
+    formatted_type: "character varying(64)",
+    is_not_null: false,
+  },
+];
+
+const validMigrationTableConstraints: Array<{
+  constraint_type: "p" | "u";
+  columns: string[];
+}> = [
+  { constraint_type: "p", columns: ["id"] },
+  { constraint_type: "u", columns: ["filename"] },
+];
+
 describe("validateMigrations", () => {
   test("passes for paired migration files with executable SQL", async () => {
     const migrationsPath = await createTempDir();
@@ -165,6 +192,14 @@ describe("validateMigrations", () => {
 
       const adapter = {
         query: async (sql: string) => {
+          if (sql.includes("pg_constraint")) {
+            return { rows: validMigrationTableConstraints, rowCount: 2 };
+          }
+
+          if (sql.includes("pg_attribute")) {
+            return { rows: validMigrationTableColumns, rowCount: 4 };
+          }
+
           if (sql.includes("to_regclass")) {
             return { rows: [{ migration_table: "_migrations" }], rowCount: 1 };
           }
@@ -190,6 +225,54 @@ describe("validateMigrations", () => {
       expect(result.ok).toBe(false);
       expect(result.issues.map((issue) => issue.code)).toContain(
         "EXECUTED_MIGRATION_CHECKSUM_MISMATCH"
+      );
+    } finally {
+      await rm(migrationsPath, { recursive: true, force: true });
+    }
+  });
+
+  test("reports an applied migration that is missing on disk", async () => {
+    const migrationsPath = await createTempDir();
+
+    try {
+      const adapter = {
+        query: async (sql: string) => {
+          if (sql.includes("pg_constraint")) {
+            return { rows: validMigrationTableConstraints, rowCount: 2 };
+          }
+
+          if (sql.includes("pg_attribute")) {
+            return { rows: validMigrationTableColumns, rowCount: 4 };
+          }
+
+          if (sql.includes("to_regclass")) {
+            return { rows: [{ migration_table: "_migrations" }], rowCount: 1 };
+          }
+
+          return {
+            rows: [
+              {
+                filename: "1728123456789_missing.up.sql",
+                checksum: "stored-checksum",
+                executed_at: new Date("2026-01-01T00:00:00.000Z"),
+              },
+            ],
+            rowCount: 1,
+          };
+        },
+      } satisfies Pick<DatabaseAdapter, "query">;
+
+      const result = await validateMigrations(migrationsPath, {
+        adapter: adapter as DatabaseAdapter,
+        checkDatabase: true,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.issues).toContainEqual(
+        expect.objectContaining({
+          code: "EXECUTED_MIGRATION_FILE_MISSING",
+          filename: "1728123456789_missing.up.sql",
+        })
       );
     } finally {
       await rm(migrationsPath, { recursive: true, force: true });

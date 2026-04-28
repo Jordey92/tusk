@@ -90,9 +90,11 @@ being treated as PostgreSQL.
 Tusk's supported floor.
 
 `database.migrationTable`
-: Checks whether `_migrations` is readable. Missing metadata is a warning, not
-a failure, because the first `tusk up` can create it when migrations are
-applied.
+: Checks whether `_migrations` is readable and has a trustworthy shape.
+Missing metadata is a warning, not a failure, because the first `tusk up` can
+create it when migrations are applied. An existing `_migrations` table with an
+invalid shape is a failure, and doctor skips drift/status checks that depend on
+trusting metadata.
 
 `database.checksumMetadata`
 : Checks whether `_migrations` has checksum metadata. Legacy tables without the

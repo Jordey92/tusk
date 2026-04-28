@@ -61,6 +61,10 @@ migrations/
 
 Tusk does not provide a migration DSL or schema abstraction layer.
 
+The `_migrations` table name and shape are part of Tusk's v1 compatibility
+contract. See [Metadata table contract](docs/metadata-table.md) for the exact
+schema and safety behavior.
+
 Example:
 
 ```sql
