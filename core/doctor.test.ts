@@ -4,6 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import type { DatabaseAdapter, QueryResultRow } from "../types/migrations";
 import { calculateChecksum } from "../utils/checksum";
+import { createDriverNotFoundError } from "../utils/errors";
 import { runDoctor } from "./doctor";
 
 const createTempDir = async () => mkdtemp(join(tmpdir(), "tusk-doctor-"));
@@ -224,6 +225,89 @@ describe("doctor", () => {
       );
       expect(report.checks.some((check) => check.id === "database.connection"))
         .toBe(false);
+    } finally {
+      await rm(migrationsPath, { recursive: true, force: true });
+    }
+  });
+
+  test("does not run migration validation when the migrations path is missing", async () => {
+    const migrationsPath = join(tmpdir(), `tusk-missing-${Date.now()}`);
+
+    const report = await runDoctor({
+      migrationsPath,
+      tuskVersion: "0.4.0",
+      database: {
+        configured: false,
+      },
+    });
+
+    expect(report.ok).toBe(false);
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        id: "migrations.path",
+        status: "fail",
+        message: expect.stringContaining("Run `tusk init`"),
+      })
+    );
+    expect(checkIds(report)).not.toContain("migrations.valid");
+    expect(report.summary.skipped).toBe(0);
+  });
+
+  test("warns clearly when the migrations directory is empty", async () => {
+    const migrationsPath = await createTempDir();
+
+    try {
+      const report = await runDoctor({
+        migrationsPath,
+        tuskVersion: "0.4.0",
+        database: {
+          configured: false,
+          error: new Error("DATABASE_URL was not set"),
+        },
+      });
+
+      expect(report.checks).toContainEqual(
+        expect.objectContaining({
+          id: "migrations.valid",
+          status: "warn",
+          message: "No migration files found yet. Add an .up.sql and .down.sql migration pair before running `tusk up`.",
+        })
+      );
+    } finally {
+      await rm(migrationsPath, { recursive: true, force: true });
+    }
+  });
+
+  test("fails with setup guidance when no supported Postgres client is installed", async () => {
+    const migrationsPath = await createTempDir();
+
+    try {
+      await writeMigrationPair(migrationsPath);
+
+      const report = await runDoctor({
+        migrationsPath,
+        tuskVersion: "0.4.0",
+        database: {
+          configured: false,
+          error: createDriverNotFoundError(),
+        },
+      });
+
+      expect(report.ok).toBe(false);
+      expect(report.checks).toContainEqual(
+        expect.objectContaining({
+          id: "database.driver",
+          status: "fail",
+          message: expect.stringContaining("No supported Postgres client found"),
+        })
+      );
+      expect(report.checks).toContainEqual(
+        expect.objectContaining({
+          id: "database.driver",
+          message: expect.stringContaining("bun add pg"),
+        })
+      );
+      expect(checkIds(report)).not.toContain("database.config");
     } finally {
       await rm(migrationsPath, { recursive: true, force: true });
     }
@@ -506,6 +590,7 @@ describe("doctor", () => {
         expect.objectContaining({
           id: "database.migrationTable",
           status: "warn",
+          message: "_migrations table was not found. Run `tusk up` to initialise migration tracking when applying migrations.",
         })
       );
       expect(report.checks).toContainEqual(

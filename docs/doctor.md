@@ -63,11 +63,14 @@ project, but there is something worth reviewing before a mutating command.
 : Confirms the running Tusk version can be resolved.
 
 `migrations.path`
-: Confirms the migration directory exists.
+: Confirms the migration directory exists. If it is missing, run `tusk init`
+to create the local project structure.
 
 `migrations.valid`
-: Runs the normal migration file validator. This checks filenames, up/down
-pairs, duplicate timestamps, SQL content, and transaction-control statements.
+: Runs the normal migration file validator when the migration directory exists.
+This checks filenames, up/down pairs, duplicate timestamps, SQL content, and
+transaction-control statements. An empty directory is reported clearly as a
+warning so new projects know to add their first `.up.sql` / `.down.sql` pair.
 
 `database.config`
 : Confirms database configuration was found.
@@ -88,7 +91,8 @@ Tusk's supported floor.
 
 `database.migrationTable`
 : Checks whether `_migrations` is readable. Missing metadata is a warning, not
-a failure, because `tusk init` or the first `tusk up` can create it.
+a failure, because the first `tusk up` can create it when migrations are
+applied.
 
 `database.checksumMetadata`
 : Checks whether `_migrations` has checksum metadata. Legacy tables without the
@@ -153,5 +157,5 @@ tusk validate --db --json
 tusk up --dry-run --json
 ```
 
-Only run `tusk up`, `tusk down`, or `tusk init` after the plan has been reviewed
+Only run `tusk up`, `tusk down`, or `tusk init --from-db` after the plan has been reviewed
 against the intended database.

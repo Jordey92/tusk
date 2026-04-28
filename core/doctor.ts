@@ -17,6 +17,7 @@ import {
   getMigrationTableStateReadOnly,
 } from "./migration-records.js";
 import { validateMigrations, type ValidationResult } from "./validate-migrations.js";
+import { isDriverNotFoundError } from "../utils/errors.js";
 
 type DoctorDatabaseInput =
   | {
@@ -111,7 +112,7 @@ const checkTuskVersion = (checks: DoctorCheck[], tuskVersion: string) => {
 const checkMigrationsPath = async (
   checks: DoctorCheck[],
   migrationsPath: string
-) => {
+): Promise<boolean> => {
   const absolutePath = resolve(migrationsPath);
 
   try {
@@ -122,16 +123,18 @@ const checkMigrationsPath = async (
       message: `Migrations path exists: ${migrationsPath}`,
       context: { path: absolutePath },
     });
+    return true;
   } catch (error) {
     addCheck(checks, {
       id: "migrations.path",
       status: "fail",
-      message: `Migrations path does not exist: ${migrationsPath}`,
+      message: `Migrations path does not exist: ${migrationsPath}. Run \`tusk init\` to create a migrations directory.`,
       context: {
         path: absolutePath,
         cause: formatError(error),
       },
     });
+    return false;
   }
 };
 
@@ -146,14 +149,16 @@ const checkMigrationFiles = async (
   migrationsPath: string
 ) => {
   const result = await validateMigrations(migrationsPath);
-  const status = validationStatus(result);
+  const status = result.summary.files === 0 ? "warn" : validationStatus(result);
 
   addCheck(checks, {
     id: "migrations.valid",
     status,
-    message: status === "pass"
-      ? `Migration files are valid (${result.summary.files} file(s))`
-      : `Migration validation found ${result.summary.errors} error(s) and ${result.summary.warnings} warning(s)`,
+    message: result.summary.files === 0
+      ? "No migration files found yet. Add an .up.sql and .down.sql migration pair before running `tusk up`."
+      : status === "pass"
+        ? `Migration files are valid (${result.summary.files} file(s))`
+        : `Migration validation found ${result.summary.errors} error(s) and ${result.summary.warnings} warning(s)`,
     context: {
       errors: result.summary.errors,
       warnings: result.summary.warnings,
@@ -337,7 +342,7 @@ const checkMigrationTable = async (
     status: tableState.exists ? "pass" : "warn",
     message: tableState.exists
       ? "_migrations table is readable"
-      : "_migrations table was not found; run tusk init or tusk up before applying tracked migrations",
+      : "_migrations table was not found. Run `tusk up` to initialise migration tracking when applying migrations.",
   });
 
   addCheck(checks, {
@@ -448,6 +453,15 @@ const checkDatabase = async (
   migrationsPath: string,
   input: DoctorDatabaseInput
 ) => {
+  if ("error" in input && isDriverNotFoundError(input.error)) {
+    addCheck(checks, {
+      id: "database.driver",
+      status: "fail",
+      message: input.error.message,
+    });
+    return;
+  }
+
   if (!input.configured) {
     addCheck(checks, {
       id: "database.config",
@@ -516,8 +530,13 @@ export const runDoctor = async (
   };
 
   checkTuskVersion(checks, options.tuskVersion);
-  await checkMigrationsPath(checks, options.migrationsPath);
-  await checkMigrationFiles(checks, options.migrationsPath);
+  const migrationsPathExists = await checkMigrationsPath(
+    checks,
+    options.migrationsPath
+  );
+  if (migrationsPathExists) {
+    await checkMigrationFiles(checks, options.migrationsPath);
+  }
   await checkDatabase(checks, database, options.migrationsPath, options.database);
 
   const summary = createSummary(checks);

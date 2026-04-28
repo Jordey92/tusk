@@ -13,7 +13,7 @@ const LOG_LEVELS = { debug: 0, info: 1, warn: 2, error: 3 } as const;
 
 const getLogLevel = (): LogLevel => {
   const level = process.env.LOG_LEVEL?.toLowerCase() as LogLevel;
-  return ["debug", "info", "warn", "error"].includes(level) ? level : "info";
+  return ["debug", "info", "warn", "error"].includes(level) ? level : "warn";
 };
 
 const shouldLog = (level: LogLevel, currentLevel: LogLevel): boolean => {

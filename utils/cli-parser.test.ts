@@ -113,6 +113,13 @@ describe("CLI parser", () => {
     });
   });
 
+  test("parses init adoption flag", () => {
+    expect(parseAndValidate("init", ["--from-db", "--json"])).toMatchObject({
+      initFromDb: true,
+      json: true,
+    });
+  });
+
   test("rejects invalid command combinations", () => {
     expectValidationError(
       () => validateCommand("create", parseCommandArgs("create", [])),
@@ -133,6 +140,10 @@ describe("CLI parser", () => {
     expectValidationError(
       () => parseCommandArgs("doctor", ["--verbose"]),
       "Unknown doctor option"
+    );
+    expectValidationError(
+      () => parseCommandArgs("init", ["--baseline"]),
+      "Unknown init option"
     );
   });
 });

@@ -223,6 +223,27 @@ describe("Logger", () => {
   });
 
   describe("log level filtering", () => {
+    test("defaults to warning-level output", () => {
+      const previousLogLevel = process.env.LOG_LEVEL;
+      delete process.env.LOG_LEVEL;
+
+      try {
+        const logger = createLogger();
+
+        logger.info("info message");
+        logger.warn("warn message");
+
+        expect(consoleLogSpy).toHaveBeenCalledTimes(0);
+        expect(consoleWarnSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        if (previousLogLevel === undefined) {
+          delete process.env.LOG_LEVEL;
+        } else {
+          process.env.LOG_LEVEL = previousLogLevel;
+        }
+      }
+    });
+
     test("should respect log level hierarchy", () => {
       const levels: LogLevel[] = ["debug", "info", "warn", "error"];
 
