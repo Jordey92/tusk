@@ -285,7 +285,8 @@ const createDriverNotFoundDoctorInput = (error: unknown) => {
     loadDatabaseConfig();
     return {
       database: {
-        configured: true as const,
+        state: "driver_missing" as const,
+        configuration: "found" as const,
         error,
       },
       cleanup: async () => {},
@@ -293,7 +294,8 @@ const createDriverNotFoundDoctorInput = (error: unknown) => {
   } catch {
     return {
       database: {
-        configured: false as const,
+        state: "driver_missing" as const,
+        configuration: "missing" as const,
         error,
       },
       cleanup: async () => {},
@@ -315,7 +317,7 @@ const createDoctorDatabaseInput = async () => {
   } catch (error) {
     return {
       database: {
-        configured: false as const,
+        state: "not_configured" as const,
         error,
       },
       cleanup: async () => {},
@@ -326,7 +328,7 @@ const createDoctorDatabaseInput = async () => {
     const database = await createManagedPostgresAdapter(config);
     return {
       database: {
-        configured: true as const,
+        state: "configured" as const,
         adapter: database.adapter,
       },
       cleanup: database.cleanup,
@@ -334,7 +336,7 @@ const createDoctorDatabaseInput = async () => {
   } catch (error) {
     return {
       database: {
-        configured: true as const,
+        state: "connection_failed" as const,
         error,
       },
       cleanup: async () => {},
@@ -591,7 +593,7 @@ const run = async () => {
           printDoctor(report);
         }
 
-        process.exit(report.ok ? 0 : 1);
+        process.exit(report.result === "pass" ? 0 : 1);
       } finally {
         await doctorDatabase.cleanup();
       }

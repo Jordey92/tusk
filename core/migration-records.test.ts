@@ -143,11 +143,8 @@ describe("read-only migration records", () => {
     const { adapter } = createAdapter({ hasChecksum: true });
 
     await expect(getMigrationTableStateReadOnly(adapter)).resolves.toMatchObject({
-      exists: true,
-      hasChecksum: true,
-      valid: true,
-      issues: [],
-      legacyChecksumColumnMissing: false,
+      state: "ready",
+      checksumColumn: "present",
     });
   });
 
@@ -180,11 +177,8 @@ describe("read-only migration records", () => {
     const { adapter } = createAdapter({ hasChecksum: false });
 
     await expect(getMigrationTableStateReadOnly(adapter)).resolves.toMatchObject({
-      exists: true,
-      hasChecksum: false,
-      valid: true,
-      issues: [],
-      legacyChecksumColumnMissing: true,
+      state: "legacy_missing_checksum_column",
+      checksumColumn: "missing",
     });
   });
 
@@ -197,7 +191,10 @@ describe("read-only migration records", () => {
 
     const state = await getMigrationTableStateReadOnly(adapter);
 
-    expect(state.valid).toBe(false);
+    expect(state.state).toBe("invalid_shape");
+    if (state.state !== "invalid_shape") {
+      throw new Error("expected invalid metadata table shape");
+    }
     expect(state.issues).toContainEqual(
       expect.objectContaining({
         code: "missing_column",
@@ -220,7 +217,10 @@ describe("read-only migration records", () => {
 
     const state = await getMigrationTableStateReadOnly(adapter);
 
-    expect(state.valid).toBe(false);
+    expect(state.state).toBe("invalid_shape");
+    if (state.state !== "invalid_shape") {
+      throw new Error("expected invalid metadata table shape");
+    }
     expect(state.issues).toContainEqual(
       expect.objectContaining({
         code: "invalid_column_type",
@@ -238,7 +238,10 @@ describe("read-only migration records", () => {
 
     const state = await getMigrationTableStateReadOnly(adapter);
 
-    expect(state.valid).toBe(false);
+    expect(state.state).toBe("invalid_shape");
+    if (state.state !== "invalid_shape") {
+      throw new Error("expected invalid metadata table shape");
+    }
     expect(state.issues).toContainEqual(
       expect.objectContaining({
         code: "missing_unique_constraint",
@@ -258,7 +261,10 @@ describe("read-only migration records", () => {
 
     const state = await getMigrationTableStateReadOnly(adapter);
 
-    expect(state.valid).toBe(false);
+    expect(state.state).toBe("invalid_shape");
+    if (state.state !== "invalid_shape") {
+      throw new Error("expected invalid metadata table shape");
+    }
     expect(state.issues).toContainEqual(
       expect.objectContaining({
         code: "missing_generated_value",
@@ -278,7 +284,10 @@ describe("read-only migration records", () => {
 
     const state = await getMigrationTableStateReadOnly(adapter);
 
-    expect(state.valid).toBe(false);
+    expect(state.state).toBe("invalid_shape");
+    if (state.state !== "invalid_shape") {
+      throw new Error("expected invalid metadata table shape");
+    }
     expect(state.issues).toContainEqual(
       expect.objectContaining({
         code: "invalid_column_default",

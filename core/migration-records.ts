@@ -40,51 +40,74 @@ export interface MigrationTableShapeIssue {
   actual?: string;
 }
 
-export interface MigrationTableState {
-  exists: boolean;
-  hasChecksum: boolean;
-  valid: boolean;
-  issues: MigrationTableShapeIssue[];
-  legacyChecksumColumnMissing: boolean;
-}
+export type MigrationTableState =
+  | {
+      state: "missing";
+    }
+  | {
+      state: "ready";
+      checksumColumn: "present";
+    }
+  | {
+      state: "legacy_missing_checksum_column";
+      checksumColumn: "missing";
+    }
+  | {
+      state: "invalid_shape";
+      checksumColumn: "present" | "missing";
+      issues: MigrationTableShapeIssue[];
+    };
+
+type TrustedMigrationTableState = Exclude<
+  MigrationTableState,
+  { state: "invalid_shape" }
+>;
 
 interface ExpectedMigrationTableColumn {
   name: string;
   type: string;
-  notNull: boolean;
-  legacyOptional?: boolean;
-  requireGeneratedValue?: boolean;
-  requiredDefault?: string;
+  nullability: "not_null" | "nullable";
+  presence?: "required" | "legacy_optional";
+  generatedValue?: "required";
+  defaultExpression?: string;
 }
 
 const expectedColumns: ExpectedMigrationTableColumn[] = [
   {
     name: "id",
     type: "integer",
-    notNull: true,
-    requireGeneratedValue: true,
+    nullability: "not_null",
+    generatedValue: "required",
   },
-  { name: "filename", type: "character varying(255)", notNull: true },
+  {
+    name: "filename",
+    type: "character varying(255)",
+    nullability: "not_null",
+  },
   {
     name: "executed_at",
     type: "timestamp without time zone",
-    notNull: false,
-    requiredDefault: "now()",
+    nullability: "nullable",
+    defaultExpression: "now()",
   },
   {
     name: "checksum",
     type: "character varying(64)",
-    notNull: false,
-    legacyOptional: true,
+    nullability: "nullable",
+    presence: "legacy_optional",
   },
 ];
 
-const migrationTableExists = async (adapter: DatabaseAdapter): Promise<boolean> => {
+const readMigrationTablePresence = async (
+  adapter: DatabaseAdapter
+): Promise<"present" | "missing"> => {
   const result = await adapter.query<MigrationTableExistsRow>(
     `SELECT to_regclass('${MIGRATION_METADATA_TABLE_NAME}')::text AS migration_table`
   );
 
-  return result.rows[0]?.migration_table === MIGRATION_METADATA_TABLE_NAME;
+  return result.rows[0]?.migration_table === MIGRATION_METADATA_TABLE_NAME
+    ? "present"
+    : "missing";
 };
 
 const getMigrationTableColumns = async (
@@ -143,12 +166,17 @@ const createMissingColumnIssue = (
   message: `_migrations is missing required column ${column.name}`,
 });
 
+const formatNullability = (nullability: "not_null" | "nullable") =>
+  nullability === "not_null" ? "NOT NULL" : "nullable";
+
 const validateColumn = (
   expected: ExpectedMigrationTableColumn,
   actual: MigrationTableColumnRow | undefined
 ): MigrationTableShapeIssue[] => {
   if (!actual) {
-    return expected.legacyOptional ? [] : [createMissingColumnIssue(expected)];
+    return expected.presence === "legacy_optional"
+      ? []
+      : [createMissingColumnIssue(expected)];
   }
 
   const issues: MigrationTableShapeIssue[] = [];
@@ -162,21 +190,25 @@ const validateColumn = (
     });
   }
 
-  if (actual.is_not_null !== expected.notNull) {
+  const actualNullability = actual.is_not_null ? "not_null" : "nullable";
+
+  if (actualNullability !== expected.nullability) {
     issues.push({
       code: "invalid_column_nullability",
       column: expected.name,
-      expected: expected.notNull ? "NOT NULL" : "nullable",
-      actual: actual.is_not_null ? "NOT NULL" : "nullable",
-      message: `_migrations.${expected.name} nullability is ${actual.is_not_null ? "NOT NULL" : "nullable"}; expected ${expected.notNull ? "NOT NULL" : "nullable"}`,
+      expected: formatNullability(expected.nullability),
+      actual: formatNullability(actualNullability),
+      message: `_migrations.${expected.name} nullability is ${formatNullability(actualNullability)}; expected ${formatNullability(expected.nullability)}`,
     });
   }
 
-  if (expected.requireGeneratedValue) {
-    const hasGeneratedValue = actual.identity_generation !== null ||
-      (actual.column_default?.startsWith("nextval(") ?? false);
+  if (expected.generatedValue === "required") {
+    const generatedValueState = actual.identity_generation !== null ||
+      (actual.column_default?.startsWith("nextval(") ?? false)
+      ? "present"
+      : "missing";
 
-    if (!hasGeneratedValue) {
+    if (generatedValueState === "missing") {
       issues.push({
         code: "missing_generated_value",
         column: expected.name,
@@ -190,15 +222,15 @@ const validateColumn = (
   }
 
   if (
-    expected.requiredDefault &&
-    actual.column_default !== expected.requiredDefault
+    expected.defaultExpression &&
+    actual.column_default !== expected.defaultExpression
   ) {
     issues.push({
       code: "invalid_column_default",
       column: expected.name,
-      expected: `DEFAULT ${expected.requiredDefault}`,
+      expected: `DEFAULT ${expected.defaultExpression}`,
       actual: actual.column_default ?? "none",
-      message: `_migrations.${expected.name} must default to ${expected.requiredDefault}`,
+      message: `_migrations.${expected.name} must default to ${expected.defaultExpression}`,
     });
   }
 
@@ -226,7 +258,7 @@ const validateMigrationTableShape = (
     columns.map((column) => [column.column_name, column])
   );
   const expectedColumnNames = new Set(expectedColumns.map((column) => column.name));
-  const hasChecksum = columnsByName.has("checksum");
+  const checksumColumn = columnsByName.has("checksum") ? "present" : "missing";
   const issues = expectedColumns.flatMap((column) =>
     validateColumn(column, columnsByName.get(column.name))
   );
@@ -260,27 +292,33 @@ const validateMigrationTableShape = (
     });
   }
 
+  if (issues.length > 0) {
+    return {
+      state: "invalid_shape",
+      checksumColumn,
+      issues,
+    };
+  }
+
+  if (checksumColumn === "missing") {
+    return {
+      state: "legacy_missing_checksum_column",
+      checksumColumn: "missing",
+    };
+  }
+
   return {
-    exists: true,
-    hasChecksum,
-    valid: issues.length === 0,
-    issues,
-    legacyChecksumColumnMissing: !hasChecksum,
+    state: "ready",
+    checksumColumn: "present",
   };
 };
 
 export const getMigrationTableStateReadOnly = async (
   adapter: DatabaseAdapter
 ): Promise<MigrationTableState> => {
-  const exists = await migrationTableExists(adapter);
-  if (!exists) {
-    return {
-      exists: false,
-      hasChecksum: false,
-      valid: true,
-      issues: [],
-      legacyChecksumColumnMissing: false,
-    };
+  const tablePresence = await readMigrationTablePresence(adapter);
+  if (tablePresence === "missing") {
+    return { state: "missing" };
   }
 
   const columns = await getMigrationTableColumns(adapter);
@@ -302,10 +340,10 @@ const toIssueContext = (issue: MigrationTableShapeIssue) => ({
 
 export const assertMigrationTableShape = async (
   adapter: DatabaseAdapter
-): Promise<MigrationTableState> => {
+): Promise<TrustedMigrationTableState> => {
   const tableState = await getMigrationTableStateReadOnly(adapter);
 
-  if (tableState.exists && !tableState.valid) {
+  if (tableState.state === "invalid_shape") {
     throw createMetadataTableError(
       `_migrations table has an invalid shape: ${formatMigrationTableShapeIssues(tableState.issues)}`,
       {
@@ -319,22 +357,20 @@ export const assertMigrationTableShape = async (
 };
 
 const getTrustedMigrationTableState = async (adapter: DatabaseAdapter) => {
-  const tableState = await assertMigrationTableShape(adapter);
-  return {
-    exists: tableState.exists,
-    hasChecksum: tableState.hasChecksum,
-  };
+  return assertMigrationTableShape(adapter);
 };
 
 export const getExecutedMigrationRecordsReadOnly = async (
   adapter: DatabaseAdapter
 ): Promise<MigrationRecord[]> => {
   const tableState = await getTrustedMigrationTableState(adapter);
-  if (!tableState.exists) {
+  if (tableState.state === "missing") {
     return [];
   }
 
-  const checksumSelection = tableState.hasChecksum ? "checksum" : "NULL::text AS checksum";
+  const checksumSelection = tableState.state === "ready"
+    ? "checksum"
+    : "NULL::text AS checksum";
   const result = await adapter.query<MigrationRecordRow>(`
     SELECT filename, ${checksumSelection}, executed_at
     FROM _migrations
@@ -353,7 +389,7 @@ export const getLastExecutedMigrationFilenamesReadOnly = async (
   count?: number
 ): Promise<string[]> => {
   const tableState = await assertMigrationTableShape(adapter);
-  if (!tableState.exists) {
+  if (tableState.state === "missing") {
     return [];
   }
 
@@ -370,7 +406,7 @@ export const getExecutedMigrationCountReadOnly = async (
   adapter: DatabaseAdapter
 ): Promise<number> => {
   const tableState = await assertMigrationTableShape(adapter);
-  if (!tableState.exists) {
+  if (tableState.state === "missing") {
     return 0;
   }
 
