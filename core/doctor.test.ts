@@ -353,6 +353,35 @@ describe("doctor", () => {
     }
   });
 
+  test("preserves database configuration state when the driver is missing", async () => {
+    const migrationsPath = await createTempDir();
+
+    try {
+      await writeMigrationPair(migrationsPath);
+
+      const report = await runDoctor({
+        migrationsPath,
+        tuskVersion: "0.4.0",
+        database: {
+          configured: true,
+          error: createDriverNotFoundError(),
+        },
+      });
+
+      expect(report.environment.databaseConfigured).toBe(true);
+      expect(report.database.configured).toBe(true);
+      expect(report.checks).toContainEqual(
+        expect.objectContaining({
+          id: "database.driver",
+          status: "fail",
+        })
+      );
+      expect(checkIds(report)).not.toContain("database.config");
+    } finally {
+      await rm(migrationsPath, { recursive: true, force: true });
+    }
+  });
+
   test("fails when configured database connection setup failed", async () => {
     const migrationsPath = await createTempDir();
 

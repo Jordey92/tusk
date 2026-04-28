@@ -99,8 +99,10 @@ describe("doctor human output", () => {
       {
         id: "migrations.valid",
         status: "warn",
-        message:
-          "No migration files found yet. Add an .up.sql and .down.sql migration pair before running `tusk up`.",
+        message: "Migration files are missing",
+        context: {
+          files: 0,
+        },
       },
     ], {
       passed: 0,
@@ -114,5 +116,23 @@ describe("doctor human output", () => {
       "Run tusk doctor",
       "Run tusk up",
     ]);
+  });
+
+  test("does not infer empty migrations from message text alone", () => {
+    const report = createReport([
+      {
+        id: "migrations.valid",
+        status: "warn",
+        message:
+          "No migration files found yet. Add an .up.sql and .down.sql migration pair before running `tusk up`.",
+      },
+    ], {
+      passed: 0,
+      warnings: 1,
+      errors: 0,
+      skipped: 0,
+    });
+
+    expect(collectDoctorNextSteps(report)).toEqual([]);
   });
 });

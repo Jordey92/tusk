@@ -243,10 +243,17 @@ const createDatabaseConnection = async (): Promise<ManagedPostgresAdapter> => {
   return createManagedPostgresAdapter(config);
 };
 
-const createDoctorDatabaseInput = async () => {
+const createDriverNotFoundDoctorInput = (error: unknown) => {
   try {
-    await resolvePostgresClientDriver();
-  } catch (error) {
+    loadDatabaseConfig();
+    return {
+      database: {
+        configured: true as const,
+        error,
+      },
+      cleanup: async () => {},
+    };
+  } catch {
     return {
       database: {
         configured: false as const,
@@ -254,6 +261,14 @@ const createDoctorDatabaseInput = async () => {
       },
       cleanup: async () => {},
     };
+  }
+};
+
+const createDoctorDatabaseInput = async () => {
+  try {
+    await resolvePostgresClientDriver();
+  } catch (error) {
+    return createDriverNotFoundDoctorInput(error);
   }
 
   let config: DatabaseConfig;

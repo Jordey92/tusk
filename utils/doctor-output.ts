@@ -16,6 +16,11 @@ const doctorStatusSymbol = (status: DoctorCheck["status"]) => {
 const getDoctorCheck = (report: DoctorReport, id: string) =>
   report.checks.find((check) => check.id === id);
 
+const hasNoMigrationFiles = (check: DoctorCheck | undefined) =>
+  check?.status === "warn" &&
+  typeof check.context?.files === "number" &&
+  check.context.files === 0;
+
 export const orderDoctorChecksForHuman = (report: DoctorReport): DoctorCheck[] => {
   const driverCheck = getDoctorCheck(report, DRIVER_CHECK_ID);
   const migrationsPathCheck = getDoctorCheck(report, MIGRATIONS_PATH_CHECK_ID);
@@ -37,10 +42,9 @@ export const collectDoctorNextSteps = (report: DoctorReport): string[] => {
   const driverMissing = getDoctorCheck(report, DRIVER_CHECK_ID)?.status === "fail";
   const migrationsPathMissing =
     getDoctorCheck(report, MIGRATIONS_PATH_CHECK_ID)?.status === "fail";
-  const migrationsEmpty =
-    getDoctorCheck(report, MIGRATIONS_VALID_CHECK_ID)?.message.startsWith(
-      "No migration files found yet"
-    ) === true;
+  const migrationsEmpty = hasNoMigrationFiles(
+    getDoctorCheck(report, MIGRATIONS_VALID_CHECK_ID)
+  );
 
   if (driverMissing) {
     steps.push("Install a Postgres client, for example: bun add pg");
