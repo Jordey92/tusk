@@ -137,6 +137,31 @@ describe("track migrations", () => {
       );
     });
 
+    test("should reject an invalid legacy table before adding checksum metadata", async () => {
+      const adapter = createPgAdapter(pool);
+
+      await adapter.query(`
+        CREATE TABLE _migrations (
+          id INTEGER PRIMARY KEY,
+          filename VARCHAR(255) NOT NULL UNIQUE,
+          executed_at TIMESTAMP DEFAULT NOW()
+        )
+      `);
+
+      await expect(ensureMigrationsTable(adapter)).rejects.toThrow(
+        "_migrations.id must be auto-generated"
+      );
+
+      const columns = await adapter.query(`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_name = '_migrations'
+          AND column_name = 'checksum'
+      `);
+
+      expect(columns.rows).toHaveLength(0);
+    });
+
     test("should reject a metadata table where executed_at is not defaulted", async () => {
       const adapter = createPgAdapter(pool);
 

@@ -83,7 +83,7 @@ interface AuroraVersionRow extends QueryResultRow {
 
 interface DatabaseEngineInfo {
   engine: string;
-  provider: string;
+  provider: "postgresql" | "aurora-postgresql" | "redshift" | "unknown";
   serverVersion?: string;
   majorVersion?: number;
   rawVersion: string;
@@ -356,7 +356,7 @@ const checkDatabaseEngine = (
     return {
       state: "unsupported",
       engine: "postgresql",
-      provider: "postgresql",
+      provider: engineInfo.provider,
       reason: "version_unknown",
       supportedFloor: SUPPORTED_POSTGRES_MAJOR,
       rawVersion: engineInfo.rawVersion,
@@ -380,7 +380,7 @@ const checkDatabaseEngine = (
     return {
       state: "unsupported",
       engine: "postgresql",
-      provider: "postgresql",
+      provider: engineInfo.provider,
       reason: "version_below_floor",
       supportedFloor: SUPPORTED_POSTGRES_MAJOR,
       rawVersion: engineInfo.rawVersion,
@@ -392,7 +392,7 @@ const checkDatabaseEngine = (
   return {
     state: "supported",
     engine: "postgresql",
-    provider: engineInfo.provider as "postgresql" | "aurora-postgresql",
+    provider: engineInfo.provider,
     serverVersion: engineInfo.serverVersion ?? String(engineInfo.majorVersion),
     majorVersion: engineInfo.majorVersion,
     rawVersion: engineInfo.rawVersion,

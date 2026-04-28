@@ -646,6 +646,38 @@ describe("doctor", () => {
     }
   });
 
+  test("preserves Aurora provider when the PostgreSQL version is unsupported", async () => {
+    const migrationsPath = await createTempDir();
+
+    try {
+      await writeMigrationPair(migrationsPath);
+
+      const report = await runDoctor({
+        migrationsPath,
+        tuskVersion: "0.4.0",
+        database: configuredDatabase(
+          createVersionAdapter("PostgreSQL 12.22 on x86_64-pc-linux-gnu", {
+            serverVersion: "12.22",
+            serverVersionNum: "120022",
+            auroraVersion: "12.16.4",
+          })
+        ),
+      });
+
+      expect(report.result).toBe("fail");
+      expect(report.database).toMatchObject({
+        state: "connected",
+        engine: {
+          state: "unsupported",
+          provider: "aurora-postgresql",
+          reason: "version_below_floor",
+        },
+      });
+    } finally {
+      await rm(migrationsPath, { recursive: true, force: true });
+    }
+  });
+
   test("fails when PostgreSQL version cannot be determined", async () => {
     const migrationsPath = await createTempDir();
 

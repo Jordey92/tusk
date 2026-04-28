@@ -56,7 +56,7 @@ export type DoctorDatabaseEngine =
   | {
       state: "unsupported";
       engine: "postgresql";
-      provider: "postgresql";
+      provider: "postgresql" | "aurora-postgresql";
       reason: "version_unknown" | "version_below_floor";
       supportedFloor: number;
       rawVersion: string;

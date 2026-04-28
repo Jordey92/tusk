@@ -17,20 +17,16 @@ export const ensureMigrationsTable = async (adapter: DatabaseAdapter) => {
     );
   `);
 
-  await adapter.query(`
-    DO $$
-    BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_name = '_migrations'
-        AND column_name = 'checksum'
-      ) THEN
-        ALTER TABLE _migrations ADD COLUMN checksum VARCHAR(64);
-      END IF;
-    END $$;
-  `);
+  const tableState = await assertMigrationTableShape(adapter);
 
-  await assertMigrationTableShape(adapter);
+  if (tableState.state === "legacy_missing_checksum_column") {
+    await adapter.query(`
+      ALTER TABLE _migrations ADD COLUMN checksum VARCHAR(64);
+    `);
+
+    await assertMigrationTableShape(adapter);
+  }
+
   logger.debug("Migrations table structure ensured");
 };
 
