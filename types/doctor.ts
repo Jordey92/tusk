@@ -16,7 +16,7 @@ export interface DoctorSummary {
   skipped: number;
 }
 
-interface DoctorMigrationTableIssue {
+export interface DoctorMigrationTableIssue {
   code: string;
   message: string;
   column?: string;
