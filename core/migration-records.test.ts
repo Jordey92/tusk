@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { DatabaseAdapter, QueryParam } from "../types/migrations";
 import {
+  getExecutedMigrationCountReadOnly,
   getExecutedMigrationRecordsReadOnly,
   getLastExecutedMigrationFilenamesReadOnly,
 } from "./migration-records";
@@ -44,6 +45,13 @@ const createAdapter = (options: {
             .slice(0, limit)
             .map((filename) => ({ filename })),
           rowCount: filenames.length,
+        };
+      }
+
+      if (sql.includes("COUNT(*)")) {
+        return {
+          rows: [{ count: filenames.length }],
+          rowCount: 1,
         };
       }
 
@@ -104,5 +112,25 @@ describe("read-only migration records", () => {
 
     expect(filenames).toEqual(["1728123456790_create_users.up.sql"]);
     expect(queries.some((query) => query.includes("checksum"))).toBe(false);
+  });
+
+  test("counts executed migrations without selecting migration file rows", async () => {
+    const { adapter, queries } = createAdapter({
+      filenames: [
+        "1728123456789_create_widgets.up.sql",
+        "1728123456790_create_users.up.sql",
+      ],
+    });
+
+    await expect(getExecutedMigrationCountReadOnly(adapter)).resolves.toBe(2);
+    expect(queries.some((query) => query.includes("COUNT(*)::integer"))).toBe(true);
+    expect(queries.some((query) => query.includes("ORDER BY id ASC"))).toBe(false);
+  });
+
+  test("returns zero count when the migration table does not exist", async () => {
+    const { adapter, queries } = createAdapter({ tableExists: false });
+
+    await expect(getExecutedMigrationCountReadOnly(adapter)).resolves.toBe(0);
+    expect(queries.some((query) => query.includes("COUNT(*)"))).toBe(false);
   });
 });

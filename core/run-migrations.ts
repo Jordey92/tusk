@@ -27,6 +27,7 @@ import {
   markAsExecuted,
   markAsRolledBack,
 } from "./track-migrations.js";
+import { getExecutedMigrationCountReadOnly } from "./migration-records.js";
 
 interface MigrationBatchOptions {
   adapter: DatabaseAdapter;
@@ -167,6 +168,7 @@ export const runDown = async (
     await ensureMigrationsTable(adapter);
     const migrationsFromDirectory = await readMigrations(migrationsPath, "down");
 
+    const availableRollbackCount = await getExecutedMigrationCountReadOnly(adapter);
     const lastExecuted = await getLastExecutedMigrations(adapter, count);
     const migrationsToRollback = planRollbackMigrations(
       lastExecuted,
@@ -205,7 +207,7 @@ export const runDown = async (
       requestedCount: rollbackTarget.mode === "count"
         ? rollbackTarget.requestedCount
         : undefined,
-      availableRollbackCount: lastExecuted.length,
+      availableRollbackCount,
       rollbackAll: rollbackTarget.mode === "all",
     };
   } finally {

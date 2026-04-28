@@ -480,7 +480,7 @@ describe("cli smoke test", () => {
       expect(JSON.parse(downOne.stdout)).toMatchObject({
         executed: 1,
         requestedCount: 1,
-        availableRollbackCount: 1,
+        availableRollbackCount: 3,
       });
       expect(await tableExists(database, "widgets")).toBe(true);
       expect(await tableExists(database, "gadgets")).toBe(true);

@@ -16,6 +16,10 @@ interface MigrationChecksumColumnRow extends QueryResultRow {
   has_checksum: boolean;
 }
 
+interface MigrationCountRow extends QueryResultRow {
+  count: number;
+}
+
 interface MigrationTableState {
   exists: boolean;
   hasChecksum: boolean;
@@ -91,4 +95,18 @@ export const getLastExecutedMigrationFilenamesReadOnly = async (
   );
 
   return result.rows.map((row) => row.filename);
+};
+
+export const getExecutedMigrationCountReadOnly = async (
+  adapter: DatabaseAdapter
+): Promise<number> => {
+  if (!(await migrationTableExists(adapter))) {
+    return 0;
+  }
+
+  const result = await adapter.query<MigrationCountRow>(
+    `SELECT COUNT(*)::integer AS count FROM _migrations`
+  );
+
+  return Number(result.rows[0]?.count ?? 0);
 };

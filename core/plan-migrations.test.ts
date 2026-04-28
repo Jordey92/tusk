@@ -27,6 +27,13 @@ const createAdapter = (executedFilenames: string[] = []) => {
         };
       }
 
+      if (sql.includes("COUNT(*)")) {
+        return {
+          rows: [{ count: executedFilenames.length }],
+          rowCount: 1,
+        };
+      }
+
       if (sql.includes("ORDER BY id DESC")) {
         const limit = Number(params?.[0] ?? Number.MAX_SAFE_INTEGER);
         return {
@@ -142,7 +149,7 @@ describe("migration plans", () => {
       expect(plan.summary).toMatchObject({
         planned: 1,
         requestedCount: 1,
-        availableRollbackCount: 1,
+        availableRollbackCount: 2,
         rollbackAll: false,
       });
       expect(plan.migrations.map((migration) => migration.rollbackOf)).toEqual([

@@ -3,6 +3,7 @@ import { calculateChecksum } from "../utils/checksum.js";
 import { getCorrespondingFilename } from "../utils/filename.js";
 import { assertExecutedMigrationChecksums } from "./checksum-validation.js";
 import {
+  getExecutedMigrationCountReadOnly,
   getExecutedMigrationRecordsReadOnly,
   getLastExecutedMigrationFilenamesReadOnly,
 } from "./migration-records.js";
@@ -87,6 +88,7 @@ export const createDownPlan = async (
     ? rollbackTarget.count
     : undefined;
   const migrationsFromDirectory = await readMigrations(migrationsPath, "down");
+  const availableRollbackCount = await getExecutedMigrationCountReadOnly(adapter);
   const lastExecuted = await getLastExecutedMigrationFilenamesReadOnly(adapter, count);
   const migrationsToRollback = planRollbackMigrations(
     lastExecuted,
@@ -102,7 +104,7 @@ export const createDownPlan = async (
       requestedCount: rollbackTarget.mode === "count"
         ? rollbackTarget.requestedCount
         : undefined,
-      availableRollbackCount: lastExecuted.length,
+      availableRollbackCount,
       rollbackAll: rollbackTarget.mode === "all",
     },
   };

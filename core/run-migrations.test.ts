@@ -174,6 +174,7 @@ describe("run migrations", () => {
 
     test("should return correct RunResult with executed and pending counts", async () => {
       await runUp(adapter, "./fixtures/migrations");
+      const beforeRollback = await getExecutedMigrations(adapter);
 
       const result = await runDown(adapter, "./fixtures/migrations");
 
@@ -184,7 +185,7 @@ describe("run migrations", () => {
       expect(result.executed).toBe(1);
       expect(result.pending).toBe(0);
       expect(result.requestedCount).toBe(1);
-      expect(result.availableRollbackCount).toBe(1);
+      expect(result.availableRollbackCount).toBe(beforeRollback.size);
       expect(result.rollbackAll).toBe(false);
     });
 
