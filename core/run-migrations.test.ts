@@ -134,13 +134,26 @@ describe("run migrations", () => {
   });
 
   describe("runDown", () => {
-    test("should run down all migrations", async () => {
+    test("should run down exactly one migration by default", async () => {
+      await runUp(adapter, "./fixtures/migrations");
+
+      const beforeRollback = await getExecutedMigrations(adapter);
+      const totalCount = beforeRollback.size;
+      expect(totalCount).toBeGreaterThan(1);
+
+      await runDown(adapter, "./fixtures/migrations");
+
+      const executed = await getExecutedMigrations(adapter);
+      expect(executed.size).toBe(totalCount - 1);
+    });
+
+    test("should run down all migrations only when explicitly requested", async () => {
       await runUp(adapter, "./fixtures/migrations");
 
       const beforeRollback = await getExecutedMigrations(adapter);
       expect(beforeRollback.size).toBeGreaterThan(0);
 
-      await runDown(adapter, "./fixtures/migrations");
+      await runDown(adapter, "./fixtures/migrations", { all: true });
 
       const executed = await getExecutedMigrations(adapter);
       expect(executed.size).toBe(0);
@@ -168,21 +181,19 @@ describe("run migrations", () => {
       expect(result).toHaveProperty("pending");
       expect(typeof result.executed).toBe("number");
       expect(typeof result.pending).toBe("number");
-      expect(result.executed).toBeGreaterThan(0);
-      expect(result.pending).toBe(0); // All should be rolled back
+      expect(result.executed).toBe(1);
+      expect(result.pending).toBe(0);
+      expect(result.requestedCount).toBe(1);
+      expect(result.availableRollbackCount).toBe(1);
+      expect(result.rollbackAll).toBe(false);
     });
 
-    test("should handle count parameter of 0", async () => {
+    test("should reject count parameter of 0", async () => {
       await runUp(adapter, "./fixtures/migrations");
 
-      const result = await runDown(adapter, "./fixtures/migrations", 0);
-
-      expect(result.executed).toBe(0);
-      expect(result.pending).toBe(0);
-
-      // Verify no migrations were rolled back
-      const executed = await getExecutedMigrations(adapter);
-      expect(executed.size).toBeGreaterThan(0);
+      await expect(runDown(adapter, "./fixtures/migrations", 0)).rejects.toThrow(
+        "Rollback count must be a positive integer"
+      );
     });
 
     test("should handle count larger than available migrations", async () => {
@@ -194,6 +205,8 @@ describe("run migrations", () => {
 
       expect(result.executed).toBe(totalCount);
       expect(result.pending).toBe(0);
+      expect(result.requestedCount).toBe(totalCount + 10);
+      expect(result.availableRollbackCount).toBe(totalCount);
 
       // Verify all migrations were rolled back
       const executed = await getExecutedMigrations(adapter);
@@ -206,6 +219,8 @@ describe("run migrations", () => {
 
       expect(result.executed).toBe(0);
       expect(result.pending).toBe(0);
+      expect(result.requestedCount).toBe(1);
+      expect(result.availableRollbackCount).toBe(0);
     });
 
     test("should handle missing down files gracefully", async () => {

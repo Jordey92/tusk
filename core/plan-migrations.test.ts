@@ -102,13 +102,93 @@ describe("migration plans", () => {
       );
 
       expect(plan.direction).toBe("down");
-      expect(plan.summary).toEqual({
+      expect(plan.summary).toMatchObject({
         planned: 1,
         total: 1,
         requestedCount: 1,
       });
       expect(plan.migrations[0]?.filename).toBe("1728123456789_create_widgets.down.sql");
       expect(plan.migrations[0]?.rollbackOf).toBe("1728123456789_create_widgets.up.sql");
+    } finally {
+      await rm(migrationsPath, { recursive: true, force: true });
+    }
+  });
+
+  test("defaults down plans to the latest applied migration only", async () => {
+    const migrationsPath = await createTempDir();
+
+    try {
+      await writeMigrationPair(
+        migrationsPath,
+        "1728123456789_create_widgets",
+        "CREATE TABLE widgets (id INTEGER PRIMARY KEY);",
+        "DROP TABLE IF EXISTS widgets;"
+      );
+      await writeMigrationPair(
+        migrationsPath,
+        "1728123456790_create_gadgets",
+        "CREATE TABLE gadgets (id INTEGER PRIMARY KEY);",
+        "DROP TABLE IF EXISTS gadgets;"
+      );
+
+      const plan = await createDownPlan(
+        createAdapter([
+          "1728123456789_create_widgets.up.sql",
+          "1728123456790_create_gadgets.up.sql",
+        ]),
+        migrationsPath
+      );
+
+      expect(plan.summary).toMatchObject({
+        planned: 1,
+        requestedCount: 1,
+        availableRollbackCount: 1,
+        rollbackAll: false,
+      });
+      expect(plan.migrations.map((migration) => migration.rollbackOf)).toEqual([
+        "1728123456790_create_gadgets.up.sql",
+      ]);
+    } finally {
+      await rm(migrationsPath, { recursive: true, force: true });
+    }
+  });
+
+  test("plans all applied migrations only when explicitly requested", async () => {
+    const migrationsPath = await createTempDir();
+
+    try {
+      await writeMigrationPair(
+        migrationsPath,
+        "1728123456789_create_widgets",
+        "CREATE TABLE widgets (id INTEGER PRIMARY KEY);",
+        "DROP TABLE IF EXISTS widgets;"
+      );
+      await writeMigrationPair(
+        migrationsPath,
+        "1728123456790_create_gadgets",
+        "CREATE TABLE gadgets (id INTEGER PRIMARY KEY);",
+        "DROP TABLE IF EXISTS gadgets;"
+      );
+
+      const plan = await createDownPlan(
+        createAdapter([
+          "1728123456789_create_widgets.up.sql",
+          "1728123456790_create_gadgets.up.sql",
+        ]),
+        migrationsPath,
+        { all: true }
+      );
+
+      expect(plan.summary).toMatchObject({
+        planned: 2,
+        availableRollbackCount: 2,
+        rollbackAll: true,
+      });
+      expect(plan.summary.requestedCount).toBeUndefined();
+      expect(plan.migrations.map((migration) => migration.rollbackOf)).toEqual([
+        "1728123456790_create_gadgets.up.sql",
+        "1728123456789_create_widgets.up.sql",
+      ]);
     } finally {
       await rm(migrationsPath, { recursive: true, force: true });
     }

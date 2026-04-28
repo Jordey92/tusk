@@ -8,6 +8,7 @@ import {
 } from "./migration-records.js";
 import { readMigrations } from "./read-migrations.js";
 import { planRollbackMigrations } from "./rollback-plan.js";
+import { normalizeRollbackTarget, type RollbackTarget } from "./rollback-target.js";
 
 export type MigrationPlanDirection = "up" | "down";
 
@@ -28,6 +29,8 @@ export interface MigrationPlan {
     total: number;
     alreadyExecuted?: number;
     requestedCount?: number;
+    availableRollbackCount?: number;
+    rollbackAll?: boolean;
   };
 }
 
@@ -77,8 +80,12 @@ export const createUpPlan = async (
 export const createDownPlan = async (
   adapter: DatabaseAdapter,
   migrationsPath: string,
-  count?: number
+  target?: RollbackTarget
 ): Promise<MigrationPlan> => {
+  const rollbackTarget = normalizeRollbackTarget(target);
+  const count = rollbackTarget.mode === "count"
+    ? rollbackTarget.count
+    : undefined;
   const migrationsFromDirectory = await readMigrations(migrationsPath, "down");
   const lastExecuted = await getLastExecutedMigrationFilenamesReadOnly(adapter, count);
   const migrationsToRollback = planRollbackMigrations(
@@ -92,7 +99,11 @@ export const createDownPlan = async (
     summary: {
       planned: migrationsToRollback.length,
       total: migrationsFromDirectory.length,
-      requestedCount: count,
+      requestedCount: rollbackTarget.mode === "count"
+        ? rollbackTarget.requestedCount
+        : undefined,
+      availableRollbackCount: lastExecuted.length,
+      rollbackAll: rollbackTarget.mode === "all",
     },
   };
 };

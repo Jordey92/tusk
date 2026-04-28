@@ -23,6 +23,7 @@ import { getCurrentDir } from "./utils/runtime.js";
 import { getPackageVersion } from "./utils/version.js";
 import type { DoctorReport } from "./types/doctor.js";
 import type { ConnectionConfig } from "./types/migrations.js";
+import type { RollbackTarget } from "./core/rollback-target.js";
 
 interface DatabaseConfig extends ConnectionConfig {
   connectionString?: string;
@@ -184,6 +185,16 @@ const printStatus = (
 const printPlan = (plan: MigrationPlan) => {
   const action = plan.direction === "up" ? "execute" : "roll back";
   console.log(`Dry run: ${plan.summary.planned} migration(s) would ${action}`);
+  if (
+    plan.direction === "down" &&
+    plan.summary.requestedCount !== undefined &&
+    plan.summary.requestedCount > (plan.summary.availableRollbackCount ?? 0)
+  ) {
+    console.log(
+      `Requested ${plan.summary.requestedCount} rollback(s), but only ` +
+        `${plan.summary.availableRollbackCount ?? 0} applied migration(s) are available`
+    );
+  }
 
   for (const migration of plan.migrations) {
     console.log("\n" + "─".repeat(60));
@@ -200,6 +211,32 @@ const printPlan = (plan: MigrationPlan) => {
   if (plan.migrations.length > 0) {
     console.log("\n" + "─".repeat(60));
   }
+};
+
+const getCliRollbackTarget = (parsedArgs: ParsedCommandArgs): RollbackTarget | undefined =>
+  parsedArgs.downAll ? { all: true } : getCliDownCount(parsedArgs);
+
+const printDownResult = (
+  result: Awaited<ReturnType<typeof runDown>>
+) => {
+  if (result.executed === 0) {
+    console.log("✓ No applied migrations to roll back");
+    return;
+  }
+
+  if (
+    result.requestedCount !== undefined &&
+    result.requestedCount > (result.availableRollbackCount ?? 0)
+  ) {
+    console.log(
+      `✓ Requested ${result.requestedCount} rollback(s), but only ` +
+        `${result.availableRollbackCount ?? 0} applied migration(s) were available. ` +
+        `Rolled back ${result.executed} migration(s)`
+    );
+    return;
+  }
+
+  console.log(`✓ Rolled back ${result.executed} migration(s)`);
 };
 
 const printValidation = (result: Awaited<ReturnType<typeof validateMigrations>>) => {
@@ -335,10 +372,10 @@ const runDatabaseCommand = async (
     }
 
     if (command === "down") {
-      const count = getCliDownCount(parsedArgs);
+      const target = getCliRollbackTarget(parsedArgs);
       if (parsedArgs.dryRun) {
-        logger.info("Planning down migrations", { count });
-        const plan = await createDownPlan(adapter, migrationsPath, count);
+        logger.info("Planning down migrations", { target });
+        const plan = await createDownPlan(adapter, migrationsPath, target);
 
         if (parsedArgs.json) {
           writeJson(createSuccessPayload("down", {
@@ -354,12 +391,12 @@ const runDatabaseCommand = async (
         return 0;
       }
 
-      logger.info("Running down migrations", { count });
-      const downResult = await runDown(adapter, migrationsPath, count);
+      logger.info("Running down migrations", { target });
+      const downResult = await runDown(adapter, migrationsPath, target);
       if (parsedArgs.json) {
         writeJson(createSuccessPayload("down", downResult));
       } else {
-        console.log(`✓ Rolled back ${downResult.executed} migration(s)`);
+        printDownResult(downResult);
       }
       return 0;
     }

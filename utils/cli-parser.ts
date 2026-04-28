@@ -57,7 +57,7 @@ const parseDownArgs = (rawArgs: string[]): ParsedCommandArgs => {
       continue;
     }
 
-    if (rawArg.startsWith("-")) {
+    if (rawArg.startsWith("-") && !/^-?\d/.test(rawArg)) {
       throw createValidationError(
         `Unknown down option: ${rawArg}. Valid options: --dry-run, --json, --all`,
         { command, arg: rawArg }

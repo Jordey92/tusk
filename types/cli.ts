@@ -46,6 +46,9 @@ export interface MigrationStatusPayload {
 export interface MigrationCommandPayload {
   executed: number;
   pending: number;
+  requestedCount?: number;
+  availableRollbackCount?: number;
+  rollbackAll?: boolean;
 }
 
 export interface MigrationCreatePayload {

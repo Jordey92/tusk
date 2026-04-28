@@ -76,12 +76,15 @@ describe("CLI parser", () => {
   });
 
   test("rejects invalid down counts and options", () => {
-    const parsed = parseCommandArgs("down", ["1abc"]);
+    for (const count of ["0", "-1", "abc", "1abc"]) {
+      const parsed = parseCommandArgs("down", [count]);
 
-    expectValidationError(
-      () => validateCommand("down", parsed),
-      "Count must be a positive integer"
-    );
+      expectValidationError(
+        () => validateCommand("down", parsed),
+        "Count must be a positive integer"
+      );
+    }
+
     expectValidationError(
       () => parseCommandArgs("down", ["--everything"]),
       "Unknown down option"
