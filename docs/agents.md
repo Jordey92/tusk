@@ -85,7 +85,9 @@ bun run test:db
 
 ## Existing Database Takeover
 
-Use `tusk init --json` only when the user explicitly wants to adopt a database whose schema already exists. It creates the baseline migration files and records `0000000000000_initial.up.sql` as already applied, so agents can continue with the normal `create -> validate -> dry-run -> up` loop for future schema changes.
+Use `tusk init` for local project setup; it creates the migrations directory and does not inspect the database.
+
+Use `tusk init --from-db --json` only when the user explicitly wants to adopt a database whose schema already exists. It creates the baseline migration files and records `0000000000000_initial.up.sql` as already applied, so agents can continue with the normal `create -> validate -> dry-run -> up` loop for future schema changes.
 
 ## JSON Error Shape
 
@@ -104,7 +106,7 @@ Commands that receive `--json` return structured errors on stdout:
 
 ## Production Safety
 
-Agents should not run `tusk up`, `tusk down`, or `tusk init` against production or shared external databases unless the user explicitly provides that target for the current task. Prefer `doctor --json`, `validate --db --json`, `status --json`, and `up --dry-run --json` before any mutating command.
+Agents should not run `tusk up`, `tusk down`, or `tusk init --from-db` against production or shared external databases unless the user explicitly provides that target for the current task. Prefer `doctor --json`, `validate --db --json`, `status --json`, and `up --dry-run --json` before any mutating command.
 
 ## MCP Server
 

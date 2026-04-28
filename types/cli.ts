@@ -54,6 +54,12 @@ export interface MigrationCreatePayload {
   migrationsPath: string;
 }
 
+export interface ProjectInitPayload {
+  migrationsPath: string;
+  absolutePath: string;
+  created: boolean;
+}
+
 export interface InitialMigrationPayload {
   upFile: string;
   downFile: string;
@@ -61,4 +67,5 @@ export interface InitialMigrationPayload {
   checksum: string;
   markedAsExecuted: boolean;
   migrationsPath: string;
+  fromDb: true;
 }

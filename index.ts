@@ -31,6 +31,7 @@ export type {
   CliSuccessPayload,
   MigrationCommandPayload,
   MigrationCreatePayload,
+  ProjectInitPayload,
   InitialMigrationPayload,
   MigrationStatusPayload,
 } from "./types/cli.js";
@@ -46,6 +47,7 @@ export {
   getLastExecutedMigrations,
 } from "./core/track-migrations.js";
 export { createInitialMigration } from "./core/init-migration.js";
+export { initializeProject } from "./core/init-project.js";
 
 export { createPgAdapter } from "./adapters/pg.js";
 export { createPostgresJsAdapter } from "./adapters/postgresjs.js";

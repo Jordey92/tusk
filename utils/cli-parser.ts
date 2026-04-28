@@ -11,6 +11,7 @@ export interface ParsedCommandArgs {
   dryRun: boolean;
   checkDatabase: boolean;
   downAll: boolean;
+  initFromDb: boolean;
   createName?: string;
   downCount?: string;
   status: StatusOptions;
@@ -23,6 +24,7 @@ const emptyParsedCommandArgs = (): ParsedCommandArgs => ({
   dryRun: false,
   checkDatabase: false,
   downAll: false,
+  initFromDb: false,
   status: {
     exitCode: false,
     json: false,
@@ -143,8 +145,13 @@ const parseInitArgs = (rawArgs: string[]): ParsedCommandArgs => {
       continue;
     }
 
+    if (rawArg === "--from-db") {
+      parsed.initFromDb = true;
+      continue;
+    }
+
     throw createValidationError(
-      `Unknown init option: ${rawArg}. Valid options: --json`,
+      `Unknown init option: ${rawArg}. Valid options: --from-db, --json`,
       { command, arg: rawArg }
     );
   }
