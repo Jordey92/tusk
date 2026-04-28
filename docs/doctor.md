@@ -105,6 +105,8 @@ column can still be read, but checksum drift checks are limited.
 
 `database.status`
 : Confirms Tusk can compute executed and pending migration counts.
+This check is skipped when database drift already found unsafe migration state,
+because local counts are not trustworthy until the drift is resolved.
 
 `database.advisoryLock`
 : Confirms the migration advisory lock can be acquired and released.

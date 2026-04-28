@@ -18,21 +18,33 @@ const writeMigrationPair = async (
 };
 
 const migrationTableColumns = [
-  { column_name: "id", formatted_type: "integer", is_not_null: true },
+  {
+    column_name: "id",
+    formatted_type: "integer",
+    is_not_null: true,
+    column_default: "nextval('_migrations_id_seq'::regclass)",
+    identity_generation: null,
+  },
   {
     column_name: "filename",
     formatted_type: "character varying(255)",
     is_not_null: true,
+    column_default: null,
+    identity_generation: null,
   },
   {
     column_name: "executed_at",
     formatted_type: "timestamp without time zone",
     is_not_null: false,
+    column_default: "now()",
+    identity_generation: null,
   },
   {
     column_name: "checksum",
     formatted_type: "character varying(64)",
     is_not_null: false,
+    column_default: null,
+    identity_generation: null,
   },
 ];
 

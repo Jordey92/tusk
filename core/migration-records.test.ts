@@ -11,16 +11,26 @@ import {
 const executedAt = new Date("2026-01-01T00:00:00.000Z");
 
 const createValidColumns = (hasChecksum: boolean) => [
-  { column_name: "id", formatted_type: "integer", is_not_null: true },
+  {
+    column_name: "id",
+    formatted_type: "integer",
+    is_not_null: true,
+    column_default: "nextval('_migrations_id_seq'::regclass)",
+    identity_generation: null,
+  },
   {
     column_name: "filename",
     formatted_type: "character varying(255)",
     is_not_null: true,
+    column_default: null,
+    identity_generation: null,
   },
   {
     column_name: "executed_at",
     formatted_type: "timestamp without time zone",
     is_not_null: false,
+    column_default: "now()",
+    identity_generation: null,
   },
   ...(hasChecksum
     ? [
@@ -28,6 +38,8 @@ const createValidColumns = (hasChecksum: boolean) => [
           column_name: "checksum",
           formatted_type: "character varying(64)",
           is_not_null: false,
+          column_default: null,
+          identity_generation: null,
         },
       ]
     : []),
@@ -49,6 +61,8 @@ const createAdapter = (options: {
     column_name: string;
     formatted_type: string;
     is_not_null: boolean;
+    column_default: string | null;
+    identity_generation: string | null;
   }>;
   constraints?: Array<{
     constraint_type: "p" | "u";
@@ -229,6 +243,48 @@ describe("read-only migration records", () => {
       expect.objectContaining({
         code: "missing_unique_constraint",
         column: "filename",
+      })
+    );
+  });
+
+  test("rejects metadata tables where id is not generated", async () => {
+    const { adapter } = createAdapter({
+      columns: createValidColumns(true).map((column) =>
+        column.column_name === "id"
+          ? { ...column, column_default: null, identity_generation: null }
+          : column
+      ),
+    });
+
+    const state = await getMigrationTableStateReadOnly(adapter);
+
+    expect(state.valid).toBe(false);
+    expect(state.issues).toContainEqual(
+      expect.objectContaining({
+        code: "missing_generated_value",
+        column: "id",
+      })
+    );
+  });
+
+  test("rejects metadata tables where executed_at is not defaulted", async () => {
+    const { adapter } = createAdapter({
+      columns: createValidColumns(true).map((column) =>
+        column.column_name === "executed_at"
+          ? { ...column, column_default: null }
+          : column
+      ),
+    });
+
+    const state = await getMigrationTableStateReadOnly(adapter);
+
+    expect(state.valid).toBe(false);
+    expect(state.issues).toContainEqual(
+      expect.objectContaining({
+        code: "invalid_column_default",
+        column: "executed_at",
+        expected: "DEFAULT now()",
+        actual: "none",
       })
     );
   });

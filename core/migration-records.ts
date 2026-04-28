@@ -19,6 +19,8 @@ interface MigrationTableColumnRow extends QueryResultRow {
   column_name: string;
   formatted_type: string;
   is_not_null: boolean;
+  column_default: string | null;
+  identity_generation: string | null;
 }
 
 interface MigrationTableConstraintRow extends QueryResultRow {
@@ -51,12 +53,24 @@ interface ExpectedMigrationTableColumn {
   type: string;
   notNull: boolean;
   legacyOptional?: boolean;
+  requireGeneratedValue?: boolean;
+  requiredDefault?: string;
 }
 
 const expectedColumns: ExpectedMigrationTableColumn[] = [
-  { name: "id", type: "integer", notNull: true },
+  {
+    name: "id",
+    type: "integer",
+    notNull: true,
+    requireGeneratedValue: true,
+  },
   { name: "filename", type: "character varying(255)", notNull: true },
-  { name: "executed_at", type: "timestamp without time zone", notNull: false },
+  {
+    name: "executed_at",
+    type: "timestamp without time zone",
+    notNull: false,
+    requiredDefault: "now()",
+  },
   {
     name: "checksum",
     type: "character varying(64)",
@@ -80,8 +94,16 @@ const getMigrationTableColumns = async (
     SELECT
       a.attname AS column_name,
       format_type(a.atttypid, a.atttypmod) AS formatted_type,
-      a.attnotnull AS is_not_null
+      a.attnotnull AS is_not_null,
+      CASE
+        WHEN d.adbin IS NULL THEN NULL
+        ELSE pg_get_expr(d.adbin, d.adrelid)
+      END AS column_default,
+      NULLIF(a.attidentity, '') AS identity_generation
     FROM pg_attribute a
+    LEFT JOIN pg_attrdef d
+      ON d.adrelid = a.attrelid
+      AND d.adnum = a.attnum
     WHERE a.attrelid = to_regclass('${MIGRATION_METADATA_TABLE_NAME}')
       AND a.attnum > 0
       AND NOT a.attisdropped
@@ -147,6 +169,36 @@ const validateColumn = (
       expected: expected.notNull ? "NOT NULL" : "nullable",
       actual: actual.is_not_null ? "NOT NULL" : "nullable",
       message: `_migrations.${expected.name} nullability is ${actual.is_not_null ? "NOT NULL" : "nullable"}; expected ${expected.notNull ? "NOT NULL" : "nullable"}`,
+    });
+  }
+
+  if (expected.requireGeneratedValue) {
+    const hasGeneratedValue = actual.identity_generation !== null ||
+      (actual.column_default?.startsWith("nextval(") ?? false);
+
+    if (!hasGeneratedValue) {
+      issues.push({
+        code: "missing_generated_value",
+        column: expected.name,
+        expected: "SERIAL or identity-generated value",
+        actual: actual.identity_generation
+          ? `identity ${actual.identity_generation}`
+          : actual.column_default ?? "none",
+        message: `_migrations.${expected.name} must be auto-generated`,
+      });
+    }
+  }
+
+  if (
+    expected.requiredDefault &&
+    actual.column_default !== expected.requiredDefault
+  ) {
+    issues.push({
+      code: "invalid_column_default",
+      column: expected.name,
+      expected: `DEFAULT ${expected.requiredDefault}`,
+      actual: actual.column_default ?? "none",
+      message: `_migrations.${expected.name} must default to ${expected.requiredDefault}`,
     });
   }
 

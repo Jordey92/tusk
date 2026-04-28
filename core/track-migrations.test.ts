@@ -52,7 +52,7 @@ describe("track migrations", () => {
       await ensureMigrationsTable(adapter);
 
       const result = await adapter.query(`
-        SELECT column_name, data_type, is_nullable
+        SELECT column_name, data_type, is_nullable, column_default
         FROM information_schema.columns
         WHERE table_name = '_migrations'
         ORDER BY ordinal_position
@@ -62,8 +62,9 @@ describe("track migrations", () => {
       expect(result.rows[0]).toMatchObject({
         column_name: "id",
         data_type: "integer",
-        is_nullable: "NO"
+        is_nullable: "NO",
       });
+      expect(result.rows[0].column_default).toContain("nextval");
       expect(result.rows[1]).toMatchObject({
         column_name: "filename",
         data_type: "character varying",
@@ -73,6 +74,7 @@ describe("track migrations", () => {
         column_name: "executed_at",
         is_nullable: "YES"
       });
+      expect(result.rows[2].column_default).toBe("now()");
       expect(result.rows[3]).toMatchObject({
         column_name: "checksum",
         data_type: "character varying",
@@ -116,6 +118,40 @@ describe("track migrations", () => {
           checksum: null,
         }),
       ]);
+    });
+
+    test("should reject a metadata table where id is not generated", async () => {
+      const adapter = createPgAdapter(pool);
+
+      await adapter.query(`
+        CREATE TABLE _migrations (
+          id INTEGER PRIMARY KEY,
+          filename VARCHAR(255) NOT NULL UNIQUE,
+          executed_at TIMESTAMP DEFAULT NOW(),
+          checksum VARCHAR(64)
+        )
+      `);
+
+      await expect(ensureMigrationsTable(adapter)).rejects.toThrow(
+        "_migrations.id must be auto-generated"
+      );
+    });
+
+    test("should reject a metadata table where executed_at is not defaulted", async () => {
+      const adapter = createPgAdapter(pool);
+
+      await adapter.query(`
+        CREATE TABLE _migrations (
+          id SERIAL PRIMARY KEY,
+          filename VARCHAR(255) NOT NULL UNIQUE,
+          executed_at TIMESTAMP,
+          checksum VARCHAR(64)
+        )
+      `);
+
+      await expect(ensureMigrationsTable(adapter)).rejects.toThrow(
+        "_migrations.executed_at must default to now()"
+      );
     });
   });
 

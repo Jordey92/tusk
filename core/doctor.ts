@@ -406,6 +406,29 @@ const checkDatabaseDrift = async (
       })),
     },
   });
+
+  return result;
+};
+
+const skipDatabaseStatusAfterDriftFailure = (
+  checks: DoctorCheck[],
+  result: ValidationResult
+) => {
+  addCheck(checks, {
+    id: "database.status",
+    status: "skip",
+    message: "Migration status skipped because database validation found unsafe migration state",
+    context: {
+      errors: result.summary.errors,
+      warnings: result.summary.warnings,
+      issues: result.issues.map((issue) => ({
+        code: issue.code,
+        severity: issue.severity,
+        message: issue.message,
+        filename: issue.filename,
+      })),
+    },
+  });
 };
 
 const checkDatabaseStatus = async (
@@ -549,8 +572,16 @@ const checkDatabase = async (
     input.adapter
   );
   if (migrationTableIsTrustworthy && migrationsPathExists) {
-    await checkDatabaseDrift(checks, migrationsPath, input.adapter);
-    await checkDatabaseStatus(checks, database, migrationsPath, input.adapter);
+    const driftResult = await checkDatabaseDrift(
+      checks,
+      migrationsPath,
+      input.adapter
+    );
+    if (validationStatus(driftResult) === "fail") {
+      skipDatabaseStatusAfterDriftFailure(checks, driftResult);
+    } else {
+      await checkDatabaseStatus(checks, database, migrationsPath, input.adapter);
+    }
   }
   await checkAdvisoryLock(checks, input.adapter);
 };

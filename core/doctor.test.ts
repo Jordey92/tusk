@@ -30,16 +30,26 @@ const queryResult = <T extends QueryResultRow>(rows: T[]) => ({
 });
 
 const createMigrationTableColumns = (hasChecksum = true) => [
-  { column_name: "id", formatted_type: "integer", is_not_null: true },
+  {
+    column_name: "id",
+    formatted_type: "integer",
+    is_not_null: true,
+    column_default: "nextval('_migrations_id_seq'::regclass)",
+    identity_generation: null,
+  },
   {
     column_name: "filename",
     formatted_type: "character varying(255)",
     is_not_null: true,
+    column_default: null,
+    identity_generation: null,
   },
   {
     column_name: "executed_at",
     formatted_type: "timestamp without time zone",
     is_not_null: false,
+    column_default: "now()",
+    identity_generation: null,
   },
   ...(hasChecksum
     ? [
@@ -47,6 +57,8 @@ const createMigrationTableColumns = (hasChecksum = true) => [
           column_name: "checksum",
           formatted_type: "character varying(64)",
           is_not_null: false,
+          column_default: null,
+          identity_generation: null,
         },
       ]
     : []),
@@ -67,6 +79,7 @@ interface VersionAdapterOptions {
   hasChecksum?: boolean;
   migrationTableColumns?: ReturnType<typeof createMigrationTableColumns>;
   migrationTableConstraints?: typeof migrationTableConstraints;
+  migrationRows?: QueryResultRow[];
   auroraVersion?: string;
 }
 
@@ -136,7 +149,7 @@ const createVersionAdapter = (
     }
 
     if (sql.includes("FROM _migrations")) {
-      return queryResult([] as T[]);
+      return queryResult((options.migrationRows ?? []) as T[]);
     }
 
     return queryResult([] as T[]);
@@ -759,6 +772,52 @@ describe("doctor", () => {
       });
       expect(checkIds(report)).not.toContain("database.drift");
       expect(checkIds(report)).not.toContain("database.status");
+    } finally {
+      await rm(migrationsPath, { recursive: true, force: true });
+    }
+  });
+
+  test("skips migration status when database drift fails", async () => {
+    const migrationsPath = await createTempDir();
+
+    try {
+      await writeMigrationPair(migrationsPath);
+
+      const report = await runDoctor({
+        migrationsPath,
+        tuskVersion: "0.4.0",
+        database: {
+          configured: true,
+          adapter: createVersionAdapter("PostgreSQL 16.9 on x86_64-pc-linux-gnu", {
+            serverVersion: "16.9",
+            serverVersionNum: "160009",
+            migrationTableExists: true,
+            migrationRows: [
+              {
+                filename: "1728123456790_missing.up.sql",
+                checksum: "stored-checksum",
+                executed_at: new Date("2026-01-01T00:00:00.000Z"),
+              },
+            ],
+          }),
+        },
+      });
+
+      expect(report.ok).toBe(false);
+      expect(report.database.status).toBeUndefined();
+      expect(report.checks).toContainEqual(
+        expect.objectContaining({
+          id: "database.drift",
+          status: "fail",
+        })
+      );
+      expect(report.checks).toContainEqual(
+        expect.objectContaining({
+          id: "database.status",
+          status: "skip",
+          message: "Migration status skipped because database validation found unsafe migration state",
+        })
+      );
     } finally {
       await rm(migrationsPath, { recursive: true, force: true });
     }

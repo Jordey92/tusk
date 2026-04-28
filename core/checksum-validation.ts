@@ -7,10 +7,6 @@ export const assertExecutedMigrationChecksums = (
   executedMigrations: MigrationRecord[]
 ) => {
   for (const executedMigration of executedMigrations) {
-    if (!executedMigration.checksum) {
-      continue;
-    }
-
     const migrationFile = migrationsFromDirectory.find(
       (migration) => migration.filename === executedMigration.filename
     );
@@ -21,6 +17,10 @@ export const assertExecutedMigrationChecksums = (
           "Restore the migration file or repair migration metadata before running migrations.",
         { filename: executedMigration.filename }
       );
+    }
+
+    if (!executedMigration.checksum) {
+      continue;
     }
 
     const currentChecksum = calculateChecksum(migrationFile.sql);

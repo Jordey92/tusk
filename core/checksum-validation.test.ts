@@ -54,4 +54,19 @@ describe("assertExecutedMigrationChecksums", () => {
       )
     ).toThrow("is missing from the migrations directory");
   });
+
+  test("rejects legacy checksum records missing from disk", () => {
+    expect(() =>
+      assertExecutedMigrationChecksums(
+        [migration],
+        [
+          {
+            filename: "1728123456790_missing_legacy.up.sql",
+            checksum: null,
+            executed_at: new Date("2026-01-01T00:00:00.000Z"),
+          },
+        ]
+      )
+    ).toThrow("is missing from the migrations directory");
+  });
 });
