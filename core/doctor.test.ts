@@ -29,11 +29,57 @@ const queryResult = <T extends QueryResultRow>(rows: T[]) => ({
   rowCount: rows.length,
 });
 
+const createMigrationTableColumns = (hasChecksum = true) => [
+  {
+    column_name: "id",
+    formatted_type: "integer",
+    is_not_null: true,
+    column_default: "nextval('_migrations_id_seq'::regclass)",
+    identity_generation: null,
+  },
+  {
+    column_name: "filename",
+    formatted_type: "character varying(255)",
+    is_not_null: true,
+    column_default: null,
+    identity_generation: null,
+  },
+  {
+    column_name: "executed_at",
+    formatted_type: "timestamp without time zone",
+    is_not_null: false,
+    column_default: "now()",
+    identity_generation: null,
+  },
+  ...(hasChecksum
+    ? [
+        {
+          column_name: "checksum",
+          formatted_type: "character varying(64)",
+          is_not_null: false,
+          column_default: null,
+          identity_generation: null,
+        },
+      ]
+    : []),
+];
+
+const migrationTableConstraints: Array<{
+  constraint_type: "p" | "u";
+  columns: string[];
+}> = [
+  { constraint_type: "p", columns: ["id"] },
+  { constraint_type: "u", columns: ["filename"] },
+];
+
 interface VersionAdapterOptions {
   serverVersion?: string | null;
   serverVersionNum?: string | null;
   migrationTableExists?: boolean;
   hasChecksum?: boolean;
+  migrationTableColumns?: ReturnType<typeof createMigrationTableColumns>;
+  migrationTableConstraints?: typeof migrationTableConstraints;
+  migrationRows?: QueryResultRow[];
   auroraVersion?: string;
 }
 
@@ -79,6 +125,19 @@ const createVersionAdapter = (
       ] as T[]);
     }
 
+    if (sql.includes("pg_constraint")) {
+      return queryResult(
+        (options.migrationTableConstraints ?? migrationTableConstraints) as T[]
+      );
+    }
+
+    if (sql.includes("pg_attribute")) {
+      return queryResult(
+        (options.migrationTableColumns ??
+          createMigrationTableColumns(options.hasChecksum !== false)) as T[]
+      );
+    }
+
     if (sql.includes("to_regclass")) {
       return queryResult([
         {
@@ -89,12 +148,8 @@ const createVersionAdapter = (
       ] as T[]);
     }
 
-    if (sql.includes("information_schema.columns")) {
-      return queryResult([{ has_checksum: options.hasChecksum === true }] as T[]);
-    }
-
     if (sql.includes("FROM _migrations")) {
-      return queryResult([] as T[]);
+      return queryResult((options.migrationRows ?? []) as T[]);
     }
 
     return queryResult([] as T[]);
@@ -129,12 +184,16 @@ const createHealthyAdapter = () => {
         ] as T[]);
       }
 
-      if (sql.includes("to_regclass")) {
-        return queryResult([{ migration_table: "_migrations" }] as T[]);
+      if (sql.includes("pg_constraint")) {
+        return queryResult(migrationTableConstraints as T[]);
       }
 
-      if (sql.includes("information_schema.columns")) {
-        return queryResult([{ has_checksum: true }] as T[]);
+      if (sql.includes("pg_attribute")) {
+        return queryResult(createMigrationTableColumns(true) as T[]);
+      }
+
+      if (sql.includes("to_regclass")) {
+        return queryResult([{ migration_table: "_migrations" }] as T[]);
       }
 
       if (sql.includes("FROM _migrations")) {
@@ -163,6 +222,30 @@ const createHealthyAdapter = () => {
 const checkIds = (report: Awaited<ReturnType<typeof runDoctor>>) =>
   report.checks.map((check) => check.id);
 
+const notConfiguredDatabase = (error?: unknown) =>
+  error
+    ? { state: "not_configured" as const, error }
+    : { state: "not_configured" as const };
+
+const configuredDatabase = (adapter: DatabaseAdapter) => ({
+  state: "configured" as const,
+  adapter,
+});
+
+const connectionFailedDatabase = (error: unknown) => ({
+  state: "connection_failed" as const,
+  error,
+});
+
+const driverMissingDatabase = (
+  configuration: "found" | "missing",
+  error = createDriverNotFoundError()
+) => ({
+  state: "driver_missing" as const,
+  configuration,
+  error,
+});
+
 describe("doctor", () => {
   test("warns when the Tusk version is unknown", async () => {
     const migrationsPath = await createTempDir();
@@ -173,9 +256,7 @@ describe("doctor", () => {
       const report = await runDoctor({
         migrationsPath,
         tuskVersion: "unknown",
-        database: {
-          configured: false,
-        },
+        database: notConfiguredDatabase(),
       });
 
       expect(report.checks).toContainEqual(
@@ -199,16 +280,12 @@ describe("doctor", () => {
       const report = await runDoctor({
         migrationsPath,
         tuskVersion: "0.4.0",
-        database: {
-          configured: false,
-          error: new Error("DATABASE_URL was not set"),
-        },
+        database: notConfiguredDatabase(new Error("DATABASE_URL was not set")),
       });
 
-      expect(report.ok).toBe(false);
+      expect(report.result).toBe("fail");
       expect(report.database).toMatchObject({
-        configured: false,
-        connected: false,
+        state: "not_configured",
       });
       expect(report.checks).toContainEqual(
         expect.objectContaining({
@@ -236,12 +313,10 @@ describe("doctor", () => {
     const report = await runDoctor({
       migrationsPath,
       tuskVersion: "0.4.0",
-      database: {
-        configured: false,
-      },
+      database: notConfiguredDatabase(),
     });
 
-    expect(report.ok).toBe(false);
+    expect(report.result).toBe("fail");
     expect(report.checks).toContainEqual(
       expect.objectContaining({
         id: "migrations.path",
@@ -260,13 +335,10 @@ describe("doctor", () => {
     const report = await runDoctor({
       migrationsPath,
       tuskVersion: "0.4.0",
-      database: {
-        configured: true,
-        adapter,
-      },
+      database: configuredDatabase(adapter),
     });
 
-    expect(report.ok).toBe(false);
+    expect(report.result).toBe("fail");
     expect(report.summary.errors).toBe(1);
     expect(report.checks).toContainEqual(
       expect.objectContaining({
@@ -286,7 +358,10 @@ describe("doctor", () => {
         status: "pass",
       })
     );
-    expect(report.database.status).toBeUndefined();
+    expect(report.database.migrationStatus).toEqual({
+      state: "skipped",
+      reason: "missing_migrations_path",
+    });
     expect(lockCalls).toEqual(["acquire", "release"]);
     expect(checkIds(report)).not.toContain("migrations.valid");
     expect(checkIds(report)).not.toContain("database.drift");
@@ -300,10 +375,7 @@ describe("doctor", () => {
       const report = await runDoctor({
         migrationsPath,
         tuskVersion: "0.4.0",
-        database: {
-          configured: false,
-          error: new Error("DATABASE_URL was not set"),
-        },
+        database: notConfiguredDatabase(new Error("DATABASE_URL was not set")),
       });
 
       expect(report.checks).toContainEqual(
@@ -327,13 +399,10 @@ describe("doctor", () => {
       const report = await runDoctor({
         migrationsPath,
         tuskVersion: "0.4.0",
-        database: {
-          configured: false,
-          error: createDriverNotFoundError(),
-        },
+        database: driverMissingDatabase("missing"),
       });
 
-      expect(report.ok).toBe(false);
+      expect(report.result).toBe("fail");
       expect(report.checks).toContainEqual(
         expect.objectContaining({
           id: "database.driver",
@@ -362,14 +431,14 @@ describe("doctor", () => {
       const report = await runDoctor({
         migrationsPath,
         tuskVersion: "0.4.0",
-        database: {
-          configured: true,
-          error: createDriverNotFoundError(),
-        },
+        database: driverMissingDatabase("found"),
       });
 
-      expect(report.environment.databaseConfigured).toBe(true);
-      expect(report.database.configured).toBe(true);
+      expect(report.environment.databaseConfiguration).toBe("found");
+      expect(report.database).toMatchObject({
+        state: "driver_missing",
+        configuration: "found",
+      });
       expect(report.checks).toContainEqual(
         expect.objectContaining({
           id: "database.driver",
@@ -391,13 +460,10 @@ describe("doctor", () => {
       const report = await runDoctor({
         migrationsPath,
         tuskVersion: "0.4.0",
-        database: {
-          configured: true,
-          error: new Error("connection refused"),
-        },
+        database: connectionFailedDatabase(new Error("connection refused")),
       });
 
-      expect(report.ok).toBe(false);
+      expect(report.result).toBe("fail");
       expect(report.checks).toContainEqual(
         expect.objectContaining({
           id: "database.config",
@@ -424,19 +490,24 @@ describe("doctor", () => {
       const report = await runDoctor({
         migrationsPath,
         tuskVersion: "0.4.0",
-        database: {
-          configured: true,
-          adapter: createVersionAdapter(
+        database: configuredDatabase(
+          createVersionAdapter(
             "PostgreSQL 8.0.2 on i686-pc-linux-gnu, compiled by GCC, Redshift 1.0.12345"
-          ),
-        },
+          )
+        ),
       });
 
       const engineCheck = report.checks.find((check) => check.id === "database.engine");
 
-      expect(report.ok).toBe(false);
-      expect(report.database.provider).toBe("redshift");
-      expect(report.database.supported).toBe(false);
+      expect(report.result).toBe("fail");
+      expect(report.database).toMatchObject({
+        state: "connected",
+        engine: {
+          state: "unsupported",
+          provider: "redshift",
+          reason: "unsupported_provider",
+        },
+      });
       expect(engineCheck).toMatchObject({
         status: "fail",
         message: expect.stringContaining("Amazon Redshift"),
@@ -477,14 +548,17 @@ describe("doctor", () => {
       const report = await runDoctor({
         migrationsPath,
         tuskVersion: "0.4.0",
-        database: {
-          configured: true,
-          adapter: toDatabaseAdapter(adapter),
-        },
+        database: configuredDatabase(toDatabaseAdapter(adapter)),
       });
 
-      expect(report.ok).toBe(false);
-      expect(report.database.provider).toBe("redshift");
+      expect(report.result).toBe("fail");
+      expect(report.database).toMatchObject({
+        state: "connected",
+        engine: {
+          state: "unsupported",
+          provider: "redshift",
+        },
+      });
       expect(report.checks).toContainEqual(
         expect.objectContaining({
           id: "database.engine",
@@ -506,20 +580,22 @@ describe("doctor", () => {
       const report = await runDoctor({
         migrationsPath,
         tuskVersion: "0.4.0",
-        database: {
-          configured: true,
-          adapter: createVersionAdapter("CockroachDB CCL v25.1.0", {
+        database: configuredDatabase(
+          createVersionAdapter("CockroachDB CCL v25.1.0", {
             serverVersion: "25.1.0",
             serverVersionNum: "250100",
-          }),
-        },
+          })
+        ),
       });
 
-      expect(report.ok).toBe(false);
+      expect(report.result).toBe("fail");
       expect(report.database).toMatchObject({
-        engine: "unknown",
-        provider: "unknown",
-        supported: false,
+        state: "connected",
+        engine: {
+          state: "unsupported",
+          provider: "unknown",
+          reason: "unsupported_provider",
+        },
       });
       expect(report.checks).toContainEqual(
         expect.objectContaining({
@@ -542,19 +618,22 @@ describe("doctor", () => {
       const report = await runDoctor({
         migrationsPath,
         tuskVersion: "0.4.0",
-        database: {
-          configured: true,
-          adapter: createVersionAdapter("PostgreSQL 12.22 on x86_64-pc-linux-gnu", {
+        database: configuredDatabase(
+          createVersionAdapter("PostgreSQL 12.22 on x86_64-pc-linux-gnu", {
             serverVersion: "12.22",
             serverVersionNum: "120022",
-          }),
-        },
+          })
+        ),
       });
 
-      expect(report.ok).toBe(false);
+      expect(report.result).toBe("fail");
       expect(report.database).toMatchObject({
-        provider: "postgresql",
-        supported: false,
+        state: "connected",
+        engine: {
+          state: "unsupported",
+          provider: "postgresql",
+          reason: "version_below_floor",
+        },
       });
       expect(report.checks).toContainEqual(
         expect.objectContaining({
@@ -562,6 +641,38 @@ describe("doctor", () => {
           status: "fail",
         })
       );
+    } finally {
+      await rm(migrationsPath, { recursive: true, force: true });
+    }
+  });
+
+  test("preserves Aurora provider when the PostgreSQL version is unsupported", async () => {
+    const migrationsPath = await createTempDir();
+
+    try {
+      await writeMigrationPair(migrationsPath);
+
+      const report = await runDoctor({
+        migrationsPath,
+        tuskVersion: "0.4.0",
+        database: configuredDatabase(
+          createVersionAdapter("PostgreSQL 12.22 on x86_64-pc-linux-gnu", {
+            serverVersion: "12.22",
+            serverVersionNum: "120022",
+            auroraVersion: "12.16.4",
+          })
+        ),
+      });
+
+      expect(report.result).toBe("fail");
+      expect(report.database).toMatchObject({
+        state: "connected",
+        engine: {
+          state: "unsupported",
+          provider: "aurora-postgresql",
+          reason: "version_below_floor",
+        },
+      });
     } finally {
       await rm(migrationsPath, { recursive: true, force: true });
     }
@@ -576,19 +687,22 @@ describe("doctor", () => {
       const report = await runDoctor({
         migrationsPath,
         tuskVersion: "0.4.0",
-        database: {
-          configured: true,
-          adapter: createVersionAdapter("PostgreSQL version unavailable", {
+        database: configuredDatabase(
+          createVersionAdapter("PostgreSQL version unavailable", {
             serverVersion: null,
             serverVersionNum: null,
-          }),
-        },
+          })
+        ),
       });
 
-      expect(report.ok).toBe(false);
+      expect(report.result).toBe("fail");
       expect(report.database).toMatchObject({
-        provider: "postgresql",
-        supported: false,
+        state: "connected",
+        engine: {
+          state: "unsupported",
+          provider: "postgresql",
+          reason: "version_unknown",
+        },
       });
       expect(report.checks).toContainEqual(
         expect.objectContaining({
@@ -610,19 +724,21 @@ describe("doctor", () => {
       const report = await runDoctor({
         migrationsPath,
         tuskVersion: "0.4.0",
-        database: {
-          configured: true,
-          adapter: createVersionAdapter("PostgreSQL 13.18 on x86_64-pc-linux-gnu", {
+        database: configuredDatabase(
+          createVersionAdapter("PostgreSQL 13.18 on x86_64-pc-linux-gnu", {
             serverVersion: "13.18",
             serverVersionNum: "130018",
-          }),
-        },
+          })
+        ),
       });
 
-      expect(report.ok).toBe(true);
+      expect(report.result).toBe("pass");
       expect(report.database).toMatchObject({
-        provider: "postgresql",
-        supported: true,
+        state: "connected",
+        engine: {
+          state: "supported",
+          provider: "postgresql",
+        },
       });
       expect(report.checks).toContainEqual(
         expect.objectContaining({
@@ -644,16 +760,15 @@ describe("doctor", () => {
       const report = await runDoctor({
         migrationsPath,
         tuskVersion: "0.4.0",
-        database: {
-          configured: true,
-          adapter: createVersionAdapter("PostgreSQL 16.9 on x86_64-pc-linux-gnu", {
+        database: configuredDatabase(
+          createVersionAdapter("PostgreSQL 16.9 on x86_64-pc-linux-gnu", {
             serverVersion: "16.9",
             serverVersionNum: "160009",
-          }),
-        },
+          })
+        ),
       });
 
-      expect(report.ok).toBe(true);
+      expect(report.result).toBe("pass");
       expect(report.summary.warnings).toBe(1);
       expect(report.checks).toContainEqual(
         expect.objectContaining({
@@ -668,10 +783,98 @@ describe("doctor", () => {
           status: "pass",
         })
       );
-      expect(report.database.status).toEqual({
+      expect(report.database.migrationStatus).toEqual({
+        state: "readable",
         executed: 0,
         pending: 1,
       });
+    } finally {
+      await rm(migrationsPath, { recursive: true, force: true });
+    }
+  });
+
+  test("fails and skips dependent checks when the migration table shape is invalid", async () => {
+    const migrationsPath = await createTempDir();
+
+    try {
+      await writeMigrationPair(migrationsPath);
+
+      const report = await runDoctor({
+        migrationsPath,
+        tuskVersion: "0.4.0",
+        database: configuredDatabase(
+          createVersionAdapter("PostgreSQL 16.9 on x86_64-pc-linux-gnu", {
+            serverVersion: "16.9",
+            serverVersionNum: "160009",
+            migrationTableExists: true,
+            migrationTableColumns: createMigrationTableColumns(true).filter(
+              (column) => column.column_name !== "filename"
+            ),
+          })
+        ),
+      });
+
+      expect(report.result).toBe("fail");
+      expect(report.checks).toContainEqual(
+        expect.objectContaining({
+          id: "database.migrationTable",
+          status: "fail",
+          message: "_migrations table has an invalid shape",
+        })
+      );
+      expect(report.database.migrationTable).toMatchObject({
+        state: "invalid_shape",
+      });
+      expect(checkIds(report)).not.toContain("database.drift");
+      expect(checkIds(report)).not.toContain("database.status");
+    } finally {
+      await rm(migrationsPath, { recursive: true, force: true });
+    }
+  });
+
+  test("skips migration status when database drift fails", async () => {
+    const migrationsPath = await createTempDir();
+
+    try {
+      await writeMigrationPair(migrationsPath);
+
+      const report = await runDoctor({
+        migrationsPath,
+        tuskVersion: "0.4.0",
+        database: configuredDatabase(
+          createVersionAdapter("PostgreSQL 16.9 on x86_64-pc-linux-gnu", {
+            serverVersion: "16.9",
+            serverVersionNum: "160009",
+            migrationTableExists: true,
+            migrationRows: [
+              {
+                filename: "1728123456790_missing.up.sql",
+                checksum: "stored-checksum",
+                executed_at: new Date("2026-01-01T00:00:00.000Z"),
+              },
+            ],
+          })
+        ),
+      });
+
+      expect(report.result).toBe("fail");
+      expect(report.database.migrationStatus).toEqual({
+        state: "skipped",
+        reason: "unsafe_migration_state",
+      });
+      expect(report.checks).toContainEqual(
+        expect.objectContaining({
+          id: "database.drift",
+          status: "fail",
+        })
+      );
+      expect(report.checks).toContainEqual(
+        expect.objectContaining({
+          id: "database.status",
+          status: "skip",
+          message: "Migration status skipped because database validation found unsafe migration state",
+        })
+      );
     } finally {
       await rm(migrationsPath, { recursive: true, force: true });
     }
@@ -686,22 +889,26 @@ describe("doctor", () => {
       const report = await runDoctor({
         migrationsPath,
         tuskVersion: "0.4.0",
-        database: {
-          configured: true,
-          adapter: createVersionAdapter("PostgreSQL 16.9 on x86_64-pc-linux-gnu", {
+        database: configuredDatabase(
+          createVersionAdapter("PostgreSQL 16.9 on x86_64-pc-linux-gnu", {
             serverVersion: "16.9",
             serverVersionNum: "160009",
             auroraVersion: "16.6.3",
-          }),
-        },
+          })
+        ),
       });
 
-      expect(report.ok).toBe(true);
+      expect(report.result).toBe("pass");
       expect(report.database).toMatchObject({
-        provider: "aurora-postgresql",
-        supported: true,
+        state: "connected",
+        engine: {
+          state: "supported",
+          provider: "aurora-postgresql",
+        },
       });
-      expect(report.database.serverVersion).toContain("Aurora 16.6.3");
+      expect(report.database.engine).toMatchObject({
+        serverVersion: expect.stringContaining("Aurora 16.6.3"),
+      });
       expect(report.checks).toContainEqual(
         expect.objectContaining({
           id: "database.version",
@@ -723,22 +930,23 @@ describe("doctor", () => {
       const report = await runDoctor({
         migrationsPath,
         tuskVersion: "0.4.0",
-        database: {
-          configured: true,
-          adapter,
-        },
+        database: configuredDatabase(adapter),
       });
 
-      expect(report.ok).toBe(true);
+      expect(report.result).toBe("pass");
       expect(report.summary.errors).toBe(0);
       expect(report.database).toMatchObject({
-        provider: "postgresql",
-        supported: true,
-        migrationTable: {
-          exists: true,
-          hasChecksum: true,
+        state: "connected",
+        engine: {
+          state: "supported",
+          provider: "postgresql",
         },
-        status: {
+        migrationTable: {
+          state: "ready",
+          checksumState: "enabled",
+        },
+        migrationStatus: {
+          state: "readable",
           executed: 1,
           pending: 0,
         },
@@ -779,17 +987,14 @@ describe("doctor", () => {
       const report = await runDoctor({
         migrationsPath,
         tuskVersion: "0.4.0",
-        database: {
-          configured: true,
-          adapter: failingReleaseAdapter,
-        },
+        database: configuredDatabase(failingReleaseAdapter),
       });
 
       const connectionChecks = report.checks.filter(
         (check) => check.id === "database.connection"
       );
 
-      expect(report.ok).toBe(true);
+      expect(report.result).toBe("pass");
       expect(connectionChecks).toHaveLength(1);
       expect(connectionChecks[0]).toMatchObject({ status: "pass" });
       expect(report.checks).toContainEqual(

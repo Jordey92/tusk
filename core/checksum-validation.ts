@@ -7,15 +7,19 @@ export const assertExecutedMigrationChecksums = (
   executedMigrations: MigrationRecord[]
 ) => {
   for (const executedMigration of executedMigrations) {
-    if (!executedMigration.checksum) {
-      continue;
-    }
-
     const migrationFile = migrationsFromDirectory.find(
       (migration) => migration.filename === executedMigration.filename
     );
 
     if (!migrationFile) {
+      throw createValidationError(
+        `Executed migration ${executedMigration.filename} is missing from the migrations directory. ` +
+          "Restore the migration file or repair migration metadata before running migrations.",
+        { filename: executedMigration.filename }
+      );
+    }
+
+    if (!executedMigration.checksum) {
       continue;
     }
 

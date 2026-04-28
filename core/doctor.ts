@@ -8,29 +8,58 @@ import type {
   DoctorCheck,
   DoctorCheckStatus,
   DoctorDatabase,
+  DoctorDatabaseConfiguration,
+  DoctorDatabaseEngine,
+  DoctorMigrationStatus,
+  DoctorMigrationTable,
   DoctorReport,
   DoctorSummary,
 } from "../types/doctor.js";
 import { readMigrations } from "./read-migrations.js";
 import {
+  formatMigrationTableShapeIssues,
   getExecutedMigrationRecordsReadOnly,
   getMigrationTableStateReadOnly,
 } from "./migration-records.js";
 import { validateMigrations, type ValidationResult } from "./validate-migrations.js";
-import { isDriverNotFoundError } from "../utils/errors.js";
 
 type DoctorDatabaseInput =
   | {
-      configured: false;
+      state: "not_configured";
       error?: unknown;
     }
   | {
-      configured: true;
+      state: "configured";
       adapter: DatabaseAdapter;
     }
   | {
-      configured: true;
+      state: "connection_failed";
       error: unknown;
+    }
+  | {
+      state: "driver_missing";
+      configuration: DoctorDatabaseConfiguration;
+      error: unknown;
+    };
+
+type MigrationsPathState =
+  | {
+      state: "exists";
+      path: string;
+    }
+  | {
+      state: "missing";
+      path: string;
+    };
+
+type MigrationTableTrust =
+  | {
+      state: "trustworthy";
+      table: DoctorMigrationTable;
+    }
+  | {
+      state: "blocked";
+      table?: DoctorMigrationTable;
     };
 
 interface RunDoctorOptions {
@@ -54,10 +83,9 @@ interface AuroraVersionRow extends QueryResultRow {
 
 interface DatabaseEngineInfo {
   engine: string;
-  provider: string;
+  provider: "postgresql" | "aurora-postgresql" | "redshift" | "unknown";
   serverVersion?: string;
   majorVersion?: number;
-  supported: boolean;
   rawVersion: string;
 }
 
@@ -92,6 +120,23 @@ const addCheck = (checks: DoctorCheck[], check: DoctorCheck) => {
 const formatError = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 
+const getDoctorResult = (summary: DoctorSummary) =>
+  summary.errors === 0 ? "pass" : "fail";
+
+const getDatabaseConfiguration = (
+  input: DoctorDatabaseInput
+): DoctorDatabaseConfiguration => {
+  if (input.state === "not_configured") {
+    return "missing";
+  }
+
+  if (input.state === "driver_missing") {
+    return input.configuration;
+  }
+
+  return "found";
+};
+
 const isResolvedTuskVersion = (tuskVersion: string) => {
   const normalizedVersion = tuskVersion.trim().toLowerCase();
   return normalizedVersion !== "" && normalizedVersion !== "unknown";
@@ -112,7 +157,7 @@ const checkTuskVersion = (checks: DoctorCheck[], tuskVersion: string) => {
 const checkMigrationsPath = async (
   checks: DoctorCheck[],
   migrationsPath: string
-): Promise<boolean> => {
+): Promise<MigrationsPathState> => {
   const absolutePath = resolve(migrationsPath);
 
   try {
@@ -123,7 +168,7 @@ const checkMigrationsPath = async (
       message: `Migrations path exists: ${migrationsPath}`,
       context: { path: absolutePath },
     });
-    return true;
+    return { state: "exists", path: absolutePath };
   } catch (error) {
     addCheck(checks, {
       id: "migrations.path",
@@ -134,7 +179,7 @@ const checkMigrationsPath = async (
         cause: formatError(error),
       },
     });
-    return false;
+    return { state: "missing", path: absolutePath };
   }
 };
 
@@ -230,7 +275,6 @@ const inspectDatabaseEngine = async (
     return {
       engine: "redshift",
       provider: "redshift",
-      supported: false,
       rawVersion,
     };
   }
@@ -239,7 +283,6 @@ const inspectDatabaseEngine = async (
     return {
       engine: "unknown",
       provider: "unknown",
-      supported: false,
       rawVersion,
     };
   }
@@ -257,21 +300,14 @@ const inspectDatabaseEngine = async (
     provider: auroraVersion ? "aurora-postgresql" : "postgresql",
     serverVersion: auroraVersion ? `${serverVersion ?? "unknown"} (Aurora ${auroraVersion})` : serverVersion,
     majorVersion,
-    supported: majorVersion !== undefined && majorVersion >= SUPPORTED_POSTGRES_MAJOR,
     rawVersion,
   };
 };
 
 const checkDatabaseEngine = (
   checks: DoctorCheck[],
-  database: DoctorDatabase,
   engineInfo: DatabaseEngineInfo
-) => {
-  database.engine = engineInfo.engine;
-  database.provider = engineInfo.provider;
-  database.serverVersion = engineInfo.serverVersion;
-  database.supported = engineInfo.supported;
-
+): DoctorDatabaseEngine => {
   if (engineInfo.provider === "redshift") {
     addCheck(checks, {
       id: "database.engine",
@@ -279,7 +315,13 @@ const checkDatabaseEngine = (
       message: "Amazon Redshift is PostgreSQL-like but not a supported Tusk target",
       context: { version: engineInfo.rawVersion },
     });
-    return;
+    return {
+      state: "unsupported",
+      engine: "postgresql",
+      provider: "redshift",
+      reason: "unsupported_provider",
+      rawVersion: engineInfo.rawVersion,
+    };
   }
 
   if (engineInfo.provider === "unknown") {
@@ -289,7 +331,13 @@ const checkDatabaseEngine = (
       message: "Database engine is not a supported PostgreSQL target",
       context: { version: engineInfo.rawVersion },
     });
-    return;
+    return {
+      state: "unsupported",
+      engine: "postgresql",
+      provider: "unknown",
+      reason: "unsupported_provider",
+      rawVersion: engineInfo.rawVersion,
+    };
   }
 
   addCheck(checks, {
@@ -305,28 +353,90 @@ const checkDatabaseEngine = (
       status: "fail",
       message: "PostgreSQL major version could not be determined",
     });
-    return;
+    return {
+      state: "unsupported",
+      engine: "postgresql",
+      provider: engineInfo.provider,
+      reason: "version_unknown",
+      supportedFloor: SUPPORTED_POSTGRES_MAJOR,
+      rawVersion: engineInfo.rawVersion,
+      serverVersion: engineInfo.serverVersion,
+    };
   }
+
+  const postgresVersionState = engineInfo.majorVersion >= SUPPORTED_POSTGRES_MAJOR
+    ? "supported"
+    : "below_supported_floor";
 
   addCheck(checks, {
     id: "database.version",
-    status: engineInfo.supported ? "pass" : "fail",
-    message: engineInfo.supported
+    status: postgresVersionState === "supported" ? "pass" : "fail",
+    message: postgresVersionState === "supported"
       ? `PostgreSQL version is supported: ${engineInfo.serverVersion}`
       : `PostgreSQL ${engineInfo.majorVersion} is below Tusk's supported floor (${SUPPORTED_POSTGRES_MAJOR})`,
   });
+
+  if (postgresVersionState === "below_supported_floor") {
+    return {
+      state: "unsupported",
+      engine: "postgresql",
+      provider: engineInfo.provider,
+      reason: "version_below_floor",
+      supportedFloor: SUPPORTED_POSTGRES_MAJOR,
+      rawVersion: engineInfo.rawVersion,
+      serverVersion: engineInfo.serverVersion,
+      majorVersion: engineInfo.majorVersion,
+    };
+  }
+
+  return {
+    state: "supported",
+    engine: "postgresql",
+    provider: engineInfo.provider,
+    serverVersion: engineInfo.serverVersion ?? String(engineInfo.majorVersion),
+    majorVersion: engineInfo.majorVersion,
+    rawVersion: engineInfo.rawVersion,
+  };
+};
+
+const toDoctorMigrationTable = (
+  tableState: Awaited<ReturnType<typeof getMigrationTableStateReadOnly>>
+): DoctorMigrationTable => {
+  if (tableState.state === "missing") {
+    return { state: "missing" };
+  }
+
+  if (tableState.state === "ready") {
+    return { state: "ready", checksumState: "enabled" };
+  }
+
+  if (tableState.state === "legacy_missing_checksum_column") {
+    return {
+      state: "legacy_missing_checksum_column",
+      checksumState: "limited",
+    };
+  }
+
+  return {
+    state: "invalid_shape",
+    issues: tableState.issues.map((issue) => ({
+      code: issue.code,
+      message: issue.message,
+      column: issue.column,
+      expected: issue.expected,
+      actual: issue.actual,
+    })),
+  };
 };
 
 const checkMigrationTable = async (
   checks: DoctorCheck[],
-  database: DoctorDatabase,
   adapter: DatabaseAdapter
-) => {
+): Promise<MigrationTableTrust> => {
   let tableState;
 
   try {
     tableState = await getMigrationTableStateReadOnly(adapter);
-    database.migrationTable = tableState;
   } catch (error) {
     addCheck(checks, {
       id: "database.migrationTable",
@@ -334,26 +444,49 @@ const checkMigrationTable = async (
       message: "_migrations table state could not be read",
       context: { cause: formatError(error) },
     });
-    return;
+    return { state: "blocked" };
+  }
+
+  const table = toDoctorMigrationTable(tableState);
+
+  if (tableState.state === "invalid_shape") {
+    addCheck(checks, {
+      id: "database.migrationTable",
+      status: "fail",
+      message: "_migrations table has an invalid shape",
+      context: {
+        issues: tableState.issues.map((issue) => ({
+          code: issue.code,
+          message: issue.message,
+          column: issue.column,
+          expected: issue.expected,
+          actual: issue.actual,
+        })),
+        details: formatMigrationTableShapeIssues(tableState.issues),
+      },
+    });
+    return { state: "blocked", table };
   }
 
   addCheck(checks, {
     id: "database.migrationTable",
-    status: tableState.exists ? "pass" : "warn",
-    message: tableState.exists
-      ? "_migrations table is readable"
-      : "_migrations table was not found. Run `tusk up` to initialise migration tracking when applying migrations.",
+    status: tableState.state === "missing" ? "warn" : "pass",
+    message: tableState.state === "missing"
+      ? "_migrations table was not found. Run `tusk up` to initialise migration tracking when applying migrations."
+      : "_migrations table is readable",
   });
 
   addCheck(checks, {
     id: "database.checksumMetadata",
-    status: !tableState.exists || tableState.hasChecksum ? "pass" : "warn",
-    message: tableState.hasChecksum
+    status: tableState.state === "legacy_missing_checksum_column" ? "warn" : "pass",
+    message: tableState.state === "ready"
       ? "Migration checksums are enabled"
-      : tableState.exists
+      : tableState.state === "legacy_missing_checksum_column"
         ? "_migrations exists without checksum metadata; legacy records can be read but drift checks are limited"
         : "Checksum metadata will be created when Tusk initializes migration state",
   });
+
+  return { state: "trustworthy", table };
 };
 
 const checkDatabaseDrift = async (
@@ -376,16 +509,49 @@ const checkDatabaseDrift = async (
     context: {
       errors: result.summary.errors,
       warnings: result.summary.warnings,
+      issues: result.issues.map((issue) => ({
+        code: issue.code,
+        severity: issue.severity,
+        message: issue.message,
+        filename: issue.filename,
+      })),
     },
   });
+
+  return result;
+};
+
+const skipDatabaseStatusAfterDriftFailure = (
+  checks: DoctorCheck[],
+  result: ValidationResult
+): DoctorMigrationStatus => {
+  addCheck(checks, {
+    id: "database.status",
+    status: "skip",
+    message: "Migration status skipped because database validation found unsafe migration state",
+    context: {
+      errors: result.summary.errors,
+      warnings: result.summary.warnings,
+      issues: result.issues.map((issue) => ({
+        code: issue.code,
+        severity: issue.severity,
+        message: issue.message,
+        filename: issue.filename,
+      })),
+    },
+  });
+
+  return {
+    state: "skipped",
+    reason: "unsafe_migration_state",
+  };
 };
 
 const checkDatabaseStatus = async (
   checks: DoctorCheck[],
-  database: DoctorDatabase,
   migrationsPath: string,
   adapter: DatabaseAdapter
-) => {
+): Promise<DoctorMigrationStatus> => {
   try {
     const migrations = await readMigrations(migrationsPath, "up");
     const executedRecords = await getExecutedMigrationRecordsReadOnly(adapter);
@@ -397,13 +563,13 @@ const checkDatabaseStatus = async (
     ).length;
     const pending = migrations.length - executed;
 
-    database.status = { executed, pending };
     addCheck(checks, {
       id: "database.status",
       status: "pass",
       message: `Migration status is readable: ${executed} executed, ${pending} pending`,
       context: { executed, pending },
     });
+    return { state: "readable", executed, pending };
   } catch (error) {
     addCheck(checks, {
       id: "database.status",
@@ -411,6 +577,10 @@ const checkDatabaseStatus = async (
       message: "Migration status could not be computed",
       context: { cause: formatError(error) },
     });
+    return {
+      state: "unreadable",
+      cause: formatError(error),
+    };
   }
 };
 
@@ -449,28 +619,30 @@ const checkAdvisoryLock = async (
 
 const checkDatabase = async (
   checks: DoctorCheck[],
-  database: DoctorDatabase,
   migrationsPath: string,
-  migrationsPathExists: boolean,
+  migrationsPathState: MigrationsPathState,
   input: DoctorDatabaseInput
-) => {
-  if ("error" in input && isDriverNotFoundError(input.error)) {
+): Promise<DoctorDatabase> => {
+  if (input.state === "driver_missing") {
     addCheck(checks, {
       id: "database.driver",
       status: "fail",
-      message: input.error.message,
+      message: formatError(input.error),
     });
-    return;
+    return {
+      state: "driver_missing",
+      configuration: input.configuration,
+    };
   }
 
-  if (!input.configured) {
+  if (input.state === "not_configured") {
     addCheck(checks, {
       id: "database.config",
       status: "fail",
       message: "Database configuration was not found",
       context: input.error ? { cause: formatError(input.error) } : undefined,
     });
-    return;
+    return { state: "not_configured" };
   }
 
   addCheck(checks, {
@@ -479,14 +651,17 @@ const checkDatabase = async (
     message: "Database configuration found",
   });
 
-  if ("error" in input) {
+  if (input.state === "connection_failed") {
     addCheck(checks, {
       id: "database.connection",
       status: "fail",
       message: "Database connection failed",
       context: { cause: formatError(input.error) },
     });
-    return;
+    return {
+      state: "connection_failed",
+      configuration: "found",
+    };
   }
 
   let engineInfo;
@@ -500,63 +675,96 @@ const checkDatabase = async (
       message: "Database connection failed",
       context: { cause: formatError(error) },
     });
-    return;
+    return {
+      state: "connection_failed",
+      configuration: "found",
+    };
   }
 
-  database.connected = true;
   addCheck(checks, {
     id: "database.connection",
     status: "pass",
     message: "Database connection works",
   });
 
-  checkDatabaseEngine(checks, database, engineInfo);
-  if (!engineInfo.supported) {
-    return;
+  const engine = checkDatabaseEngine(checks, engineInfo);
+  const connectedDatabase: Extract<DoctorDatabase, { state: "connected" }> = {
+    state: "connected",
+    engine,
+  };
+  if (engine.state === "unsupported") {
+    return connectedDatabase;
   }
 
-  await checkMigrationTable(checks, database, input.adapter);
-  if (migrationsPathExists) {
-    await checkDatabaseDrift(checks, migrationsPath, input.adapter);
-    await checkDatabaseStatus(checks, database, migrationsPath, input.adapter);
+  const migrationTableTrust = await checkMigrationTable(checks, input.adapter);
+  if (migrationTableTrust.table) {
+    connectedDatabase.migrationTable = migrationTableTrust.table;
+  }
+
+  if (
+    migrationTableTrust.state === "trustworthy" &&
+    migrationsPathState.state === "exists"
+  ) {
+    const driftResult = await checkDatabaseDrift(
+      checks,
+      migrationsPath,
+      input.adapter
+    );
+    if (validationStatus(driftResult) === "fail") {
+      connectedDatabase.migrationStatus = skipDatabaseStatusAfterDriftFailure(
+        checks,
+        driftResult
+      );
+    } else {
+      connectedDatabase.migrationStatus = await checkDatabaseStatus(
+        checks,
+        migrationsPath,
+        input.adapter
+      );
+    }
+  } else if (
+    migrationTableTrust.state === "trustworthy" &&
+    migrationsPathState.state === "missing"
+  ) {
+    connectedDatabase.migrationStatus = {
+      state: "skipped",
+      reason: "missing_migrations_path",
+    };
   }
   await checkAdvisoryLock(checks, input.adapter);
+
+  return connectedDatabase;
 };
 
 export const runDoctor = async (
   options: RunDoctorOptions
 ): Promise<DoctorReport> => {
   const checks: DoctorCheck[] = [];
-  const database: DoctorDatabase = {
-    configured: options.database.configured,
-    connected: false,
-  };
 
   checkTuskVersion(checks, options.tuskVersion);
-  const migrationsPathExists = await checkMigrationsPath(
+  const migrationsPathState = await checkMigrationsPath(
     checks,
     options.migrationsPath
   );
-  if (migrationsPathExists) {
+  if (migrationsPathState.state === "exists") {
     await checkMigrationFiles(checks, options.migrationsPath);
   }
-  await checkDatabase(
+  const database = await checkDatabase(
     checks,
-    database,
     options.migrationsPath,
-    migrationsPathExists,
+    migrationsPathState,
     options.database
   );
 
   const summary = createSummary(checks);
 
   return {
-    ok: summary.errors === 0,
+    result: getDoctorResult(summary),
     summary,
     environment: {
       tuskVersion: options.tuskVersion,
       migrationsPath: options.migrationsPath,
-      databaseConfigured: options.database.configured,
+      databaseConfiguration: getDatabaseConfiguration(options.database),
     },
     database,
     checks,

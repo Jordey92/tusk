@@ -201,12 +201,12 @@ describe("cli smoke test", () => {
     expect(result.stderr).toBe("");
 
     const payload = JSON.parse(result.stdout) as {
-      ok: boolean;
+      result: string;
       command: string;
       checks: Array<{ id: string; status: string }>;
     };
 
-    expect(payload.ok).toBe(false);
+    expect(payload.result).toBe("fail");
     expect(payload.command).toBe("doctor");
     expect(payload.checks).toContainEqual(expect.objectContaining({
       id: "database.config",
@@ -505,7 +505,7 @@ describe("cli smoke test", () => {
 
       const doctor = await runCli(["doctor", "--json"], env, workspace);
       expect(doctor.exitCode).toBe(0);
-      expect(JSON.parse(doctor.stdout)).toMatchObject({ ok: true });
+      expect(JSON.parse(doctor.stdout)).toMatchObject({ result: "pass" });
     } finally {
       await database.cleanup();
     }
@@ -555,7 +555,7 @@ describe("cli smoke test", () => {
 
       const doctor = await runCli(["doctor", "--json"], env, workspace);
       expect(doctor.exitCode).toBe(0);
-      expect(JSON.parse(doctor.stdout)).toMatchObject({ ok: true });
+      expect(JSON.parse(doctor.stdout)).toMatchObject({ result: "pass" });
     } finally {
       await database.cleanup();
     }

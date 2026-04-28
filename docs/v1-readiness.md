@@ -50,10 +50,17 @@ The important part is not just coverage. The tests should make accidental contra
 
 ### Lock metadata compatibility
 
-Add focused tests for `_migrations` compatibility:
+The `_migrations` table name and shape are part of the v1 compatibility
+contract. See [Metadata table contract](metadata-table.md).
+
+Keep focused tests for `_migrations` compatibility:
 
 - current table with checksums
-- legacy table without checksums
+- legacy checksum-null rows
+- legacy metadata that is missing the checksum column
+- invalid table shape
+- missing applied migration files
+- missing rollback files before partial rollback
 - adopted baseline from `tusk init --from-db`
 - checksum drift detection
 - read-only commands against legacy metadata

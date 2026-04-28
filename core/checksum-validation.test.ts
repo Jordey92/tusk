@@ -31,12 +31,20 @@ describe("assertExecutedMigrationChecksums", () => {
     ).toThrow("has been modified after execution");
   });
 
-  test("ignores legacy records and missing local files", () => {
+  test("ignores legacy records with null checksums", () => {
+    expect(() =>
+      assertExecutedMigrationChecksums(
+        [migration],
+        [record(null)]
+      )
+    ).not.toThrow();
+  });
+
+  test("rejects executed migrations missing from disk", () => {
     expect(() =>
       assertExecutedMigrationChecksums(
         [migration],
         [
-          record(null),
           {
             filename: "1728123456790_missing.up.sql",
             checksum: "not-current",
@@ -44,6 +52,21 @@ describe("assertExecutedMigrationChecksums", () => {
           },
         ]
       )
-    ).not.toThrow();
+    ).toThrow("is missing from the migrations directory");
+  });
+
+  test("rejects legacy checksum records missing from disk", () => {
+    expect(() =>
+      assertExecutedMigrationChecksums(
+        [migration],
+        [
+          {
+            filename: "1728123456790_missing_legacy.up.sql",
+            checksum: null,
+            executed_at: new Date("2026-01-01T00:00:00.000Z"),
+          },
+        ]
+      )
+    ).toThrow("is missing from the migrations directory");
   });
 });

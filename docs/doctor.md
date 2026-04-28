@@ -90,9 +90,11 @@ being treated as PostgreSQL.
 Tusk's supported floor.
 
 `database.migrationTable`
-: Checks whether `_migrations` is readable. Missing metadata is a warning, not
-a failure, because the first `tusk up` can create it when migrations are
-applied.
+: Checks whether `_migrations` is readable and has a trustworthy shape.
+Missing metadata is a warning, not a failure, because the first `tusk up` can
+create it when migrations are applied. An existing `_migrations` table with an
+invalid shape is a failure, and doctor skips drift/status checks that depend on
+trusting metadata.
 
 `database.checksumMetadata`
 : Checks whether `_migrations` has checksum metadata. Legacy tables without the
@@ -103,6 +105,8 @@ column can still be read, but checksum drift checks are limited.
 
 `database.status`
 : Confirms Tusk can compute executed and pending migration counts.
+This check is skipped when database drift already found unsafe migration state,
+because local counts are not trustworthy until the drift is resolved.
 
 `database.advisoryLock`
 : Confirms the migration advisory lock can be acquired and released.
@@ -110,14 +114,14 @@ column can still be read, but checksum drift checks are limited.
 ## JSON Output
 
 `--json` is intended for scripts and AI agents. The shape is stable enough to
-branch on `ok`, individual `checks[*].id`, and `checks[*].status`.
+branch on `result`, individual `checks[*].id`, and `checks[*].status`.
 
 Example failing output:
 
 ```json
 {
   "command": "doctor",
-  "ok": false,
+  "result": "fail",
   "summary": {
     "passed": 3,
     "warnings": 0,
@@ -127,11 +131,10 @@ Example failing output:
   "environment": {
     "tuskVersion": "0.4.0",
     "migrationsPath": "./migrations",
-    "databaseConfigured": false
+    "databaseConfiguration": "missing"
   },
   "database": {
-    "configured": false,
-    "connected": false
+    "state": "not_configured"
   },
   "checks": [
     {

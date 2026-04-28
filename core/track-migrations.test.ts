@@ -4,6 +4,7 @@ import { cleanupMigrations, createTestPool } from "../utils/test-helper";
 import {
   ensureMigrationsTable,
   getExecutedMigrations,
+  getExecutedMigrationsWithChecksums,
   getLastExecutedMigrations,
   markAsExecuted,
   markAsRolledBack,
@@ -51,7 +52,7 @@ describe("track migrations", () => {
       await ensureMigrationsTable(adapter);
 
       const result = await adapter.query(`
-        SELECT column_name, data_type, is_nullable
+        SELECT column_name, data_type, is_nullable, column_default
         FROM information_schema.columns
         WHERE table_name = '_migrations'
         ORDER BY ordinal_position
@@ -61,8 +62,9 @@ describe("track migrations", () => {
       expect(result.rows[0]).toMatchObject({
         column_name: "id",
         data_type: "integer",
-        is_nullable: "NO"
+        is_nullable: "NO",
       });
+      expect(result.rows[0].column_default).toContain("nextval");
       expect(result.rows[1]).toMatchObject({
         column_name: "filename",
         data_type: "character varying",
@@ -72,11 +74,152 @@ describe("track migrations", () => {
         column_name: "executed_at",
         is_nullable: "YES"
       });
+      expect(result.rows[2].column_default).toBe("now()");
       expect(result.rows[3]).toMatchObject({
         column_name: "checksum",
         data_type: "character varying",
         is_nullable: "YES"
       });
+    });
+
+    test("should upgrade a legacy table missing the checksum column", async () => {
+      const adapter = createPgAdapter(pool);
+
+      await adapter.query(`
+        CREATE TABLE _migrations (
+          id SERIAL PRIMARY KEY,
+          filename VARCHAR(255) NOT NULL UNIQUE,
+          executed_at TIMESTAMP DEFAULT NOW()
+        )
+      `);
+      await adapter.query(
+        `INSERT INTO _migrations (filename) VALUES ('123_legacy.up.sql')`
+      );
+
+      await ensureMigrationsTable(adapter);
+
+      const columns = await adapter.query(`
+        SELECT column_name, data_type
+        FROM information_schema.columns
+        WHERE table_name = '_migrations'
+          AND column_name = 'checksum'
+      `);
+      const records = await getExecutedMigrationsWithChecksums(adapter);
+
+      expect(columns.rows).toEqual([
+        expect.objectContaining({
+          column_name: "checksum",
+          data_type: "character varying",
+        }),
+      ]);
+      expect(records).toEqual([
+        expect.objectContaining({
+          filename: "123_legacy.up.sql",
+          checksum: null,
+        }),
+      ]);
+    });
+
+    test("should tolerate a concurrent legacy checksum column upgrade", async () => {
+      const adapter = createPgAdapter(pool);
+      let simulatedConcurrentUpgrade = false;
+
+      await adapter.query(`
+        CREATE TABLE _migrations (
+          id SERIAL PRIMARY KEY,
+          filename VARCHAR(255) NOT NULL UNIQUE,
+          executed_at TIMESTAMP DEFAULT NOW()
+        )
+      `);
+
+      const concurrentAdapter = {
+        ...adapter,
+        query: async (sql, params) => {
+          if (
+            typeof sql === "string" &&
+            sql.includes("ADD COLUMN IF NOT EXISTS checksum") &&
+            !simulatedConcurrentUpgrade
+          ) {
+            simulatedConcurrentUpgrade = true;
+            await adapter.query(
+              "ALTER TABLE _migrations ADD COLUMN checksum VARCHAR(64)"
+            );
+          }
+
+          return adapter.query(sql, params);
+        },
+      } satisfies typeof adapter;
+
+      await ensureMigrationsTable(concurrentAdapter);
+
+      const columns = await adapter.query(`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_name = '_migrations'
+          AND column_name = 'checksum'
+      `);
+
+      expect(simulatedConcurrentUpgrade).toBe(true);
+      expect(columns.rows).toHaveLength(1);
+    });
+
+    test("should reject a metadata table where id is not generated", async () => {
+      const adapter = createPgAdapter(pool);
+
+      await adapter.query(`
+        CREATE TABLE _migrations (
+          id INTEGER PRIMARY KEY,
+          filename VARCHAR(255) NOT NULL UNIQUE,
+          executed_at TIMESTAMP DEFAULT NOW(),
+          checksum VARCHAR(64)
+        )
+      `);
+
+      await expect(ensureMigrationsTable(adapter)).rejects.toThrow(
+        "_migrations.id must be auto-generated"
+      );
+    });
+
+    test("should reject an invalid legacy table before adding checksum metadata", async () => {
+      const adapter = createPgAdapter(pool);
+
+      await adapter.query(`
+        CREATE TABLE _migrations (
+          id INTEGER PRIMARY KEY,
+          filename VARCHAR(255) NOT NULL UNIQUE,
+          executed_at TIMESTAMP DEFAULT NOW()
+        )
+      `);
+
+      await expect(ensureMigrationsTable(adapter)).rejects.toThrow(
+        "_migrations.id must be auto-generated"
+      );
+
+      const columns = await adapter.query(`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_name = '_migrations'
+          AND column_name = 'checksum'
+      `);
+
+      expect(columns.rows).toHaveLength(0);
+    });
+
+    test("should reject a metadata table where executed_at is not defaulted", async () => {
+      const adapter = createPgAdapter(pool);
+
+      await adapter.query(`
+        CREATE TABLE _migrations (
+          id SERIAL PRIMARY KEY,
+          filename VARCHAR(255) NOT NULL UNIQUE,
+          executed_at TIMESTAMP,
+          checksum VARCHAR(64)
+        )
+      `);
+
+      await expect(ensureMigrationsTable(adapter)).rejects.toThrow(
+        "_migrations.executed_at must default to now()"
+      );
     });
   });
 

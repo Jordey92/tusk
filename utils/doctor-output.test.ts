@@ -11,16 +11,15 @@ const createReport = (
     skipped: 0,
   }
 ): DoctorReport => ({
-  ok: summary.errors === 0,
+  result: summary.errors === 0 ? "pass" : "fail",
   summary,
   environment: {
     tuskVersion: "0.5.0",
     migrationsPath: "./migrations",
-    databaseConfigured: false,
+    databaseConfiguration: "missing",
   },
   database: {
-    configured: false,
-    connected: false,
+    state: "not_configured",
   },
   checks,
 });
