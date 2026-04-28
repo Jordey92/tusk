@@ -120,6 +120,49 @@ describe("track migrations", () => {
       ]);
     });
 
+    test("should tolerate a concurrent legacy checksum column upgrade", async () => {
+      const adapter = createPgAdapter(pool);
+      let simulatedConcurrentUpgrade = false;
+
+      await adapter.query(`
+        CREATE TABLE _migrations (
+          id SERIAL PRIMARY KEY,
+          filename VARCHAR(255) NOT NULL UNIQUE,
+          executed_at TIMESTAMP DEFAULT NOW()
+        )
+      `);
+
+      const concurrentAdapter = {
+        ...adapter,
+        query: async (sql, params) => {
+          if (
+            typeof sql === "string" &&
+            sql.includes("ADD COLUMN IF NOT EXISTS checksum") &&
+            !simulatedConcurrentUpgrade
+          ) {
+            simulatedConcurrentUpgrade = true;
+            await adapter.query(
+              "ALTER TABLE _migrations ADD COLUMN checksum VARCHAR(64)"
+            );
+          }
+
+          return adapter.query(sql, params);
+        },
+      } satisfies typeof adapter;
+
+      await ensureMigrationsTable(concurrentAdapter);
+
+      const columns = await adapter.query(`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_name = '_migrations'
+          AND column_name = 'checksum'
+      `);
+
+      expect(simulatedConcurrentUpgrade).toBe(true);
+      expect(columns.rows).toHaveLength(1);
+    });
+
     test("should reject a metadata table where id is not generated", async () => {
       const adapter = createPgAdapter(pool);
 

@@ -356,14 +356,10 @@ export const assertMigrationTableShape = async (
   return tableState;
 };
 
-const getTrustedMigrationTableState = async (adapter: DatabaseAdapter) => {
-  return assertMigrationTableShape(adapter);
-};
-
 export const getExecutedMigrationRecordsReadOnly = async (
   adapter: DatabaseAdapter
 ): Promise<MigrationRecord[]> => {
-  const tableState = await getTrustedMigrationTableState(adapter);
+  const tableState = await assertMigrationTableShape(adapter);
   if (tableState.state === "missing") {
     return [];
   }
@@ -373,7 +369,7 @@ export const getExecutedMigrationRecordsReadOnly = async (
     : "NULL::text AS checksum";
   const result = await adapter.query<MigrationRecordRow>(`
     SELECT filename, ${checksumSelection}, executed_at
-    FROM _migrations
+    FROM ${MIGRATION_METADATA_TABLE_NAME}
     ORDER BY id ASC
   `);
 
@@ -395,7 +391,7 @@ export const getLastExecutedMigrationFilenamesReadOnly = async (
 
   const limit = count ?? Number.MAX_SAFE_INTEGER;
   const result = await adapter.query<MigrationFilenameRow>(
-    `SELECT filename FROM _migrations ORDER BY id DESC LIMIT $1`,
+    `SELECT filename FROM ${MIGRATION_METADATA_TABLE_NAME} ORDER BY id DESC LIMIT $1`,
     [limit]
   );
 
@@ -411,7 +407,7 @@ export const getExecutedMigrationCountReadOnly = async (
   }
 
   const result = await adapter.query<MigrationCountRow>(
-    `SELECT COUNT(*)::integer AS count FROM _migrations`
+    `SELECT COUNT(*)::integer AS count FROM ${MIGRATION_METADATA_TABLE_NAME}`
   );
 
   return Number(result.rows[0]?.count ?? 0);
