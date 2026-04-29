@@ -16,19 +16,17 @@ import {
   type TuskError,
   toError,
 } from "../utils/errors.js";
-import { readMigrations } from "./read-migrations.js";
 import { calculateChecksum } from "../utils/checksum.js";
-import { planRollbackMigrations } from "./rollback-plan.js";
 import { normalizeRollbackTarget, type RollbackTarget } from "./rollback-target.js";
-import { assertExecutedMigrationChecksums } from "./checksum-validation.js";
 import {
   ensureMigrationsTable,
-  getLastExecutedMigrations,
-  getExecutedMigrationsWithChecksums,
   markAsExecuted,
   markAsRolledBack,
 } from "./track-migrations.js";
-import { getExecutedMigrationCountReadOnly } from "./migration-records.js";
+import {
+  resolveDownMigrationState,
+  resolveUpMigrationState,
+} from "./migration-resolution.js";
 
 interface MigrationBatchOptions {
   adapter: DatabaseAdapter;
@@ -101,30 +99,19 @@ export const runUp = async (
       throw tuskError;
     }
 
-    const migrationsFromDirectory = await readMigrations(migrationsPath, "up");
-
-    const executedMigrations = await getExecutedMigrationsWithChecksums(adapter);
-    const executedFilenames = new Set(
-      executedMigrations.map((migration) => migration.filename)
-    );
-
-    assertExecutedMigrationChecksums(migrationsFromDirectory, executedMigrations);
+    const migrationState = await resolveUpMigrationState(adapter, migrationsPath);
 
     logger.debug("Migration checksums verified");
 
-    const migrationsToRun = migrationsFromDirectory.filter(
-      (migration) => !executedFilenames.has(migration.filename)
-    );
-
     logger.info("Found migrations to execute", {
-      total: migrationsFromDirectory.length,
-      toExecute: migrationsToRun.length,
-      alreadyExecuted: executedFilenames.size,
+      total: migrationState.migrationsFromDirectory.length,
+      toExecute: migrationState.pendingMigrations.length,
+      alreadyExecuted: migrationState.executedFilenames.size,
     });
 
     const pending = await executeMigrationBatch({
       adapter,
-      migrations: migrationsToRun,
+      migrations: migrationState.pendingMigrations,
       debugMessage: "Executing migration",
       successMessage: "Migration executed successfully",
       failureMessage: "Migration execution failed",
@@ -143,9 +130,9 @@ export const runUp = async (
     });
 
     logger.info("Migration up process completed", {
-      executed: migrationsToRun.length,
+      executed: migrationState.pendingMigrations.length,
     });
-    return { executed: migrationsToRun.length, pending };
+    return { executed: migrationState.pendingMigrations.length, pending };
   } finally {
     await adapter.releaseMigrationLock();
   }
@@ -156,40 +143,29 @@ export const runDown = async (
   migrationsPath: string,
   target?: RollbackTarget
 ): Promise<RunResult> => {
-  const rollbackTarget = normalizeRollbackTarget(target);
-  const count = rollbackTarget.mode === "count"
-    ? rollbackTarget.count
-    : undefined;
-
   logger.info("Starting migration down process", {
     migrationsPath,
-    count,
-    all: rollbackTarget.mode === "all",
   });
 
   await adapter.acquireMigrationLock();
 
   try {
     await ensureMigrationsTable(adapter);
-    const migrationsFromDirectory = await readMigrations(migrationsPath, "down");
-
-    const availableRollbackCount = await getExecutedMigrationCountReadOnly(adapter);
-    const lastExecuted = await getLastExecutedMigrations(adapter, count);
-    const migrationsToRollback = planRollbackMigrations(
-      lastExecuted,
-      migrationsFromDirectory
+    const migrationState = await resolveDownMigrationState(
+      adapter,
+      migrationsPath,
+      target
     );
 
     logger.info("Found migrations to rollback", {
-      total: migrationsFromDirectory.length,
-      toRollback: migrationsToRollback.length,
-      requestedCount: count,
-      all: rollbackTarget.mode === "all",
+      total: migrationState.migrationsFromDirectory.length,
+      toRollback: migrationState.rollbackMigrations.length,
+      requestedCount: migrationState.requestedCount,
     });
 
     const pending = await executeMigrationBatch({
       adapter,
-      migrations: migrationsToRollback,
+      migrations: migrationState.rollbackMigrations,
       debugMessage: "Rolling back migration",
       successMessage: "Migration rolled back successfully",
       failureMessage: "Migration rollback failed",
@@ -204,16 +180,14 @@ export const runDown = async (
     });
 
     logger.info("Migration down process completed", {
-      executed: migrationsToRollback.length,
+      executed: migrationState.rollbackMigrations.length,
     });
     return {
-      executed: migrationsToRollback.length,
+      executed: migrationState.rollbackMigrations.length,
       pending,
-      requestedCount: rollbackTarget.mode === "count"
-        ? rollbackTarget.requestedCount
-        : undefined,
-      availableRollbackCount,
-      rollbackAll: rollbackTarget.mode === "all",
+      requestedCount: migrationState.requestedCount,
+      availableRollbackCount: migrationState.availableRollbackCount,
+      rollbackAll: migrationState.rollbackTarget.mode === "all",
     };
   } finally {
     await adapter.releaseMigrationLock();

@@ -1,4 +1,7 @@
 import type { StructuredContext } from "./structured.js";
+import type { InitMigrationResult } from "../core/init-migration.js";
+import type { InitProjectResult } from "../core/init-project.js";
+import type { RunResult } from "./migrations.js";
 
 export type CliCommand =
   | "create"
@@ -43,13 +46,7 @@ export interface MigrationStatusPayload {
   };
 }
 
-export interface MigrationCommandPayload {
-  executed: number;
-  pending: number;
-  requestedCount?: number;
-  availableRollbackCount?: number;
-  rollbackAll?: boolean;
-}
+export type MigrationCommandPayload = RunResult;
 
 export interface MigrationCreatePayload {
   upFile: string;
@@ -57,18 +54,9 @@ export interface MigrationCreatePayload {
   migrationsPath: string;
 }
 
-export interface ProjectInitPayload {
-  migrationsPath: string;
-  absolutePath: string;
-  created: boolean;
-}
+export type ProjectInitPayload = InitProjectResult;
 
-export interface InitialMigrationPayload {
-  upFile: string;
-  downFile: string;
-  tableCount: number;
-  checksum: string;
-  markedAsExecuted: boolean;
+export interface InitialMigrationPayload extends InitMigrationResult {
   migrationsPath: string;
   fromDb: true;
 }

@@ -134,4 +134,36 @@ describe("doctor human output", () => {
 
     expect(collectDoctorNextSteps(report)).toEqual([]);
   });
+
+  test("omits next steps when no actionable setup step is available", () => {
+    const report = createReport([
+      {
+        id: "tusk.version",
+        status: "pass",
+        message: "Tusk version resolved: 0.5.0",
+      },
+    ], {
+      passed: 1,
+      warnings: 0,
+      errors: 0,
+      skipped: 0,
+    });
+
+    expect(formatDoctorReport(report)).not.toContain("Next steps:");
+  });
+
+  test("does not add spacer lines after the final multiline check", () => {
+    const report = createReport([
+      {
+        id: "custom.check",
+        status: "fail",
+        message: "First line\nSecond line",
+      },
+    ]);
+
+    const output = formatDoctorReport(report);
+
+    expect(output).toContain("Second line\n────────────────");
+    expect(output).not.toContain("Second line\n\n────────────────");
+  });
 });

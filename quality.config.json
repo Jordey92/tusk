@@ -1,7 +1,7 @@
 {
   "crap": {
     "lcovPath": "coverage/lcov.info",
-    "sourceRoots": ["core", "utils", "adapters/pg"],
+    "sourceRoots": ["cli.ts", "core", "utils", "adapters", "mcp", "plugins"],
     "exclude": ["**/*.test.ts"],
     "threshold": 30,
     "reportPath": ".tmp/quality/crap-report.json"
@@ -19,6 +19,22 @@
       {
         "file": "core/plan-migrations.ts",
         "testCommand": "bun test core/plan-migrations.test.ts"
+      },
+      {
+        "file": "core/migration-records.ts",
+        "testCommand": "bun test core/migration-records.test.ts core/track-migrations.test.ts"
+      },
+      {
+        "file": "core/migration-resolution.ts",
+        "testCommand": "bun test core/migration-resolution.test.ts core/plan-migrations.test.ts"
+      },
+      {
+        "file": "core/run-migrations.ts",
+        "testCommand": "bun test core/run-migrations.test.ts"
+      },
+      {
+        "file": "core/track-migrations.ts",
+        "testCommand": "bun test core/track-migrations.test.ts core/run-migrations.test.ts"
       },
       {
         "file": "core/validate-migrations.ts",
@@ -39,6 +55,18 @@
       {
         "file": "utils/cli-parser.ts",
         "testCommand": "bun test utils/cli-parser.test.ts cli.test.ts"
+      },
+      {
+        "file": "utils/doctor-output.ts",
+        "testCommand": "bun test utils/doctor-output.test.ts core/doctor.test.ts"
+      },
+      {
+        "file": "adapters/postgres-client.ts",
+        "testCommand": "bun test adapters/postgres-client.test.ts cli.test.ts"
+      },
+      {
+        "file": "mcp/server.ts",
+        "testCommand": "bun test mcp/server.test.ts"
       }
     ]
   }

@@ -639,6 +639,7 @@ describe("doctor", () => {
         expect.objectContaining({
           id: "database.version",
           status: "fail",
+          message: "PostgreSQL 12 is below Tusk's supported floor (13)",
         })
       );
     } finally {
@@ -787,6 +788,42 @@ describe("doctor", () => {
         state: "readable",
         executed: 0,
         pending: 1,
+      });
+    } finally {
+      await rm(migrationsPath, { recursive: true, force: true });
+    }
+  });
+
+  test("warns clearly for legacy metadata without checksum column", async () => {
+    const migrationsPath = await createTempDir();
+
+    try {
+      await writeMigrationPair(migrationsPath);
+
+      const report = await runDoctor({
+        migrationsPath,
+        tuskVersion: "0.4.0",
+        database: configuredDatabase(
+          createVersionAdapter("PostgreSQL 16.9 on x86_64-pc-linux-gnu", {
+            serverVersion: "16.9",
+            serverVersionNum: "160009",
+            migrationTableExists: true,
+            migrationTableColumns: createMigrationTableColumns(false),
+          })
+        ),
+      });
+
+      expect(report.result).toBe("pass");
+      expect(report.checks).toContainEqual(
+        expect.objectContaining({
+          id: "database.checksumMetadata",
+          status: "warn",
+          message: "_migrations exists without checksum metadata; legacy records can be read but drift checks are limited",
+        })
+      );
+      expect(report.database.migrationTable).toEqual({
+        state: "legacy_missing_checksum_column",
+        checksumState: "limited",
       });
     } finally {
       await rm(migrationsPath, { recursive: true, force: true });

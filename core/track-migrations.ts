@@ -1,14 +1,14 @@
 import type {
   DatabaseAdapter,
-  MigrationRecord,
   TransactionClient,
 } from "../types/migrations.js";
 import { logger } from "../utils/logger.js";
 import {
   assertMigrationTableShape,
+  getExecutedMigrationRecordsReadOnly,
+  getLastExecutedMigrationFilenamesReadOnly,
   MIGRATION_METADATA_TABLE_NAME,
 } from "./migration-records.js";
-import type { MigrationFilenameRow, MigrationRecordRow } from "./migration-row-types.js";
 
 export const ensureMigrationsTable = async (adapter: DatabaseAdapter) => {
   await adapter.query(`
@@ -36,26 +36,12 @@ export const ensureMigrationsTable = async (adapter: DatabaseAdapter) => {
 export const getExecutedMigrations = async (
   adapter: DatabaseAdapter
 ): Promise<Set<string>> => {
-  await assertMigrationTableShape(adapter);
-  const result = await adapter.query<MigrationFilenameRow>(`
-    SELECT filename FROM ${MIGRATION_METADATA_TABLE_NAME}
-  `);
-
-  return new Set(result.rows.map((row) => row.filename));
+  const records = await getExecutedMigrationRecordsReadOnly(adapter);
+  return new Set(records.map((row) => row.filename));
 };
 
-export const getLastExecutedMigrations = async (
-  adapter: DatabaseAdapter,
-  count?: number
-): Promise<string[]> => {
-  await assertMigrationTableShape(adapter);
-  const limit = count ?? Number.MAX_SAFE_INTEGER;
-  const result = await adapter.query<MigrationFilenameRow>(
-    `SELECT filename FROM ${MIGRATION_METADATA_TABLE_NAME} ORDER BY id DESC LIMIT $1`,
-    [limit]
-  );
-  return result.rows.map((row) => row.filename);
-};
+export const getLastExecutedMigrations =
+  getLastExecutedMigrationFilenamesReadOnly;
 
 export const markAsExecuted = async (
   adapterOrClient: DatabaseAdapter | TransactionClient,
@@ -85,19 +71,5 @@ export const markAsRolledBack = async (
   );
 };
 
-export const getExecutedMigrationsWithChecksums = async (
-  adapter: DatabaseAdapter
-): Promise<MigrationRecord[]> => {
-  await assertMigrationTableShape(adapter);
-  const result = await adapter.query<MigrationRecordRow>(`
-    SELECT filename, checksum, executed_at
-    FROM ${MIGRATION_METADATA_TABLE_NAME}
-    ORDER BY id ASC
-  `);
-
-  return result.rows.map((row) => ({
-    filename: row.filename,
-    checksum: row.checksum,
-    executed_at: row.executed_at,
-  }));
-};
+export const getExecutedMigrationsWithChecksums =
+  getExecutedMigrationRecordsReadOnly;

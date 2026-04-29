@@ -1,11 +1,18 @@
 export type {
+  ConnectionConfig,
   DatabaseAdapter,
-  TransactionClient,
-  QueryResult,
   Migration,
   MigrationRecord,
+  QueryResult,
+  RunResult,
+  TransactionClient,
 } from "./types/migrations.js";
 export type { ElysiaMigrateConfig } from "./plugins/elysia.js";
+export type {
+  ManagedPostgresAdapter,
+  PostgresClientConfig,
+  SupportedPostgresDriver,
+} from "./adapters/postgres-client.js";
 export type {
   ColumnInfo,
   PrimaryKeyInfo,
@@ -21,20 +28,46 @@ export type {
   MigrationPlanEntry,
 } from "./core/plan-migrations.js";
 export type {
+  MigrationTableShapeIssue,
+  MigrationTableState,
+} from "./core/migration-records.js";
+export type {
+  DownMigrationState,
+  UpMigrationState,
+} from "./core/migration-resolution.js";
+export type {
+  NormalizedRollbackTarget,
+  RollbackTarget,
+} from "./core/rollback-target.js";
+export type {
   ValidationIssue,
   ValidationResult,
   ValidationSeverity,
   ValidateMigrationsOptions,
 } from "./core/validate-migrations.js";
+export type { InitMigrationResult } from "./core/init-migration.js";
+export type { InitProjectResult } from "./core/init-project.js";
 export type {
   CliErrorPayload,
   CliSuccessPayload,
+  InitialMigrationPayload,
   MigrationCommandPayload,
   MigrationCreatePayload,
   ProjectInitPayload,
-  InitialMigrationPayload,
   MigrationStatusPayload,
 } from "./types/cli.js";
+export type {
+  DoctorCheck,
+  DoctorDatabase,
+  DoctorDatabaseConfiguration,
+  DoctorDatabaseEngine,
+  DoctorMigrationStatus,
+  DoctorMigrationTable,
+  DoctorMigrationTableIssue,
+  DoctorReport,
+  DoctorResult,
+  DoctorSummary,
+} from "./types/doctor.js";
 
 export { runUp, runDown } from "./core/run-migrations.js";
 export { readMigrations } from "./core/read-migrations.js";

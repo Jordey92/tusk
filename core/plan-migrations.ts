@@ -1,15 +1,11 @@
 import type { DatabaseAdapter, Migration } from "../types/migrations.js";
 import { calculateChecksum } from "../utils/checksum.js";
 import { getCorrespondingFilename } from "../utils/filename.js";
-import { assertExecutedMigrationChecksums } from "./checksum-validation.js";
 import {
-  getExecutedMigrationCountReadOnly,
-  getExecutedMigrationRecordsReadOnly,
-  getLastExecutedMigrationFilenamesReadOnly,
-} from "./migration-records.js";
-import { readMigrations } from "./read-migrations.js";
-import { planRollbackMigrations } from "./rollback-plan.js";
-import { normalizeRollbackTarget, type RollbackTarget } from "./rollback-target.js";
+  resolveDownMigrationState,
+  resolveUpMigrationState,
+} from "./migration-resolution.js";
+import type { RollbackTarget } from "./rollback-target.js";
 
 export type MigrationPlanDirection = "up" | "down";
 
@@ -55,25 +51,15 @@ export const createUpPlan = async (
   adapter: DatabaseAdapter,
   migrationsPath: string
 ): Promise<MigrationPlan> => {
-  const migrationsFromDirectory = await readMigrations(migrationsPath, "up");
-  const executedMigrations = await getExecutedMigrationRecordsReadOnly(adapter);
-  const executedFilenames = new Set(
-    executedMigrations.map((migration) => migration.filename)
-  );
-
-  assertExecutedMigrationChecksums(migrationsFromDirectory, executedMigrations);
-
-  const migrationsToRun = migrationsFromDirectory.filter(
-    (migration) => !executedFilenames.has(migration.filename)
-  );
+  const migrationState = await resolveUpMigrationState(adapter, migrationsPath);
 
   return {
     direction: "up",
-    migrations: migrationsToRun.map(toUpPlanEntry),
+    migrations: migrationState.pendingMigrations.map(toUpPlanEntry),
     summary: {
-      planned: migrationsToRun.length,
-      total: migrationsFromDirectory.length,
-      alreadyExecuted: executedFilenames.size,
+      planned: migrationState.pendingMigrations.length,
+      total: migrationState.migrationsFromDirectory.length,
+      alreadyExecuted: migrationState.executedFilenames.size,
     },
   };
 };
@@ -83,29 +69,21 @@ export const createDownPlan = async (
   migrationsPath: string,
   target?: RollbackTarget
 ): Promise<MigrationPlan> => {
-  const rollbackTarget = normalizeRollbackTarget(target);
-  const count = rollbackTarget.mode === "count"
-    ? rollbackTarget.count
-    : undefined;
-  const migrationsFromDirectory = await readMigrations(migrationsPath, "down");
-  const availableRollbackCount = await getExecutedMigrationCountReadOnly(adapter);
-  const lastExecuted = await getLastExecutedMigrationFilenamesReadOnly(adapter, count);
-  const migrationsToRollback = planRollbackMigrations(
-    lastExecuted,
-    migrationsFromDirectory
+  const migrationState = await resolveDownMigrationState(
+    adapter,
+    migrationsPath,
+    target
   );
 
   return {
     direction: "down",
-    migrations: migrationsToRollback.map(toDownPlanEntry),
+    migrations: migrationState.rollbackMigrations.map(toDownPlanEntry),
     summary: {
-      planned: migrationsToRollback.length,
-      total: migrationsFromDirectory.length,
-      requestedCount: rollbackTarget.mode === "count"
-        ? rollbackTarget.requestedCount
-        : undefined,
-      availableRollbackCount,
-      rollbackAll: rollbackTarget.mode === "all",
+      planned: migrationState.rollbackMigrations.length,
+      total: migrationState.migrationsFromDirectory.length,
+      requestedCount: migrationState.requestedCount,
+      availableRollbackCount: migrationState.availableRollbackCount,
+      rollbackAll: migrationState.rollbackTarget.mode === "all",
     },
   };
 };

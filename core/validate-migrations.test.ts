@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { DatabaseAdapter } from "../types/migrations";
@@ -111,6 +111,28 @@ describe("validateMigrations", () => {
       expect(result.summary.down).toBe(1);
     } finally {
       await rm(migrationsPath, { recursive: true, force: true });
+    }
+  });
+
+  test("reports unreadable directories without classifying them as missing", async () => {
+    const workspace = await createTempDir();
+    const unreadablePath = join(workspace, "unreadable");
+
+    try {
+      await mkdir(unreadablePath);
+      await chmod(unreadablePath, 0o000);
+
+      const result = await validateMigrations(unreadablePath);
+
+      expect(result.ok).toBe(false);
+      expect(result.issues).toContainEqual(
+        expect.objectContaining({
+          code: "MIGRATIONS_DIRECTORY_UNREADABLE",
+        })
+      );
+    } finally {
+      await chmod(unreadablePath, 0o700).catch(() => {});
+      await rm(workspace, { recursive: true, force: true });
     }
   });
 

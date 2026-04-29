@@ -172,35 +172,81 @@ const tools: ToolDefinition[] = [
   },
 ];
 
-const asString = (
-  value: JsonValue | undefined,
+const hasArg = (args: Record<string, JsonValue>, key: string) =>
+  Object.prototype.hasOwnProperty.call(args, key);
+
+const isInteger = (value: unknown): value is number =>
+  Number.isInteger(value);
+
+const stringArg = (
+  args: Record<string, JsonValue>,
+  key: string,
   fallback: string
-): string => typeof value === "string" ? value : fallback;
+): string => {
+  if (!hasArg(args, key)) {
+    return fallback;
+  }
 
-const asOptionalString = (value: JsonValue | undefined): string | undefined =>
-  typeof value === "string" && value.length > 0 ? value : undefined;
+  const value = args[key];
+  if (typeof value === "string") {
+    return value;
+  }
 
-const asBoolean = (value: JsonValue | undefined): boolean =>
-  typeof value === "boolean" ? value : false;
+  throw new Error(`${key} must be a string`);
+};
+
+const optionalStringArg = (
+  args: Record<string, JsonValue>,
+  key: string
+): string | undefined => {
+  if (!hasArg(args, key)) {
+    return undefined;
+  }
+
+  const value = args[key];
+  if (typeof value === "string") {
+    return value.length > 0 ? value : undefined;
+  }
+
+  throw new Error(`${key} must be a string`);
+};
+
+const booleanArg = (
+  args: Record<string, JsonValue>,
+  key: string,
+  fallback: boolean
+): boolean => {
+  if (!hasArg(args, key)) {
+    return fallback;
+  }
+
+  const value = args[key];
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  throw new Error(`${key} must be a boolean`);
+};
 
 const optionalPositiveInteger = (
   args: Record<string, JsonValue>,
   key: string
 ): number | undefined => {
-  if (!Object.prototype.hasOwnProperty.call(args, key)) {
+  if (!hasArg(args, key)) {
     return undefined;
   }
 
   const value = args[key];
-  if (typeof value === "number" && Number.isInteger(value) && value >= 1) {
-    return value;
+  if (!isInteger(value) || value <= 0) {
+    throw new Error(`${key} must be a positive integer`);
   }
 
-  throw new Error(`${key} must be a positive integer`);
+  return value;
 };
 
 const createPool = (args: Record<string, JsonValue> = {}) => {
-  const databaseUrl = asOptionalString(args.databaseUrl) ?? process.env.DATABASE_URL;
+  const databaseUrl = optionalStringArg(args, "databaseUrl") ??
+    process.env.DATABASE_URL;
 
   if (databaseUrl) {
     return new Pool({ connectionString: databaseUrl });
@@ -233,10 +279,14 @@ const callTool = async (
   name: string,
   args: Record<string, JsonValue> = {}
 ): Promise<ToolResult> => {
-  const migrationsPath = asString(args.migrationsPath, defaultMigrationsPath);
+  const migrationsPath = stringArg(
+    args,
+    "migrationsPath",
+    defaultMigrationsPath
+  );
 
   if (name === "tusk_validate") {
-    const checkDatabase = asBoolean(args.checkDatabase);
+    const checkDatabase = booleanArg(args, "checkDatabase", false);
 
     if (!checkDatabase) {
       return await validateMigrations(migrationsPath);
@@ -269,7 +319,7 @@ const callTool = async (
   }
 
   if (name === "tusk_create_migration") {
-    const migrationName = asOptionalString(args.name);
+    const migrationName = optionalStringArg(args, "name");
 
     if (!migrationName) {
       throw new Error("tusk_create_migration requires a non-empty name");

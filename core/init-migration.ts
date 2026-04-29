@@ -9,7 +9,7 @@ import { ensureMigrationsTable, markAsExecuted } from "./track-migrations.js";
 const INITIAL_MIGRATION_TIMESTAMP = "0000000000000";
 const INITIAL_MIGRATION_NAME = "initial";
 
-interface InitMigrationResult {
+export interface InitMigrationResult {
   upFile: string;
   downFile: string;
   tableCount: number;
