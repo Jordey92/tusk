@@ -1,22 +1,37 @@
-import type { CliCommand, CliErrorPayload, CliSuccessPayload } from "../types/cli.js";
+import type {
+  CliCommand,
+  CliErrorPayload,
+  CliResultPayload,
+  CliSuccessPayload,
+} from "../types/cli.js";
 import type { StructuredContext } from "../types/structured.js";
 import { isTuskError } from "./errors.js";
 
-export const createSuccessPayload = <T extends object>(
-  command: CliCommand,
+export const createSuccessPayload = <TCommand extends CliCommand, T extends object>(
+  command: TCommand,
   data: T & { ok?: never; command?: never }
-): CliSuccessPayload & T => ({
+): CliSuccessPayload<TCommand> & T => ({
   ...data,
   ok: true,
   command,
 });
 
-export const createErrorPayload = (
+export const createResultPayload = <TCommand extends CliCommand, T extends object>(
+  command: TCommand,
+  ok: boolean,
+  data: T & { ok?: never; command?: never }
+): CliResultPayload<TCommand, T> => ({
+  ...data,
+  ok,
+  command,
+});
+
+export const createErrorPayload = <TCommand extends string>(
   error: unknown,
-  command?: string
-): CliErrorPayload => {
+  command: TCommand
+): CliErrorPayload<TCommand> => {
   if (isTuskError(error)) {
-    const payload: CliErrorPayload = {
+    const payload: CliErrorPayload<TCommand> = {
       ok: false,
       command,
       error: {

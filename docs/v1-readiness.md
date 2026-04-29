@@ -85,7 +85,8 @@ This is the highest-value check because users install the package, not the sourc
 
 ### Stabilize JSON contracts
 
-Document the JSON fields that are intended to be stable for automation:
+Document the JSON fields that are intended to be stable for automation. See
+[JSON output contracts](json-contracts.md):
 
 - common `ok` and `command` fields
 - structured error envelope
@@ -93,6 +94,7 @@ Document the JSON fields that are intended to be stable for automation:
 - doctor check IDs and statuses
 - dry-run plan shape
 - migration create/init output shape
+- rollback target mode shape
 
 Anything not documented can remain implementation detail until v1.
 

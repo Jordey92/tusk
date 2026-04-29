@@ -1,11 +1,15 @@
 export type {
   ConnectionConfig,
   DatabaseAdapter,
+  DownRunResult,
+  MigrationRunResult,
   Migration,
   MigrationRecord,
   QueryResult,
+  RollbackTargetPayload,
   RunResult,
   TransactionClient,
+  UpRunResult,
 } from "./types/migrations.js";
 export type { ElysiaMigrateConfig } from "./plugins/elysia.js";
 export type {
@@ -26,6 +30,10 @@ export type {
   MigrationPlan,
   MigrationPlanDirection,
   MigrationPlanEntry,
+  UpMigrationPlan,
+  UpMigrationPlanEntry,
+  DownMigrationPlan,
+  DownMigrationPlanEntry,
 } from "./core/plan-migrations.js";
 export type {
   MigrationTableShapeIssue,
@@ -49,12 +57,24 @@ export type { InitMigrationResult } from "./core/init-migration.js";
 export type { InitProjectResult } from "./core/init-project.js";
 export type {
   CliErrorPayload,
+  CliResultPayload,
   CliSuccessPayload,
+  DoctorJsonPayload,
   InitialMigrationPayload,
+  InitialMigrationJsonPayload,
+  DownMigrationCommandPayload,
   MigrationCommandPayload,
+  MigrationCommandJsonPayload,
   MigrationCreatePayload,
+  MigrationCreateJsonPayload,
+  MigrationDryRunJsonPayload,
+  MigrationDryRunPayload,
   ProjectInitPayload,
+  ProjectInitJsonPayload,
   MigrationStatusPayload,
+  MigrationStatusJsonPayload,
+  UpMigrationCommandPayload,
+  ValidateJsonPayload,
 } from "./types/cli.js";
 export type {
   DoctorCheck,

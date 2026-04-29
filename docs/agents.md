@@ -109,6 +109,9 @@ Commands that receive `--json` return structured errors on stdout:
 }
 ```
 
+See [JSON output contracts](json-contracts.md) for the stable command payloads,
+check-result envelopes, and compatibility rules.
+
 ## Production Safety
 
 Agents should not run `tusk up`, `tusk down`, or `tusk init --from-db` against production or shared external databases unless the user explicitly provides that target for the current task. Prefer `doctor --json`, `validate --db --json`, `status --json`, and `up --dry-run --json` before any mutating command.

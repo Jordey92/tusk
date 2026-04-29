@@ -1,7 +1,10 @@
 import type { StructuredContext } from "./structured.js";
 import type { InitMigrationResult } from "../core/init-migration.js";
 import type { InitProjectResult } from "../core/init-project.js";
-import type { RunResult } from "./migrations.js";
+import type { MigrationPlan } from "../core/plan-migrations.js";
+import type { ValidationResult } from "../core/validate-migrations.js";
+import type { DoctorReport } from "./doctor.js";
+import type { DownRunResult, UpRunResult } from "./migrations.js";
 
 export type CliCommand =
   | "create"
@@ -14,14 +17,22 @@ export type CliCommand =
   | "version"
   | "help";
 
-export interface CliSuccessPayload {
+export type CliResultPayload<
+  TCommand extends CliCommand = CliCommand,
+  TData extends object = object,
+> = TData & {
+  ok: boolean;
+  command: TCommand;
+};
+
+export interface CliSuccessPayload<TCommand extends CliCommand = CliCommand> {
   ok: true;
-  command: CliCommand;
+  command: TCommand;
 }
 
-export interface CliErrorPayload {
+export interface CliErrorPayload<TCommand extends string = string> {
   ok: false;
-  command?: string;
+  command: TCommand;
   error: {
     code: string;
     message: string;
@@ -46,7 +57,36 @@ export interface MigrationStatusPayload {
   };
 }
 
-export type MigrationCommandPayload = RunResult;
+export type UpMigrationCommandPayload = UpRunResult;
+
+export type DownMigrationCommandPayload = DownRunResult;
+
+export type MigrationCommandPayload<
+  TCommand extends "up" | "down" = "up" | "down",
+> = TCommand extends "down"
+  ? DownMigrationCommandPayload
+  : UpMigrationCommandPayload;
+
+export type MigrationCommandJsonPayload<
+  TCommand extends "up" | "down",
+> = TCommand extends unknown
+  ? CliSuccessPayload<TCommand> & MigrationCommandPayload<TCommand>
+  : never;
+
+export type MigrationDryRunPayload<
+  TDirection extends MigrationPlan["direction"] = MigrationPlan["direction"],
+> = {
+  dryRun: true;
+} & Pick<
+  Extract<MigrationPlan, { direction: TDirection }>,
+  "direction" | "migrations" | "summary"
+>;
+
+export type MigrationDryRunJsonPayload<
+  TCommand extends "up" | "down",
+> = TCommand extends unknown
+  ? CliSuccessPayload<TCommand> & MigrationDryRunPayload<TCommand>
+  : never;
 
 export interface MigrationCreatePayload {
   upFile: string;
@@ -60,3 +100,21 @@ export interface InitialMigrationPayload extends InitMigrationResult {
   migrationsPath: string;
   fromDb: true;
 }
+
+export type MigrationStatusJsonPayload =
+  CliSuccessPayload<"status"> & MigrationStatusPayload;
+
+export type MigrationCreateJsonPayload =
+  CliSuccessPayload<"create"> & MigrationCreatePayload;
+
+export type ProjectInitJsonPayload =
+  CliSuccessPayload<"init"> & ProjectInitPayload;
+
+export type InitialMigrationJsonPayload =
+  CliSuccessPayload<"init"> & InitialMigrationPayload;
+
+export type ValidateJsonPayload =
+  CliResultPayload<"validate", Omit<ValidationResult, "ok">>;
+
+export type DoctorJsonPayload =
+  CliResultPayload<"doctor", DoctorReport>;

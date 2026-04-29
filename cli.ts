@@ -21,7 +21,12 @@ import {
   isDriverNotFoundError,
   isTuskError,
 } from "./utils/errors.js";
-import { createErrorPayload, createSuccessPayload, writeJson } from "./utils/cli-output.js";
+import {
+  createErrorPayload,
+  createResultPayload,
+  createSuccessPayload,
+  writeJson,
+} from "./utils/cli-output.js";
 import { formatDoctorReport } from "./utils/doctor-output.js";
 import {
   getCliDownCount,
@@ -199,24 +204,25 @@ const printStatus = (
 const printPlan = (plan: MigrationPlan) => {
   const action = plan.direction === "up" ? "execute" : "roll back";
   console.log(`Dry run: ${plan.summary.planned} migration(s) would ${action}`);
+  const rollbackTarget = plan.summary.rollbackTarget;
   if (
     plan.direction === "down" &&
-    plan.summary.requestedCount !== undefined &&
-    plan.summary.requestedCount > (plan.summary.availableRollbackCount ?? 0)
+    rollbackTarget?.mode === "count" &&
+    rollbackTarget.requestedCount > rollbackTarget.availableRollbackCount
   ) {
     console.log(
-      `Requested ${plan.summary.requestedCount} rollback(s), but only ` +
-        `${plan.summary.availableRollbackCount ?? 0} applied migration(s) are available`
+      `Requested ${rollbackTarget.requestedCount} rollback(s), but only ` +
+        `${rollbackTarget.availableRollbackCount} applied migration(s) are available`
     );
   }
 
   for (const migration of plan.migrations) {
     console.log("\n" + "─".repeat(60));
     console.log(`${migration.filename}`);
-    if (migration.rollbackOf) {
+    if (migration.direction === "down") {
       console.log(`Rollback of: ${migration.rollbackOf}`);
     }
-    if (migration.checksum) {
+    if (migration.direction === "up") {
       console.log(`Checksum: ${migration.checksum}`);
     }
     console.log("\n" + migration.sql.trim());
@@ -239,12 +245,12 @@ const printDownResult = (
   }
 
   if (
-    result.requestedCount !== undefined &&
-    result.requestedCount > (result.availableRollbackCount ?? 0)
+    result.rollbackTarget?.mode === "count" &&
+    result.rollbackTarget.requestedCount > result.rollbackTarget.availableRollbackCount
   ) {
     console.log(
-      `✓ Requested ${result.requestedCount} rollback(s), but only ` +
-        `${result.availableRollbackCount ?? 0} applied migration(s) were available. ` +
+      `✓ Requested ${result.rollbackTarget.requestedCount} rollback(s), but only ` +
+        `${result.rollbackTarget.availableRollbackCount} applied migration(s) were available. ` +
         `Rolled back ${result.executed} migration(s)`
     );
     return;
@@ -556,7 +562,8 @@ const run = async () => {
           });
 
           if (parsedArgs.json) {
-            writeJson({ command: "validate", ...result });
+            const { ok, ...validation } = result;
+            writeJson(createResultPayload("validate", ok, validation));
           } else {
             printValidation(result);
           }
@@ -569,7 +576,8 @@ const run = async () => {
 
       const result = await validateMigrations(migrationsPath);
       if (parsedArgs.json) {
-        writeJson({ command: "validate", ...result });
+        const { ok, ...validation } = result;
+        writeJson(createResultPayload("validate", ok, validation));
       } else {
         printValidation(result);
       }
@@ -588,7 +596,7 @@ const run = async () => {
         });
 
         if (parsedArgs.json) {
-          writeJson({ command: "doctor", ...report });
+          writeJson(createResultPayload("doctor", report.result === "pass", report));
         } else {
           printDoctor(report);
         }

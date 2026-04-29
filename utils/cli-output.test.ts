@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { createValidationError, createMigrationFileError } from "./errors";
-import { createErrorPayload, createSuccessPayload } from "./cli-output";
+import {
+  createErrorPayload,
+  createResultPayload,
+  createSuccessPayload,
+} from "./cli-output";
 
 describe("CLI output helpers", () => {
   test("creates success payloads with a stable envelope", () => {
@@ -35,6 +39,30 @@ describe("CLI output helpers", () => {
       ok: true,
       command: "create",
       upFile: "1_test.up.sql",
+    });
+  });
+
+  test("creates result payloads for commands that can complete with findings", () => {
+    const payload = createResultPayload("doctor", false, {
+      result: "fail",
+      summary: {
+        passed: 1,
+        warnings: 0,
+        errors: 1,
+        skipped: 0,
+      },
+    });
+
+    expect(payload).toEqual({
+      ok: false,
+      command: "doctor",
+      result: "fail",
+      summary: {
+        passed: 1,
+        warnings: 0,
+        errors: 1,
+        skipped: 0,
+      },
     });
   });
 

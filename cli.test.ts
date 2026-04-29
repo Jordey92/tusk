@@ -201,11 +201,13 @@ describe("cli smoke test", () => {
     expect(result.stderr).toBe("");
 
     const payload = JSON.parse(result.stdout) as {
+      ok: boolean;
       result: string;
       command: string;
       checks: Array<{ id: string; status: string }>;
     };
 
+    expect(payload.ok).toBe(false);
     expect(payload.result).toBe("fail");
     expect(payload.command).toBe("doctor");
     expect(payload.checks).toContainEqual(expect.objectContaining({
@@ -405,7 +407,10 @@ describe("cli smoke test", () => {
 
       const dryRunDefaultPayload = JSON.parse(dryRunDefault.stdout) as {
         migrations: Array<{ rollbackOf: string }>;
-        summary: { planned: number; requestedCount?: number };
+        summary: {
+          planned: number;
+          rollbackTarget: { mode: string; requestedCount?: number };
+        };
       };
 
       expect(dryRunDefaultPayload.migrations).toHaveLength(1);
@@ -414,7 +419,10 @@ describe("cli smoke test", () => {
       );
       expect(dryRunDefaultPayload.summary).toMatchObject({
         planned: 1,
-        requestedCount: 1,
+        rollbackTarget: {
+          mode: "count",
+          requestedCount: 1,
+        },
       });
 
       const dryRunAll = await runCli(["down", "--all", "--dry-run", "--json"], env, workspace);
@@ -505,7 +513,11 @@ describe("cli smoke test", () => {
 
       const doctor = await runCli(["doctor", "--json"], env, workspace);
       expect(doctor.exitCode).toBe(0);
-      expect(JSON.parse(doctor.stdout)).toMatchObject({ result: "pass" });
+      expect(JSON.parse(doctor.stdout)).toMatchObject({
+        ok: true,
+        command: "doctor",
+        result: "pass",
+      });
     } finally {
       await database.cleanup();
     }
@@ -536,8 +548,11 @@ describe("cli smoke test", () => {
       expect(downOne.exitCode).toBe(0);
       expect(JSON.parse(downOne.stdout)).toMatchObject({
         executed: 1,
-        requestedCount: 1,
-        availableRollbackCount: 3,
+        rollbackTarget: {
+          mode: "count",
+          requestedCount: 1,
+          availableRollbackCount: 3,
+        },
       });
       expect(await tableExists(database, "widgets")).toBe(true);
       expect(await tableExists(database, "gadgets")).toBe(true);
@@ -547,15 +562,22 @@ describe("cli smoke test", () => {
       expect(downTwo.exitCode).toBe(0);
       expect(JSON.parse(downTwo.stdout)).toMatchObject({
         executed: 2,
-        requestedCount: 2,
-        availableRollbackCount: 2,
+        rollbackTarget: {
+          mode: "count",
+          requestedCount: 2,
+          availableRollbackCount: 2,
+        },
       });
       expect(await tableExists(database, "widgets")).toBe(false);
       expect(await tableExists(database, "gadgets")).toBe(false);
 
       const doctor = await runCli(["doctor", "--json"], env, workspace);
       expect(doctor.exitCode).toBe(0);
-      expect(JSON.parse(doctor.stdout)).toMatchObject({ result: "pass" });
+      expect(JSON.parse(doctor.stdout)).toMatchObject({
+        ok: true,
+        command: "doctor",
+        result: "pass",
+      });
     } finally {
       await database.cleanup();
     }
@@ -585,11 +607,17 @@ describe("cli smoke test", () => {
       expect(dryRun.exitCode).toBe(0);
       const dryRunPayload = JSON.parse(dryRun.stdout) as {
         migrations: Array<{ rollbackOf: string }>;
-        summary: { planned: number; rollbackAll: boolean };
+        summary: {
+          planned: number;
+          rollbackTarget: { mode: string; availableRollbackCount: number };
+        };
       };
       expect(dryRunPayload.summary).toMatchObject({
         planned: 2,
-        rollbackAll: true,
+        rollbackTarget: {
+          mode: "all",
+          availableRollbackCount: 2,
+        },
       });
       expect(dryRunPayload.migrations.map((migration) => migration.rollbackOf)).toEqual([
         "0000000000002_create_gadgets.up.sql",
@@ -600,8 +628,10 @@ describe("cli smoke test", () => {
       expect(downAll.exitCode).toBe(0);
       expect(JSON.parse(downAll.stdout)).toMatchObject({
         executed: 2,
-        availableRollbackCount: 2,
-        rollbackAll: true,
+        rollbackTarget: {
+          mode: "all",
+          availableRollbackCount: 2,
+        },
       });
       expect(await tableExists(database, "widgets")).toBe(false);
       expect(await tableExists(database, "gadgets")).toBe(false);
@@ -1029,6 +1059,46 @@ describe("cli smoke test", () => {
       up: 1,
       down: 1,
     });
+  });
+
+  test("validate --json uses the command envelope for validation failures", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "tusk-cli-validate-json-fail-"));
+    const migrationsPath = join(workspace, "migrations");
+    cleanupPaths.push(workspace);
+
+    await mkdir(migrationsPath);
+    await writeFile(
+      join(migrationsPath, "1728123456789_create_widgets.up.sql"),
+      "CREATE TABLE widgets (id INTEGER PRIMARY KEY);"
+    );
+
+    const result = await runCli(
+      ["validate", "--json"],
+      {
+        MIGRATIONS_PATH: "migrations",
+        LOG_LEVEL: "info",
+      },
+      workspace
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe("");
+
+    const payload = JSON.parse(result.stdout) as {
+      ok: boolean;
+      command: string;
+      issues: ValidationIssue[];
+      summary: { errors: number; warnings: number; files: number };
+      error?: unknown;
+    };
+
+    expect(payload.ok).toBe(false);
+    expect(payload.command).toBe("validate");
+    expect(payload.error).toBeUndefined();
+    expect(payload.summary.errors).toBeGreaterThan(0);
+    expect(payload.issues).toContainEqual(expect.objectContaining({
+      severity: "error",
+    }));
   });
 
   test("up --dry-run --json returns a plan without applying migrations", async () => {

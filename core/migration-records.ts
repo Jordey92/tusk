@@ -128,7 +128,7 @@ const getMigrationTableColumns = async (
       ON d.adrelid = a.attrelid
       AND d.adnum = a.attnum
     WHERE a.attrelid = to_regclass('${MIGRATION_METADATA_TABLE_NAME}')
-      AND a.attnum > 0
+      AND a.attnum >= 1
       AND NOT a.attisdropped
     ORDER BY a.attnum
   `);

@@ -86,10 +86,28 @@ export interface DatabaseAdapter extends QueryClient {
   sortTablesByDependencies(tables: TableInfo[]): TableInfo[];
 }
 
-export type RunResult = {
+export type RollbackTargetPayload =
+  | {
+      mode: "count";
+      requestedCount: number;
+      availableRollbackCount: number;
+    }
+  | {
+      mode: "all";
+      availableRollbackCount: number;
+    };
+
+export type MigrationRunResult = {
   executed: number;
   pending: number;
-  requestedCount?: number;
-  availableRollbackCount?: number;
-  rollbackAll?: boolean;
 };
+
+export type UpRunResult = MigrationRunResult & {
+  rollbackTarget?: never;
+};
+
+export type DownRunResult = MigrationRunResult & {
+  rollbackTarget: RollbackTargetPayload;
+};
+
+export type RunResult = UpRunResult | DownRunResult;
