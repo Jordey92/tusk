@@ -1,8 +1,9 @@
 import type {
   DatabaseAdapter,
+  DownRunResult,
   Migration,
-  RunResult,
   TransactionClient,
+  UpRunResult,
 } from "../types/migrations.js";
 import type { StructuredContext } from "../types/structured.js";
 import { getCorrespondingFilename } from "../utils/filename.js";
@@ -26,6 +27,7 @@ import {
 import {
   resolveDownMigrationState,
   resolveUpMigrationState,
+  toRollbackTargetPayload,
 } from "./migration-resolution.js";
 
 interface MigrationBatchOptions {
@@ -77,7 +79,7 @@ const executeMigrationBatch = async ({
 export const runUp = async (
   adapter: DatabaseAdapter,
   migrationsPath: string
-): Promise<RunResult> => {
+): Promise<UpRunResult> => {
   logger.info("Starting migration up process", { migrationsPath });
 
   await adapter.acquireMigrationLock();
@@ -142,7 +144,7 @@ export const runDown = async (
   adapter: DatabaseAdapter,
   migrationsPath: string,
   target?: RollbackTarget
-): Promise<RunResult> => {
+): Promise<DownRunResult> => {
   logger.info("Starting migration down process", {
     migrationsPath,
   });
@@ -186,9 +188,7 @@ export const runDown = async (
     return {
       executed: migrationState.rollbackMigrations.length,
       pending,
-      requestedCount: migrationState.requestedCount,
-      availableRollbackCount: migrationState.availableRollbackCount,
-      rollbackAll: migrationState.rollbackTarget.mode === "all",
+      rollbackTarget: toRollbackTargetPayload(migrationState),
     };
   } finally {
     await adapter.releaseMigrationLock();

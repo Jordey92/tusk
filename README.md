@@ -283,7 +283,7 @@ ordered migration SQL without applying it.
 
 `tusk doctor` runs a read-only health check over the migration directory, database configuration, connection, PostgreSQL compatibility, migration metadata, checksum drift, status readability, and advisory lock support. It exits `0` when there are no failing checks and `1` when action is needed. Use `tusk doctor --json` for automation.
 
-`--json` is supported by `create`, `init`, `up`, `down`, `status`, `validate`, and `doctor` for machine-readable automation output.
+`--json` is supported by `create`, `init`, `up`, `down`, `status`, `validate`, and `doctor` for machine-readable automation output. See the [JSON output contracts](./docs/json-contracts.md) for stable fields and compatibility rules.
 
 ## Agent and MCP Use
 
@@ -315,6 +315,7 @@ If a supported floor version stops passing CI, it is a regression and should be 
 
 - [Framework integrations](./docs/integrations.md)
 - [Doctor command](./docs/doctor.md)
+- [JSON output contracts](./docs/json-contracts.md)
 - [Testing guide](./docs/testing.md)
 - [Agent workflow](./docs/agents.md)
 - [Release guide](./docs/releasing.md)

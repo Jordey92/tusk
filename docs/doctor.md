@@ -114,12 +114,15 @@ because local counts are not trustworthy until the drift is resolved.
 ## JSON Output
 
 `--json` is intended for scripts and AI agents. The shape is stable enough to
-branch on `result`, individual `checks[*].id`, and `checks[*].status`.
+branch on `ok`, `result`, individual `checks[*].id`, and `checks[*].status`.
+See [JSON output contracts](json-contracts.md) for the full compatibility
+contract.
 
 Example failing output:
 
 ```json
 {
+  "ok": false,
   "command": "doctor",
   "result": "fail",
   "summary": {
@@ -129,7 +132,7 @@ Example failing output:
     "skipped": 0
   },
   "environment": {
-    "tuskVersion": "0.4.0",
+    "tuskVersion": "0.5.0",
     "migrationsPath": "./migrations",
     "databaseConfiguration": "missing"
   },

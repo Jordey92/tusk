@@ -2,6 +2,7 @@ import type {
   DatabaseAdapter,
   Migration,
   MigrationRecord,
+  RollbackTargetPayload,
 } from "../types/migrations.js";
 import { assertExecutedMigrationChecksums } from "./checksum-validation.js";
 import {
@@ -33,6 +34,23 @@ export interface DownMigrationState {
   lastExecutedFilenames: string[];
   rollbackMigrations: Migration[];
 }
+
+export const toRollbackTargetPayload = (
+  state: Pick<DownMigrationState, "availableRollbackCount" | "rollbackTarget">
+): RollbackTargetPayload => {
+  if (state.rollbackTarget.mode === "all") {
+    return {
+      mode: "all",
+      availableRollbackCount: state.availableRollbackCount,
+    };
+  }
+
+  return {
+    mode: "count",
+    requestedCount: state.rollbackTarget.requestedCount,
+    availableRollbackCount: state.availableRollbackCount,
+  };
+};
 
 export const readUpMigrationState = async (
   adapter: DatabaseAdapter,

@@ -217,9 +217,11 @@ describe("run migrations", () => {
       expect(typeof result.pending).toBe("number");
       expect(result.executed).toBe(1);
       expect(result.pending).toBe(0);
-      expect(result.requestedCount).toBe(1);
-      expect(result.availableRollbackCount).toBe(beforeRollback.size);
-      expect(result.rollbackAll).toBe(false);
+      expect(result.rollbackTarget).toEqual({
+        mode: "count",
+        requestedCount: 1,
+        availableRollbackCount: beforeRollback.size,
+      });
     });
 
     test("should reject count parameter of 0", async () => {
@@ -239,8 +241,11 @@ describe("run migrations", () => {
 
       expect(result.executed).toBe(totalCount);
       expect(result.pending).toBe(0);
-      expect(result.requestedCount).toBe(totalCount + 10);
-      expect(result.availableRollbackCount).toBe(totalCount);
+      expect(result.rollbackTarget).toEqual({
+        mode: "count",
+        requestedCount: totalCount + 10,
+        availableRollbackCount: totalCount,
+      });
 
       // Verify all migrations were rolled back
       const executed = await getExecutedMigrations(adapter);
@@ -253,8 +258,11 @@ describe("run migrations", () => {
 
       expect(result.executed).toBe(0);
       expect(result.pending).toBe(0);
-      expect(result.requestedCount).toBe(1);
-      expect(result.availableRollbackCount).toBe(0);
+      expect(result.rollbackTarget).toEqual({
+        mode: "count",
+        requestedCount: 1,
+        availableRollbackCount: 0,
+      });
     });
 
     test("should handle missing down files gracefully", async () => {

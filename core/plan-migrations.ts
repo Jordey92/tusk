@@ -1,37 +1,62 @@
-import type { DatabaseAdapter, Migration } from "../types/migrations.js";
+import type {
+  DatabaseAdapter,
+  Migration,
+  RollbackTargetPayload,
+} from "../types/migrations.js";
 import { calculateChecksum } from "../utils/checksum.js";
 import { getCorrespondingFilename } from "../utils/filename.js";
 import {
   resolveDownMigrationState,
   resolveUpMigrationState,
+  toRollbackTargetPayload,
 } from "./migration-resolution.js";
 import type { RollbackTarget } from "./rollback-target.js";
 
 export type MigrationPlanDirection = "up" | "down";
 
-export interface MigrationPlanEntry {
+interface BaseMigrationPlanEntry {
   filename: string;
   timestamp: string;
-  direction: MigrationPlanDirection;
   sql: string;
-  checksum?: string;
-  rollbackOf?: string;
 }
 
-export interface MigrationPlan {
-  direction: MigrationPlanDirection;
-  migrations: MigrationPlanEntry[];
+export interface UpMigrationPlanEntry extends BaseMigrationPlanEntry {
+  direction: "up";
+  checksum: string;
+}
+
+export interface DownMigrationPlanEntry extends BaseMigrationPlanEntry {
+  direction: "down";
+  rollbackOf: string;
+}
+
+export type MigrationPlanEntry = UpMigrationPlanEntry | DownMigrationPlanEntry;
+
+export interface UpMigrationPlan {
+  direction: "up";
+  migrations: UpMigrationPlanEntry[];
   summary: {
     planned: number;
     total: number;
-    alreadyExecuted?: number;
-    requestedCount?: number;
-    availableRollbackCount?: number;
-    rollbackAll?: boolean;
+    alreadyExecuted: number;
+    rollbackTarget?: never;
   };
 }
 
-const toUpPlanEntry = (migration: Migration): MigrationPlanEntry => ({
+export interface DownMigrationPlan {
+  direction: "down";
+  migrations: DownMigrationPlanEntry[];
+  summary: {
+    planned: number;
+    total: number;
+    alreadyExecuted?: never;
+    rollbackTarget: RollbackTargetPayload;
+  };
+}
+
+export type MigrationPlan = UpMigrationPlan | DownMigrationPlan;
+
+const toUpPlanEntry = (migration: Migration): UpMigrationPlanEntry => ({
   filename: migration.filename,
   timestamp: migration.timestamp,
   direction: "up",
@@ -39,7 +64,7 @@ const toUpPlanEntry = (migration: Migration): MigrationPlanEntry => ({
   checksum: calculateChecksum(migration.sql),
 });
 
-const toDownPlanEntry = (migration: Migration): MigrationPlanEntry => ({
+const toDownPlanEntry = (migration: Migration): DownMigrationPlanEntry => ({
   filename: migration.filename,
   timestamp: migration.timestamp,
   direction: "down",
@@ -50,7 +75,7 @@ const toDownPlanEntry = (migration: Migration): MigrationPlanEntry => ({
 export const createUpPlan = async (
   adapter: DatabaseAdapter,
   migrationsPath: string
-): Promise<MigrationPlan> => {
+): Promise<UpMigrationPlan> => {
   const migrationState = await resolveUpMigrationState(adapter, migrationsPath);
 
   return {
@@ -68,7 +93,7 @@ export const createDownPlan = async (
   adapter: DatabaseAdapter,
   migrationsPath: string,
   target?: RollbackTarget
-): Promise<MigrationPlan> => {
+): Promise<DownMigrationPlan> => {
   const migrationState = await resolveDownMigrationState(
     adapter,
     migrationsPath,
@@ -81,9 +106,7 @@ export const createDownPlan = async (
     summary: {
       planned: migrationState.rollbackMigrations.length,
       total: migrationState.migrationsFromDirectory.length,
-      requestedCount: migrationState.requestedCount,
-      availableRollbackCount: migrationState.availableRollbackCount,
-      rollbackAll: migrationState.rollbackTarget.mode === "all",
+      rollbackTarget: toRollbackTargetPayload(migrationState),
     },
   };
 };

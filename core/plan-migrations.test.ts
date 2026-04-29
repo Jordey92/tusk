@@ -165,7 +165,11 @@ describe("migration plans", () => {
       expect(plan.summary).toMatchObject({
         planned: 1,
         total: 1,
-        requestedCount: 1,
+        rollbackTarget: {
+          mode: "count",
+          requestedCount: 1,
+          availableRollbackCount: 1,
+        },
       });
       expect(plan.migrations[0]?.filename).toBe("1728123456789_create_widgets.down.sql");
       expect(plan.migrations[0]?.rollbackOf).toBe("1728123456789_create_widgets.up.sql");
@@ -201,9 +205,11 @@ describe("migration plans", () => {
 
       expect(plan.summary).toMatchObject({
         planned: 1,
-        requestedCount: 1,
-        availableRollbackCount: 2,
-        rollbackAll: false,
+        rollbackTarget: {
+          mode: "count",
+          requestedCount: 1,
+          availableRollbackCount: 2,
+        },
       });
       expect(plan.migrations.map((migration) => migration.rollbackOf)).toEqual([
         "1728123456790_create_gadgets.up.sql",
@@ -241,10 +247,11 @@ describe("migration plans", () => {
 
       expect(plan.summary).toMatchObject({
         planned: 2,
-        availableRollbackCount: 2,
-        rollbackAll: true,
+        rollbackTarget: {
+          mode: "all",
+          availableRollbackCount: 2,
+        },
       });
-      expect(plan.summary.requestedCount).toBeUndefined();
       expect(plan.migrations.map((migration) => migration.rollbackOf)).toEqual([
         "1728123456790_create_gadgets.up.sql",
         "1728123456789_create_widgets.up.sql",
