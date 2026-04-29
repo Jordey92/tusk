@@ -160,6 +160,7 @@ export const runDown = async (
     logger.info("Found migrations to rollback", {
       total: migrationState.migrationsFromDirectory.length,
       toRollback: migrationState.rollbackMigrations.length,
+      rollbackMode: migrationState.rollbackTarget.mode,
       requestedCount: migrationState.requestedCount,
     });
 

@@ -60,9 +60,15 @@ const validConstraints: Array<{
   { constraint_type: "u", columns: ["filename"] },
 ];
 
-const createAdapter = (
-  records: Array<{ filename: string; checksum: string | null }> = []
-) => {
+interface AdapterOptions {
+  records?: Array<{ filename: string; checksum: string | null }>;
+  migrationTable?: "present" | "missing";
+}
+
+const createAdapter = ({
+  records = [],
+  migrationTable = "present",
+}: AdapterOptions = {}) => {
   const adapter = {
     query: async (sql: string, params?: QueryParam[]) => {
       if (sql.includes("pg_constraint")) {
@@ -82,7 +88,11 @@ const createAdapter = (
 
       if (sql.includes("to_regclass")) {
         return {
-          rows: [{ migration_table: records.length > 0 ? "_migrations" : null }],
+          rows: [
+            {
+              migration_table: migrationTable === "present" ? "_migrations" : null,
+            },
+          ],
           rowCount: 1,
         };
       }
@@ -139,12 +149,14 @@ describe("migration resolution", () => {
       );
 
       const state = await resolveUpMigrationState(
-        createAdapter([
-          {
-            filename: "1728123456789_create_widgets.up.sql",
-            checksum: calculateChecksum(upSql),
-          },
-        ]),
+        createAdapter({
+          records: [
+            {
+              filename: "1728123456789_create_widgets.up.sql",
+              checksum: calculateChecksum(upSql),
+            },
+          ],
+        }),
         migrationsPath
       );
 
@@ -172,12 +184,14 @@ describe("migration resolution", () => {
 
       await expect(
         resolveUpMigrationState(
-          createAdapter([
-            {
-              filename: "1728123456789_create_widgets.up.sql",
-              checksum: "different",
-            },
-          ]),
+          createAdapter({
+            records: [
+              {
+                filename: "1728123456789_create_widgets.up.sql",
+                checksum: "different",
+              },
+            ],
+          }),
           migrationsPath
         )
       ).rejects.toThrow("has been modified after execution");
@@ -204,10 +218,12 @@ describe("migration resolution", () => {
       );
 
       const state = await resolveDownMigrationState(
-        createAdapter([
-          { filename: "1728123456789_create_widgets.up.sql", checksum: null },
-          { filename: "1728123456790_create_gadgets.up.sql", checksum: null },
-        ]),
+        createAdapter({
+          records: [
+            { filename: "1728123456789_create_widgets.up.sql", checksum: null },
+            { filename: "1728123456790_create_gadgets.up.sql", checksum: null },
+          ],
+        }),
         migrationsPath,
         1
       );
@@ -216,6 +232,28 @@ describe("migration resolution", () => {
       expect(state.availableRollbackCount).toBe(2);
       expect(state.rollbackMigrations.map((migration) => migration.filename)).toEqual([
         "1728123456790_create_gadgets.down.sql",
+      ]);
+    } finally {
+      await rm(migrationsPath, { recursive: true, force: true });
+    }
+  });
+
+  test("models an existing empty metadata table independently from record count", async () => {
+    const migrationsPath = await createTempDir();
+
+    try {
+      await writeMigrationPair(
+        migrationsPath,
+        "1728123456789_create_widgets",
+        "CREATE TABLE widgets (id INTEGER PRIMARY KEY);",
+        "DROP TABLE widgets;"
+      );
+
+      const state = await resolveUpMigrationState(createAdapter(), migrationsPath);
+
+      expect(state.executedLocalMigrations).toEqual([]);
+      expect(state.pendingMigrations.map((migration) => migration.filename)).toEqual([
+        "1728123456789_create_widgets.up.sql",
       ]);
     } finally {
       await rm(migrationsPath, { recursive: true, force: true });
