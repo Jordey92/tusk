@@ -1,4 +1,4 @@
-import { mkdir, readdir } from "fs/promises";
+import { mkdir, readdir, stat } from "fs/promises";
 import { dirname, join } from "path";
 
 export const ensureParentDirectory = async (filePath: string) => {
@@ -9,6 +9,15 @@ export const listTypeScriptFiles = async (roots: string[]): Promise<string[]> =>
   const files: string[] = [];
 
   const walk = async (path: string) => {
+    const pathStat = await stat(path);
+    if (pathStat.isFile()) {
+      if (path.endsWith(".ts")) {
+        files.push(path);
+      }
+
+      return;
+    }
+
     const entries = await readdir(path, { withFileTypes: true });
 
     for (const entry of entries) {

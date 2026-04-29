@@ -1,5 +1,6 @@
 import { access, mkdir } from "fs/promises";
 import { resolve } from "path";
+import { isMissingPathError } from "../utils/fs-errors.js";
 
 export interface InitProjectResult {
   migrationsPath: string;
@@ -11,7 +12,11 @@ const pathExists = async (path: string) => {
   try {
     await access(path);
     return true;
-  } catch {
+  } catch (error) {
+    if (!isMissingPathError(error)) {
+      throw error;
+    }
+
     return false;
   }
 };

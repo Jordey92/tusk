@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync } from "fs";
-import { mkdtemp, rm } from "fs/promises";
+import { chmod, mkdir, mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { initializeProject } from "./init-project";
@@ -32,6 +32,23 @@ describe("project init", () => {
       expect(secondRun.created).toBe(false);
       expect(secondRun.absolutePath).toBe(firstRun.absolutePath);
     } finally {
+      await rm(workspace, { recursive: true, force: true });
+    }
+  });
+
+  test("does not treat unreadable parent directories as missing", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "tusk-init-project-"));
+    const lockedPath = join(workspace, "locked");
+
+    try {
+      await mkdir(lockedPath);
+      await chmod(lockedPath, 0o000);
+
+      await expect(
+        initializeProject(join(lockedPath, "migrations"))
+      ).rejects.toThrow();
+    } finally {
+      await chmod(lockedPath, 0o700).catch(() => {});
       await rm(workspace, { recursive: true, force: true });
     }
   });

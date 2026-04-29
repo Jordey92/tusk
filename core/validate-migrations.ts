@@ -3,6 +3,7 @@ import { resolve } from "path";
 import type { DatabaseAdapter } from "../types/migrations.js";
 import type { StructuredContext } from "../types/structured.js";
 import { calculateChecksum } from "../utils/checksum.js";
+import { isMissingPathError } from "../utils/fs-errors.js";
 import { getExecutedMigrationRecordsReadOnly } from "./migration-records.js";
 
 export type ValidationSeverity = "error" | "warning";
@@ -248,6 +249,20 @@ const readMigrationDirectory = async (state: ValidationState) => {
     await access(state.absolutePath);
     return await readdir(state.absolutePath);
   } catch (error) {
+    if (!isMissingPathError(error)) {
+      addIssue(state, {
+        severity: "error",
+        code: "MIGRATIONS_DIRECTORY_UNREADABLE",
+        message: `Migrations directory could not be read: ${state.absolutePath}`,
+        context: {
+          path: state.absolutePath,
+          cause: error instanceof Error ? error.message : String(error),
+        },
+      });
+
+      return undefined;
+    }
+
     addIssue(state, {
       severity: "error",
       code: "MIGRATIONS_DIRECTORY_NOT_FOUND",

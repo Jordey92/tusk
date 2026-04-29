@@ -1,10 +1,7 @@
 import type { DatabaseAdapter } from "../types/migrations.js";
 import type { MigrationStatusPayload } from "../types/cli.js";
-import { readMigrations } from "./read-migrations.js";
-import {
-  ensureMigrationsTable,
-  getExecutedMigrationsWithChecksums,
-} from "./track-migrations.js";
+import { readUpMigrationState } from "./migration-resolution.js";
+import { ensureMigrationsTable } from "./track-migrations.js";
 
 export const getMigrationStatus = async (
   adapter: DatabaseAdapter,
@@ -12,21 +9,11 @@ export const getMigrationStatus = async (
 ): Promise<MigrationStatusPayload> => {
   await ensureMigrationsTable(adapter);
 
-  const allMigrations = await readMigrations(migrationsPath, "up");
-  const executedMigrations = await getExecutedMigrationsWithChecksums(adapter);
-  const executedFilenames = new Set(
-    executedMigrations.map((migration) => migration.filename)
-  );
-  const executed = allMigrations.filter((migration) =>
-    executedFilenames.has(migration.filename)
-  );
-  const pending = allMigrations.filter(
-    (migration) => !executedFilenames.has(migration.filename)
-  );
+  const migrationState = await readUpMigrationState(adapter, migrationsPath);
 
   return {
-    executed: executed.map((migration) => {
-      const record = executedMigrations.find(
+    executed: migrationState.executedLocalMigrations.map((migration) => {
+      const record = migrationState.executedMigrations.find(
         (executedMigration) => executedMigration.filename === migration.filename
       );
 
@@ -37,12 +24,12 @@ export const getMigrationStatus = async (
           : null,
       };
     }),
-    pending: pending.map((migration) => ({
+    pending: migrationState.pendingMigrations.map((migration) => ({
       filename: migration.filename,
     })),
     summary: {
-      executed: executed.length,
-      pending: pending.length,
+      executed: migrationState.executedLocalMigrations.length,
+      pending: migrationState.pendingMigrations.length,
     },
   };
 };

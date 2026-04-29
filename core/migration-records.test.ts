@@ -250,6 +250,78 @@ describe("read-only migration records", () => {
     );
   });
 
+  test("rejects metadata tables without the required primary key", async () => {
+    const { adapter } = createAdapter({
+      constraints: [{ constraint_type: "u", columns: ["filename"] }],
+    });
+
+    const state = await getMigrationTableStateReadOnly(adapter);
+
+    expect(state.state).toBe("invalid_shape");
+    if (state.state !== "invalid_shape") {
+      throw new Error("expected invalid metadata table shape");
+    }
+    expect(state.issues).toContainEqual(
+      expect.objectContaining({
+        code: "missing_primary_key",
+        column: "id",
+      })
+    );
+  });
+
+  test("rejects metadata tables with invalid column nullability", async () => {
+    const { adapter } = createAdapter({
+      columns: createValidColumns(true).map((column) =>
+        column.column_name === "filename"
+          ? { ...column, is_not_null: false }
+          : column
+      ),
+    });
+
+    const state = await getMigrationTableStateReadOnly(adapter);
+
+    expect(state.state).toBe("invalid_shape");
+    if (state.state !== "invalid_shape") {
+      throw new Error("expected invalid metadata table shape");
+    }
+    expect(state.issues).toContainEqual(
+      expect.objectContaining({
+        code: "invalid_column_nullability",
+        column: "filename",
+        expected: "NOT NULL",
+        actual: "nullable",
+      })
+    );
+  });
+
+  test("rejects metadata tables with unexpected columns", async () => {
+    const { adapter } = createAdapter({
+      columns: [
+        ...createValidColumns(true),
+        {
+          column_name: "extra_state",
+          formatted_type: "text",
+          is_not_null: false,
+          column_default: null,
+          identity_generation: null,
+        },
+      ],
+    });
+
+    const state = await getMigrationTableStateReadOnly(adapter);
+
+    expect(state.state).toBe("invalid_shape");
+    if (state.state !== "invalid_shape") {
+      throw new Error("expected invalid metadata table shape");
+    }
+    expect(state.issues).toContainEqual(
+      expect.objectContaining({
+        code: "unexpected_column",
+        column: "extra_state",
+      })
+    );
+  });
+
   test("rejects metadata tables where id is not generated", async () => {
     const { adapter } = createAdapter({
       columns: createValidColumns(true).map((column) =>

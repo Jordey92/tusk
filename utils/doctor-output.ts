@@ -21,7 +21,7 @@ const hasNoMigrationFiles = (check: DoctorCheck | undefined) =>
   typeof check.context?.files === "number" &&
   check.context.files === 0;
 
-export const orderDoctorChecksForHuman = (report: DoctorReport): DoctorCheck[] => {
+const orderDoctorChecksForHuman = (report: DoctorReport): DoctorCheck[] => {
   const driverCheck = getDoctorCheck(report, DRIVER_CHECK_ID);
   const migrationsPathCheck = getDoctorCheck(report, MIGRATIONS_PATH_CHECK_ID);
 
