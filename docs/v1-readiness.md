@@ -66,9 +66,9 @@ Keep focused tests for `_migrations` compatibility:
 - read-only commands against legacy metadata
 - mutating commands upgrading metadata safely when needed
 
-### Add package-level v1 smoke coverage
+### Keep package-level v1 smoke coverage
 
-Extend the packed-package smoke path so it proves the npm artifact can:
+The packed-package smoke path should keep proving the npm artifact can:
 
 - create a migration
 - validate it
