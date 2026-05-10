@@ -120,7 +120,13 @@ To verify the packed npm artifact without hitting a database:
 bun run test:smoke:package
 ```
 
-If `TUSK_SMOKE_DATABASE_URL` is set, the smoke test also exercises `create`, `up`, `status`, and `down` against a real PostgreSQL instance using the packed CLI.
+If `TUSK_SMOKE_DATABASE_URL` is set, the smoke test creates a disposable
+database from that connection and exercises the packed CLI through the real
+new-project flow: `init`, `doctor`, `create`, `validate`, `validate --db`,
+`up --dry-run`, `up`, `status`, `down --dry-run`, and `down`.
+
+The same smoke test also creates a second project and verifies existing
+database adoption with `init --from-db`, followed by a post-baseline migration.
 
 ## CI Coverage
 

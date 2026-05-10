@@ -8,9 +8,11 @@ import {
   rm,
   writeFile,
 } from "fs/promises";
+import { randomUUID } from "crypto";
 import { join, resolve } from "path";
 import { Pool } from "pg";
 import {
+  exerciseExistingDatabaseAdoption,
   exerciseMigrationLifecycle,
   type CliCommandResult,
 } from "./utils/cli-smoke";
@@ -23,6 +25,68 @@ const skipPackageBuild = process.env.TUSK_PACKAGE_SMOKE_SKIP_BUILD === "1";
 interface PackageJson {
   name: string;
 }
+
+interface InitSmokePayload {
+  ok: boolean;
+  command: string;
+  created: boolean;
+}
+
+interface CreateSmokePayload {
+  ok: boolean;
+  command: string;
+  upFile: string;
+}
+
+interface PackageSmokeDatabase {
+  connectionString: string;
+  pool: Pool;
+  cleanup(): Promise<void>;
+}
+
+const quoteIdentifier = (identifier: string): string =>
+  `"${identifier.replace(/"/g, "\"\"")}"`;
+
+const createPackageSmokeDatabase = async (
+  connectionString: string
+): Promise<PackageSmokeDatabase> => {
+  const adminUrl = new URL(connectionString);
+  adminUrl.pathname = "/postgres";
+
+  const databaseUrl = new URL(connectionString);
+  const databaseName = `tusk_package_smoke_${randomUUID().replace(/-/g, "")}`;
+  const quotedDatabaseName = quoteIdentifier(databaseName);
+  databaseUrl.pathname = `/${databaseName}`;
+
+  const adminPool = new Pool({ connectionString: adminUrl.toString() });
+  try {
+    await adminPool.query(`CREATE DATABASE ${quotedDatabaseName}`);
+  } catch (error) {
+    await adminPool.end();
+    throw error;
+  }
+
+  const pool = new Pool({ connectionString: databaseUrl.toString() });
+
+  return {
+    connectionString: databaseUrl.toString(),
+    pool,
+    async cleanup() {
+      await pool.end();
+      await adminPool.query(
+        `
+        SELECT pg_terminate_backend(pid)
+        FROM pg_stat_activity
+        WHERE datname = $1
+          AND pid <> pg_backend_pid()
+        `,
+        [databaseName]
+      );
+      await adminPool.query(`DROP DATABASE IF EXISTS ${quotedDatabaseName}`);
+      await adminPool.end();
+    },
+  };
+};
 
 const decode = async (stream: ReadableStream<Uint8Array> | null) => {
   if (!stream) {
@@ -78,17 +142,15 @@ describe("package smoke test", () => {
 
     const tempRoot = await mkdtemp(join(tempRootParent, "package-smoke-"));
     const projectDir = join(tempRoot, "project");
+    const adoptionProjectDir = join(tempRoot, "adoption-project");
     const packageParentDir = packageScope
       ? join(projectDir, "node_modules", packageScope)
       : join(projectDir, "node_modules");
     const installedPackageDir = join(packageParentDir, packageBaseName);
     const cliEntrypoint = join(installedPackageDir, "dist", "cli.js");
-    const commandEnv = {
+    const baseCommandEnv = {
       LOG_LEVEL: "error",
       MIGRATIONS_PATH: "migrations",
-      ...(packageSmokeDatabaseUrl
-        ? { DATABASE_URL: packageSmokeDatabaseUrl }
-        : {}),
     };
     cleanupPaths.push(tempRoot);
 
@@ -115,11 +177,19 @@ describe("package smoke test", () => {
     expect(extractResult.exitCode).toBe(0);
 
     await rename(join(packageParentDir, "package"), installedPackageDir);
-    await mkdir(join(projectDir, "migrations"), { recursive: true });
+    await mkdir(adoptionProjectDir, { recursive: true });
 
     await writeFile(
       join(projectDir, "package.json"),
       JSON.stringify({ name: "package-smoke", type: "module", private: true })
+    );
+    await writeFile(
+      join(adoptionProjectDir, "package.json"),
+      JSON.stringify({
+        name: "package-smoke-adoption",
+        type: "module",
+        private: true,
+      })
     );
     await writeFile(
       join(projectDir, "smoke.mjs"),
@@ -131,50 +201,92 @@ describe("package smoke test", () => {
       `
     );
 
-    const versionResult = await runCommand(
-      [nodeBinary, cliEntrypoint, "version"],
-      projectDir,
-      commandEnv
-    );
-    expect(versionResult.exitCode).toBe(0);
-    expect(versionResult.stdout).toContain("tusk v");
+    let smokeDatabase: PackageSmokeDatabase | undefined;
 
-    const runPackagedCli = (args: string[]) =>
-      runCommand([nodeBinary, cliEntrypoint, ...args], projectDir, commandEnv);
+    if (packageSmokeDatabaseUrl) {
+      smokeDatabase = await createPackageSmokeDatabase(packageSmokeDatabaseUrl);
+    }
+
+    const commandEnv = {
+      ...baseCommandEnv,
+      ...(smokeDatabase ? { DATABASE_URL: smokeDatabase.connectionString } : {}),
+    };
 
     let upFile: string | undefined;
 
-    if (packageSmokeDatabaseUrl) {
-      const pool = new Pool({ connectionString: packageSmokeDatabaseUrl });
-      const smokeName = `smoke_test_${Date.now()}`;
+    try {
+      const versionResult = await runCommand(
+        [nodeBinary, cliEntrypoint, "version"],
+        projectDir,
+        commandEnv
+      );
+      expect(versionResult.exitCode).toBe(0);
+      expect(versionResult.stdout).toContain("tusk v");
 
-      try {
+      const runPackagedCli = (args: string[]) =>
+        runCommand([nodeBinary, cliEntrypoint, ...args], projectDir, commandEnv);
+
+      if (smokeDatabase) {
+        const smokeName = `smoke_test_${Date.now()}`;
+
         ({ upFile } = await exerciseMigrationLifecycle({
           runCli: runPackagedCli,
           migrationsPath: join(projectDir, "migrations"),
-          pool,
+          pool: smokeDatabase.pool,
           migrationName: smokeName,
           tableName: smokeName,
+          expectEmptyStderr: true,
         }));
-      } finally {
-        await pool.end();
+
+        const adoptionTableName = `adopted_accounts_${Date.now()}`;
+        const followUpTableName = `adopted_notes_${Date.now()}`;
+        const runAdoptionCli = (args: string[]) =>
+          runCommand(
+            [nodeBinary, cliEntrypoint, ...args],
+            adoptionProjectDir,
+            commandEnv
+          );
+
+        await exerciseExistingDatabaseAdoption({
+          runCli: runAdoptionCli,
+          migrationsPath: join(adoptionProjectDir, "migrations"),
+          pool: smokeDatabase.pool,
+          existingTableName: adoptionTableName,
+          followUpMigrationName: "add_adopted_notes",
+          followUpTableName,
+          expectEmptyStderr: true,
+        });
+      } else {
+        const initResult = await runPackagedCli(["init", "--json"]);
+        expect(initResult.exitCode).toBe(0);
+        const initPayload = JSON.parse(initResult.stdout) as InitSmokePayload;
+        expect(initPayload).toMatchObject({
+          ok: true,
+          command: "init",
+          created: true,
+        });
+
+        const createResult = await runPackagedCli(["create", "smoke_test", "--json"]);
+        expect(createResult.exitCode).toBe(0);
+        const createPayload = JSON.parse(createResult.stdout) as CreateSmokePayload;
+        expect(createPayload).toMatchObject({
+          ok: true,
+          command: "create",
+        });
+
+        const createdFiles = await readdir(join(projectDir, "migrations"));
+        upFile = createPayload.upFile;
+        expect(createdFiles).toContain(upFile);
       }
-    } else {
-      const createResult = await runPackagedCli(["create", "smoke_test"]);
-      expect(createResult.exitCode).toBe(0);
-      expect(createResult.stdout).toContain("Created");
-
-      const createdFiles = await readdir(join(projectDir, "migrations"));
-      upFile = createdFiles.find((file) => file.endsWith(".up.sql"));
-      expect(upFile).toBeDefined();
+      const apiResult = await runCommand(
+        [nodeBinary, "smoke.mjs"],
+        projectDir,
+        commandEnv
+      );
+      expect(apiResult.exitCode).toBe(0);
+      expect(apiResult.stdout).toContain(upFile!);
+    } finally {
+      await smokeDatabase?.cleanup();
     }
-
-    const apiResult = await runCommand(
-      [nodeBinary, "smoke.mjs"],
-      projectDir,
-      commandEnv
-    );
-    expect(apiResult.exitCode).toBe(0);
-    expect(apiResult.stdout).toContain(upFile!);
-  }, 20_000);
+  }, 30_000);
 });
