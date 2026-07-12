@@ -1,14 +1,18 @@
 import { access, readdir, readFile } from "fs/promises";
 import { resolve } from "path";
-import type { DatabaseAdapter } from "../types/migrations.js";
+import type { Migration, MigrationAdapter } from "../types/migrations.js";
 import type { StructuredContext } from "../types/structured.js";
 import { calculateChecksum } from "../utils/checksum.js";
 import { isMissingPathError } from "../utils/fs-errors.js";
+import {
+  createMigrationDirectoryError,
+  createValidationError,
+} from "../utils/errors.js";
 import { getExecutedMigrationRecordsReadOnly } from "./migration-records.js";
 
 export type ValidationSeverity = "error" | "warning";
 
-export interface ValidationIssue {
+export interface ValidationIssue extends StructuredContext {
   severity: ValidationSeverity;
   code: string;
   message: string;
@@ -29,7 +33,7 @@ export interface ValidationResult {
 }
 
 export interface ValidateMigrationsOptions {
-  adapter?: DatabaseAdapter;
+  adapter?: MigrationAdapter;
   checkDatabase?: boolean;
 }
 
@@ -50,6 +54,8 @@ interface ValidationState {
 const MIGRATION_FILENAME_REGEX = /^(\d+)(?:_.+)?\.(up|down)\.sql$/;
 const TRANSACTION_STATEMENT_REGEX =
   /(?:^|;)\s*(?:BEGIN(?:\s+TRANSACTION)?|COMMIT|ROLLBACK|START\s+TRANSACTION)\b\s*(?:;|$)/i;
+const NON_TRANSACTIONAL_STATEMENT_REGEX =
+  /(?:^|;)\s*(?:CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY|DROP\s+INDEX\s+CONCURRENTLY|REINDEX\b[^;]*\bCONCURRENTLY|CREATE\s+DATABASE|DROP\s+DATABASE|ALTER\s+SYSTEM|VACUUM|CREATE\s+TABLESPACE|DROP\s+TABLESPACE)\b/i;
 
 const stripSqlComments = (sql: string) =>
   sql
@@ -277,15 +283,15 @@ const readMigrationDirectory = async (state: ValidationState) => {
   }
 };
 
-const validateMigrationSql = (
-  state: ValidationState,
+const getMigrationSqlIssues = (
   filename: string,
   sql: string
-) => {
+): ValidationIssue[] => {
+  const issues: ValidationIssue[] = [];
   const executableSql = stripSqlComments(sql);
 
   if (!executableSql) {
-    addIssue(state, {
+    issues.push({
       severity: "error",
       code: "EMPTY_MIGRATION_SQL",
       message: "Migration file does not contain executable SQL",
@@ -293,14 +299,27 @@ const validateMigrationSql = (
     });
   }
 
-  if (TRANSACTION_STATEMENT_REGEX.test(stripSqlCommentsAndQuotedText(sql))) {
-    addIssue(state, {
+  const executableStatements = stripSqlCommentsAndQuotedText(sql);
+
+  if (TRANSACTION_STATEMENT_REGEX.test(executableStatements)) {
+    issues.push({
       severity: "error",
       code: "TRANSACTION_STATEMENT_NOT_ALLOWED",
       message: "Migration files run inside Tusk-managed transactions and must not include transaction control statements",
       filename,
     });
   }
+
+  if (NON_TRANSACTIONAL_STATEMENT_REGEX.test(executableStatements)) {
+    issues.push({
+      severity: "error",
+      code: "NON_TRANSACTIONAL_STATEMENT_NOT_ALLOWED",
+      message: "Migration files run inside Tusk-managed transactions and cannot contain PostgreSQL statements that require running outside a transaction",
+      filename,
+    });
+  }
+
+  return issues;
 };
 
 const validateMigrationFile = async (
@@ -324,7 +343,9 @@ const validateMigrationFile = async (
   try {
     const sql = await readFile(resolve(state.absolutePath, filename), "utf-8");
     state.sqlByFilename.set(filename, sql);
-    validateMigrationSql(state, filename, sql);
+    for (const issue of getMigrationSqlIssues(filename, sql)) {
+      addIssue(state, issue);
+    }
   } catch (error) {
     addIssue(state, {
       severity: "error",
@@ -497,4 +518,33 @@ export const validateMigrations = async (
   await validateDatabaseState(state, options);
 
   return createResult(state.issues, state.validFiles);
+};
+
+export const assertNoValidationErrors = (issues: ValidationIssue[]) => {
+  if (issues.some((issue) => issue.severity === "error")) {
+    throw createValidationError(
+      "Migration validation failed. Fix the reported files before planning or executing migrations.",
+      { issues }
+    );
+  }
+};
+
+export const assertMigrationDirectoryExecutable = async (
+  migrationsPath: string
+) => {
+  const result = await validateMigrations(migrationsPath);
+  if (result.issues.some(
+    (issue) => issue.code === "MIGRATIONS_DIRECTORY_NOT_FOUND"
+  )) {
+    throw createMigrationDirectoryError(migrationsPath);
+  }
+  assertNoValidationErrors(result.issues);
+  return result;
+};
+
+export const assertMigrationBatchExecutable = (migrations: Migration[]) => {
+  const issues = migrations.flatMap((migration) =>
+    getMigrationSqlIssues(migration.filename, migration.sql)
+  );
+  assertNoValidationErrors(issues);
 };

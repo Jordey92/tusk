@@ -260,4 +260,50 @@ describe("migration plans", () => {
       await rm(migrationsPath, { recursive: true, force: true });
     }
   });
+
+  test("refuses adopted-baseline rollback unless explicitly allowed", async () => {
+    const migrationsPath = await createTempDir();
+
+    try {
+      await writeMigrationPair(
+        migrationsPath,
+        "0000000000000_initial",
+        "CREATE TABLE widgets (id INTEGER PRIMARY KEY);",
+        "DROP TABLE widgets CASCADE;"
+      );
+      const adapter = createAdapter(["0000000000000_initial.up.sql"]);
+
+      await expect(createDownPlan(adapter, migrationsPath)).rejects.toThrow(
+        "Refusing to roll back the adopted baseline"
+      );
+
+      const plan = await createDownPlan(adapter, migrationsPath, {
+        allowBaselineRollback: true,
+      });
+      expect(plan.migrations.map((migration) => migration.rollbackOf)).toEqual([
+        "0000000000000_initial.up.sql",
+      ]);
+    } finally {
+      await rm(migrationsPath, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses unsafe transaction control before returning an up plan", async () => {
+    const migrationsPath = await createTempDir();
+
+    try {
+      await writeMigrationPair(
+        migrationsPath,
+        "1728123456789_unsafe",
+        "CREATE TABLE unsafe (id INTEGER); COMMIT;",
+        "DROP TABLE unsafe;"
+      );
+
+      await expect(createUpPlan(createAdapter(), migrationsPath)).rejects.toThrow(
+        "Migration validation failed"
+      );
+    } finally {
+      await rm(migrationsPath, { recursive: true, force: true });
+    }
+  });
 });

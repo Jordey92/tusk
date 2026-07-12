@@ -25,12 +25,12 @@ CREATE TABLE _migrations (
 
 Required columns:
 
-| Column | Type | Meaning |
-| --- | --- | --- |
-| `id` | `integer` | Monotonic execution record id. Tusk uses this for applied order. |
-| `filename` | `character varying(255)` | The applied `.up.sql` migration filename. Must be unique. |
-| `executed_at` | `timestamp without time zone` | Database-side execution timestamp. |
-| `checksum` | `character varying(64)` | SHA-256 checksum of the applied migration SQL. |
+| Column        | Type                          | Meaning                                                          |
+| ------------- | ----------------------------- | ---------------------------------------------------------------- |
+| `id`          | `integer`                     | Monotonic execution record id. Tusk uses this for applied order. |
+| `filename`    | `character varying(255)`      | The applied `.up.sql` migration filename. Must be unique.        |
+| `executed_at` | `timestamp without time zone` | Database-side execution timestamp.                               |
+| `checksum`    | `character varying(64)`       | SHA-256 checksum of the applied migration SQL.                   |
 
 Required constraints:
 
@@ -89,6 +89,12 @@ matching `.down.sql` filename.
 If a required `.down.sql` file is missing, rollback planning fails before any
 partial rollback is executed.
 
+The adopted baseline filename `0000000000000_initial.up.sql` has additional
+protection. If a selected rollback includes it, Tusk refuses the entire batch
+unless the caller supplies `--allow-baseline-rollback` or the equivalent
+programmatic target option. The override is destructive because the generated
+down migration drops the represented tables with `CASCADE`.
+
 An applied `.up.sql` file may be missing on disk during rollback only if the
 required `.down.sql` file exists and `_migrations` has a valid shape. Rollback
 does not need the original `.up.sql` contents to execute the `.down.sql` file.
@@ -126,6 +132,13 @@ status checks that depend on trusting metadata.
 
 Users should not manually edit `_migrations`.
 
+Tusk v1 intentionally maintains one migration history in the database resolved
+by the connection's PostgreSQL `search_path`. The table name is not
+configurable. Applications that need independent histories must use separate
+databases (or connections with intentionally isolated schemas and stable
+`search_path` settings); sharing one database and changing `search_path`
+between Tusk commands is unsupported.
+
 Manual edits can make migration state ambiguous, especially changes to:
 
 - `id`
@@ -137,3 +150,8 @@ Manual edits can make migration state ambiguous, especially changes to:
 If migration metadata is damaged, fix it deliberately with a database backup and
 a clear repair plan. Do not edit checksums to silence drift unless you have
 verified the migration file and database state are intentionally equivalent.
+
+## Compatibility
+
+See the [compatibility policy](compatibility.md) for the v1 rules around
+metadata changes, legacy reads, and breaking releases.

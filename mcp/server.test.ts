@@ -13,7 +13,11 @@ const decode = async (stream: ReadableStream<Uint8Array> | null) => {
   return await new Response(stream).text();
 };
 
-const callTool = async (name: string, args: Record<string, unknown>) => {
+const callTool = async (
+  name: string,
+  args: Record<string, unknown>,
+  env: Record<string, string> = {}
+) => {
   return sendRequest({
     jsonrpc: "2.0",
     id: 1,
@@ -22,7 +26,7 @@ const callTool = async (name: string, args: Record<string, unknown>) => {
       name,
       arguments: args,
     },
-  }) as Promise<{
+  }, env) as Promise<{
     result: {
       isError: boolean;
       content: Array<{ text: string }>;
@@ -30,11 +34,15 @@ const callTool = async (name: string, args: Record<string, unknown>) => {
   }>;
 };
 
-const sendRequest = async (request: Record<string, unknown>) => {
+const sendRequest = async (
+  request: Record<string, unknown>,
+  env: Record<string, string> = {}
+) => {
   const child = Bun.spawn([process.execPath, serverEntrypoint], {
     env: {
       ...process.env,
       LOG_LEVEL: "error",
+      ...env,
     },
     stdin: "pipe",
     stdout: "pipe",
@@ -109,6 +117,37 @@ describe("MCP server", () => {
     expect(response.result.isError).toBe(true);
     expect(response.result.content[0]?.text).toContain(
       "checkDatabase must be a boolean"
+    );
+  });
+
+  test("rejects malformed baseline rollback overrides", async () => {
+    const response = await callTool("tusk_plan_down", {
+      allowBaselineRollback: "true",
+    });
+
+    expect(response.result.isError).toBe(true);
+    expect(response.result.content[0]?.text).toContain(
+      "allowBaselineRollback must be a boolean"
+    );
+  });
+
+  test("accepts both documented driver preferences and rejects unknown values", async () => {
+    for (const driver of ["pg", "postgres"]) {
+      const response = await callTool("tusk_status", {}, {
+        TUSK_DRIVER: driver,
+        DATABASE_URL: "",
+      });
+      expect(response.result.content[0]?.text).not.toContain(
+        "TUSK_DRIVER must be pg or postgres"
+      );
+    }
+
+    const invalidResponse = await callTool("tusk_status", {}, {
+      TUSK_DRIVER: "mysql",
+      DATABASE_URL: "",
+    });
+    expect(invalidResponse.result.content[0]?.text).toContain(
+      "TUSK_DRIVER must be pg or postgres"
     );
   });
 

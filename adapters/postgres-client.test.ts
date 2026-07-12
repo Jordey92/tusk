@@ -94,7 +94,11 @@ describe("Postgres client resolver", () => {
     };
 
     const managed = await createManagedPostgresAdapter(
-      { connectionString: "postgres://localhost/tusk" },
+      {
+        connectionString: "postgres://localhost/tusk",
+        driver: "pg",
+        statementTimeoutMs: 0,
+      },
       {
         importModule: async (specifier) => {
           if (specifier === "pg") {
@@ -159,5 +163,25 @@ describe("Postgres client resolver", () => {
 
     await managed.cleanup();
     expect(clients[0]?.ended()).toBe(true);
+  });
+
+  test("honors an explicit postgres.js driver when both clients are installed", async () => {
+    const sql = createFakePostgresSql();
+    const managed = await createManagedPostgresAdapter(
+      {
+        connectionString: "postgres://localhost/tusk",
+        driver: "postgres",
+      },
+      {
+        importModule: async (specifier) => {
+          if (specifier === "pg") return { Pool: FakePool };
+          if (specifier === "postgres") return { default: () => sql };
+          throw missingModule(specifier);
+        },
+      }
+    );
+
+    expect(managed.driver).toBe("postgres");
+    await managed.cleanup();
   });
 });

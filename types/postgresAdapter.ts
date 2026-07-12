@@ -1,4 +1,4 @@
-import type { QueryResultRow } from "pg";
+import type { QueryResultRow } from "./migrations.js";
 
 export interface TableNameRow extends QueryResultRow {
   table_name: string;

@@ -15,6 +15,8 @@ export type SupportedPostgresDriver = "pg" | "postgres";
 
 export interface PostgresClientConfig extends ConnectionConfig {
   connectionString?: string;
+  driver?: SupportedPostgresDriver;
+  statementTimeoutMs?: number;
 }
 
 export interface ManagedPostgresAdapter {
@@ -25,6 +27,7 @@ export interface ManagedPostgresAdapter {
 
 interface ResolvePostgresClientOptions {
   importModule?: (specifier: string) => Promise<unknown>;
+  preferredDriver?: SupportedPostgresDriver;
 }
 
 type PgPool = ConnectionPool & {
@@ -166,6 +169,18 @@ export const resolvePostgresClientDriver = async (
 ): Promise<SupportedPostgresDriver> => {
   const importModule = options.importModule ?? defaultImportModule;
 
+  if (options.preferredDriver === "pg") {
+    if (await resolvePgPoolConstructor(importModule)) return "pg";
+    throw createDatabaseError("TUSK_DRIVER is set to pg, but the pg package is not installed");
+  }
+
+  if (options.preferredDriver === "postgres") {
+    if (await resolvePostgresJsFactory(importModule)) return "postgres";
+    throw createDatabaseError(
+      "TUSK_DRIVER is set to postgres, but the postgres package is not installed"
+    );
+  }
+
   if (await resolvePgPoolConstructor(importModule)) {
     return "pg";
   }
@@ -182,28 +197,43 @@ export const createManagedPostgresAdapter = async (
   options: ResolvePostgresClientOptions = {}
 ): Promise<ManagedPostgresAdapter> => {
   const importModule = options.importModule ?? defaultImportModule;
-  const PgPool = await resolvePgPoolConstructor(importModule);
+  const preferredDriver = options.preferredDriver ?? config.driver;
+  const adapterOptions = { statementTimeoutMs: config.statementTimeoutMs };
+  const { driver: _driver, statementTimeoutMs: _statementTimeoutMs, ...connectionConfig } = config;
+  const PgPool = preferredDriver === "postgres"
+    ? undefined
+    : await resolvePgPoolConstructor(importModule);
 
   if (PgPool) {
-    const pool = new PgPool(config);
+    const pool = new PgPool(connectionConfig);
     return {
       driver: "pg",
-      adapter: createPgAdapter(pool),
+      adapter: createPgAdapter(pool, adapterOptions),
       cleanup: () => pool.end(),
     };
   }
 
-  const postgresFactory = await resolvePostgresJsFactory(importModule);
+  const postgresFactory = preferredDriver === "pg"
+    ? undefined
+    : await resolvePostgresJsFactory(importModule);
   if (postgresFactory) {
-    const sql = config.connectionString
-      ? postgresFactory(config.connectionString)
-      : postgresFactory(createPostgresJsOptions(config));
+    const sql = connectionConfig.connectionString
+      ? postgresFactory(connectionConfig.connectionString)
+      : postgresFactory(createPostgresJsOptions(connectionConfig));
 
     return {
       driver: "postgres",
-      adapter: createPostgresJsAdapter(sql),
+      adapter: createPostgresJsAdapter(sql, adapterOptions),
       cleanup: () => sql.end(),
     };
+  }
+
+  if (preferredDriver) {
+    throw createDatabaseError(
+      `TUSK_DRIVER is set to ${preferredDriver}, but that package is not installed`,
+      undefined,
+      { driver: preferredDriver }
+    );
   }
 
   throw createDriverNotFoundError();

@@ -1,16 +1,36 @@
-import type { QueryResultRow } from "pg";
 import type {
   ConnectionClient,
   ConnectionPool,
+  DatabaseAdapterOptions,
   QueryClient,
   QueryParam,
   TransactionClient,
+  QueryResultRow,
 } from "../../types/migrations.js";
 import { logger } from "../../utils/logger.js";
+import { createConfigurationError, createMigrationLockedError } from "../../utils/errors.js";
 
-const TRANSACTION_TIMEOUT_MS = 300000;
+const DEFAULT_STATEMENT_TIMEOUT_MS = 300000;
 
-export const createExecuteQuery = (pool: QueryClient) => {
+type ActiveClientResolver = () => ConnectionClient | null;
+
+const normalizeStatementTimeout = (options: DatabaseAdapterOptions) => {
+  const value = options.statementTimeoutMs ?? DEFAULT_STATEMENT_TIMEOUT_MS;
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw createConfigurationError(
+      "statementTimeoutMs must be a non-negative safe integer; use 0 to keep the PostgreSQL default",
+      { statementTimeoutMs: value }
+    );
+  }
+  return value;
+};
+
+export const createExecuteQuery = (
+  pool: QueryClient,
+  getActiveClient: ActiveClientResolver = () => null
+) => {
+  let activeClientTail: Promise<void> = Promise.resolve();
+
   return async <T extends QueryResultRow = QueryResultRow>(
     sql: string,
     params?: QueryParam[]
@@ -19,13 +39,42 @@ export const createExecuteQuery = (pool: QueryClient) => {
       sql: sql.substring(0, 100),
       paramCount: params?.length,
     });
-    return await pool.query<T>(sql, params);
+    const activeClient = getActiveClient();
+    if (!activeClient) {
+      return await pool.query<T>(sql, params);
+    }
+
+    // node-postgres clients accept only one active query at a time. Baseline
+    // introspection deliberately fans out independent reads, so serialize them
+    // while they share the dedicated advisory-lock connection.
+    const queryResult = activeClientTail.then(() =>
+      activeClient.query<T>(sql, params)
+    );
+    activeClientTail = queryResult.then(() => undefined, () => undefined);
+    return await queryResult;
   };
 };
 
-export const createTransaction = (pool: ConnectionPool) => {
+export const createTransaction = (
+  pool: ConnectionPool,
+  getActiveClient: ActiveClientResolver = () => null,
+  options: DatabaseAdapterOptions = {}
+) => {
+  const statementTimeoutMs = normalizeStatementTimeout(options);
+  let transactionActive = false;
+
   return async <T>(callback: (client: TransactionClient) => Promise<T>): Promise<T> => {
-    const client: ConnectionClient = await pool.connect();
+    if (transactionActive) {
+      throw createMigrationLockedError(
+        "This adapter is already running a transaction",
+        { scope: "transaction" }
+      );
+    }
+
+    transactionActive = true;
+    const activeClient = getActiveClient();
+    const client: ConnectionClient = activeClient ?? await pool.connect();
+    const ownsClient = !activeClient;
     let transactionStarted = false;
 
     try {
@@ -33,10 +82,12 @@ export const createTransaction = (pool: ConnectionPool) => {
       await client.query("BEGIN");
       transactionStarted = true;
 
-      await client.query(
-        `SET LOCAL statement_timeout = '${TRANSACTION_TIMEOUT_MS}'`
-      );
-      logger.debug(`Transaction timeout set to ${TRANSACTION_TIMEOUT_MS}ms`);
+      if (statementTimeoutMs > 0) {
+        await client.query(
+          `SET LOCAL statement_timeout = '${statementTimeoutMs}'`
+        );
+        logger.debug(`Transaction timeout set to ${statementTimeoutMs}ms`);
+      }
 
       const transactionClient: TransactionClient = {
         query: async <T extends QueryResultRow = QueryResultRow>(
@@ -80,8 +131,11 @@ export const createTransaction = (pool: ConnectionPool) => {
       });
       throw error;
     } finally {
-      client.release();
-      logger.debug("Database client released");
+      transactionActive = false;
+      if (ownsClient) {
+        client.release();
+        logger.debug("Database client released");
+      }
     }
   };
 };

@@ -1,5 +1,5 @@
 import type {
-  DatabaseAdapter,
+  MigrationAdapter,
   Migration,
   MigrationRecord,
   RollbackTargetPayload,
@@ -12,6 +12,7 @@ import {
 } from "./migration-records.js";
 import { readMigrations } from "./read-migrations.js";
 import { planRollbackMigrations } from "./rollback-plan.js";
+import { assertBaselineRollbackAllowed } from "./baseline.js";
 import {
   normalizeRollbackTarget,
   type NormalizedRollbackTarget,
@@ -53,7 +54,7 @@ export const toRollbackTargetPayload = (
 };
 
 export const readUpMigrationState = async (
-  adapter: DatabaseAdapter,
+  adapter: MigrationAdapter,
   migrationsPath: string
 ): Promise<UpMigrationState> => {
   const migrationsFromDirectory = await readMigrations(migrationsPath, "up");
@@ -78,7 +79,7 @@ export const readUpMigrationState = async (
 };
 
 export const resolveUpMigrationState = async (
-  adapter: DatabaseAdapter,
+  adapter: MigrationAdapter,
   migrationsPath: string
 ): Promise<UpMigrationState> => {
   const state = await readUpMigrationState(adapter, migrationsPath);
@@ -90,7 +91,7 @@ export const resolveUpMigrationState = async (
 };
 
 export const resolveDownMigrationState = async (
-  adapter: DatabaseAdapter,
+  adapter: MigrationAdapter,
   migrationsPath: string,
   target?: RollbackTarget
 ): Promise<DownMigrationState> => {
@@ -104,6 +105,7 @@ export const resolveDownMigrationState = async (
     adapter,
     count
   );
+  assertBaselineRollbackAllowed(lastExecutedFilenames, rollbackTarget);
   const rollbackMigrations = planRollbackMigrations(
     lastExecutedFilenames,
     migrationsFromDirectory

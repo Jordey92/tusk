@@ -5,6 +5,8 @@ import {
   createManagedPostgresAdapter,
   resolvePostgresClientDriver,
   type ManagedPostgresAdapter,
+  type PostgresClientConfig,
+  type SupportedPostgresDriver,
 } from "./adapters/postgres-client.js";
 import { runUp, runDown } from "./core/run-migrations.js";
 import { createMigrationFile } from "./core/create-migration.js";
@@ -36,12 +38,42 @@ import {
 } from "./utils/cli-parser.js";
 import { getCurrentDir } from "./utils/runtime.js";
 import { getPackageVersion } from "./utils/version.js";
-import type { ConnectionConfig } from "./types/migrations.js";
 import type { RollbackTarget } from "./core/rollback-target.js";
 
-interface DatabaseConfig extends ConnectionConfig {
-  connectionString?: string;
-}
+type DatabaseConfig = PostgresClientConfig;
+
+const parseIntegerEnvironment = (
+  name: string,
+  fallback: number,
+  options: { minimum: number; maximum?: number }
+) => {
+  const rawValue = process.env[name];
+  if (rawValue === undefined || rawValue === "") return fallback;
+
+  const value = Number(rawValue);
+  if (
+    !Number.isSafeInteger(value) ||
+    value < options.minimum ||
+    (options.maximum !== undefined && value > options.maximum)
+  ) {
+    throw createConfigurationError(
+      `${name} must be an integer between ${options.minimum} and ${options.maximum ?? "the safe integer limit"}`,
+      { name, value: rawValue }
+    );
+  }
+
+  return value;
+};
+
+const loadDriverPreference = (): SupportedPostgresDriver | undefined => {
+  const driver = process.env.TUSK_DRIVER;
+  if (!driver) return undefined;
+  if (driver === "pg" || driver === "postgres") return driver;
+  throw createConfigurationError(
+    "TUSK_DRIVER must be either pg or postgres",
+    { driver }
+  );
+};
 
 const validateDatabaseConfig = (config: DatabaseConfig) => {
   if (config.connectionString) {
@@ -64,16 +96,29 @@ const validateDatabaseConfig = (config: DatabaseConfig) => {
 };
 
 const loadDatabaseConfig = (): DatabaseConfig => {
+  const runtimeOptions = {
+    driver: loadDriverPreference(),
+    statementTimeoutMs: parseIntegerEnvironment(
+      "TUSK_STATEMENT_TIMEOUT_MS",
+      300000,
+      { minimum: 0 }
+    ),
+  };
+
   if (process.env.DATABASE_URL) {
-    return { connectionString: process.env.DATABASE_URL };
+    return { connectionString: process.env.DATABASE_URL, ...runtimeOptions };
   }
 
   const config: DatabaseConfig = {
     host: process.env.DB_HOST || "localhost",
-    port: parseInt(process.env.DB_PORT || "5432"),
+    port: parseIntegerEnvironment("DB_PORT", 5432, {
+      minimum: 1,
+      maximum: 65535,
+    }),
     database: process.env.DB_NAME,
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
+    ...runtimeOptions,
   };
 
   validateDatabaseConfig(config);
@@ -126,6 +171,8 @@ Options:
     --json        Output machine-readable command data
   down:
     --all         Roll back all applied migrations
+    --allow-baseline-rollback
+                  Explicitly allow destructive adopted-baseline rollback
 
 Environment variables:
   DATABASE_URL    PostgreSQL connection string
@@ -137,6 +184,9 @@ Environment variables:
     DB_PASSWORD   Database password (required)
   MIGRATIONS_PATH Migration files directory (default: ./migrations)
   LOG_LEVEL       Logging level: debug, info, warn, error (default: warn)
+  TUSK_DRIVER     Explicit client driver: pg or postgres
+  TUSK_STATEMENT_TIMEOUT_MS
+                  Per-migration timeout in milliseconds (0 keeps DB default)
 
 Examples:
   tusk create add_user_table
@@ -157,6 +207,29 @@ Examples:
   tusk up --dry-run
   tusk --version
 `);
+};
+
+const commandHelp: Record<string, string> = {
+  create: "Usage: tusk create <name> [--json]\n\nCreate a paired timestamped .up.sql and .down.sql migration.",
+  init: "Usage: tusk init [--from-db] [--json]\n\nCreate the migrations directory, or adopt a supported existing schema with --from-db.",
+  up: "Usage: tusk up [--dry-run] [--json]\n\nValidate and apply all pending migrations.",
+  down: "Usage: tusk down [count | --all] [--dry-run] [--json] [--allow-baseline-rollback]\n\nRoll back one migration by default. Adopted baselines require the explicit safety override.",
+  status: "Usage: tusk status [--exit-code] [--quiet | --json]\n\nRead migration state without changing the database.",
+  validate: "Usage: tusk validate [--db] [--json]\n\nValidate migration files and optionally compare applied database state.",
+  doctor: "Usage: tusk doctor [--json]\n\nRun read-only project, database, compatibility, drift, and lock checks.",
+  version: "Usage: tusk version\n\nPrint the installed Tusk version.",
+};
+
+const showCommandHelp = (target?: string) => {
+  if (!target) {
+    showHelp();
+    return true;
+  }
+
+  const help = commandHelp[target];
+  if (!help) return false;
+  console.log(`\n${help}\n`);
+  return true;
 };
 
 type DatabaseCommand = "up" | "down" | "status";
@@ -234,7 +307,14 @@ const printPlan = (plan: MigrationPlan) => {
 };
 
 const getCliRollbackTarget = (parsedArgs: ParsedCommandArgs): RollbackTarget | undefined =>
-  parsedArgs.downAll ? { all: true } : getCliDownCount(parsedArgs);
+  parsedArgs.downAll || parsedArgs.allowBaselineRollback
+    ? {
+        ...(parsedArgs.downAll
+          ? { all: true }
+          : { count: getCliDownCount(parsedArgs) }),
+        allowBaselineRollback: parsedArgs.allowBaselineRollback,
+      }
+    : getCliDownCount(parsedArgs);
 
 const printDownResult = (
   result: Awaited<ReturnType<typeof runDown>>
@@ -311,7 +391,9 @@ const createDriverNotFoundDoctorInput = (error: unknown) => {
 
 const createDoctorDatabaseInput = async () => {
   try {
-    await resolvePostgresClientDriver();
+    await resolvePostgresClientDriver({
+      preferredDriver: loadDriverPreference(),
+    });
   } catch (error) {
     return createDriverNotFoundDoctorInput(error);
   }
@@ -513,18 +595,40 @@ if (rawJsonRequested) {
   process.env.LOG_LEVEL = "error";
 }
 
-if (!command || command === "help" || command === "--help" || command === "-h") {
-  showHelp();
-  process.exit(0);
-}
-
-if (command === "version" || command === "--version" || command === "-v") {
-  await showVersion();
-  process.exit(0);
-}
-
-const run = async () => {
+const run = async (): Promise<number> => {
   try {
+    if (!command || command === "--help" || command === "-h") {
+      showHelp();
+      return 0;
+    }
+
+    if (command === "help") {
+      if (rawArgs.length > 1 || !showCommandHelp(rawArgs[0])) {
+        throw createConfigurationError(
+          `Unknown help topic: ${rawArgs[0] ?? ""}`,
+          { topic: rawArgs[0] }
+        );
+      }
+      return 0;
+    }
+
+    if (rawArgs.includes("--help") || rawArgs.includes("-h")) {
+      if (!showCommandHelp(command)) {
+        throw createConfigurationError(`Unknown command: ${command}`, { command });
+      }
+      return 0;
+    }
+
+    if (command === "version" || command === "--version" || command === "-v") {
+      if (rawArgs.length > 0) {
+        throw createConfigurationError("version does not accept additional arguments", {
+          args: rawArgs,
+        });
+      }
+      await showVersion();
+      return 0;
+    }
+
     const parsedArgs = parseCommandArgs(command, rawArgs);
 
     validateCommand(command, parsedArgs);
@@ -548,7 +652,7 @@ const run = async () => {
         console.log(`✓ Created ${files.downFile}`);
       }
       logger.info("Migration files created successfully", files);
-      process.exit(0);
+      return 0;
     }
 
     if (command === "validate") {
@@ -568,7 +672,7 @@ const run = async () => {
             printValidation(result);
           }
 
-          process.exit(result.ok ? 0 : 1);
+          return result.ok ? 0 : 1;
         } finally {
           await database.cleanup();
         }
@@ -582,7 +686,7 @@ const run = async () => {
         printValidation(result);
       }
 
-      process.exit(result.ok ? 0 : 1);
+      return result.ok ? 0 : 1;
     }
 
     if (command === "doctor") {
@@ -601,7 +705,7 @@ const run = async () => {
           printDoctor(report);
         }
 
-        process.exit(report.result === "pass" ? 0 : 1);
+        return report.result === "pass" ? 0 : 1;
       } finally {
         await doctorDatabase.cleanup();
       }
@@ -610,37 +714,32 @@ const run = async () => {
     if (command === "init") {
       const exitCode = await runInitCommand(parsedArgs);
       logger.info("Migration tool completed successfully");
-      process.exit(exitCode);
+      return exitCode;
     }
 
     if (command === "up" || command === "down" || command === "status") {
       const exitCode = await runDatabaseCommand(command, parsedArgs);
       logger.info("Migration tool completed successfully");
-      process.exit(exitCode);
+      return exitCode;
     }
 
     showHelp();
     logger.info("Migration tool completed successfully");
-    process.exit(0);
+    return 0;
   } catch (error) {
     if (rawJsonRequested) {
-      writeJson(createErrorPayload(error, command));
-      process.exit(1);
+      writeJson(createErrorPayload(error, command ?? "unknown"));
+      return 1;
     }
 
     if (isTuskError(error)) {
-      logger.error("Tusk error occurred", { error: formatTuskError(error) });
       console.error(isDriverNotFoundError(error) ? error.message : formatTuskError(error));
     } else {
-      logger.error("Unexpected error occurred", {
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined
-      });
       console.error("Unexpected error:", error instanceof Error ? error.message : String(error));
     }
 
-    process.exit(1);
+    return 1;
   }
 };
 
-run();
+process.exitCode = await run();

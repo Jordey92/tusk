@@ -11,6 +11,7 @@ export interface ParsedCommandArgs {
   dryRun: boolean;
   checkDatabase: boolean;
   downAll: boolean;
+  allowBaselineRollback: boolean;
   initFromDb: boolean;
   createName?: string;
   downCount?: string;
@@ -24,6 +25,7 @@ const emptyParsedCommandArgs = (): ParsedCommandArgs => ({
   dryRun: false,
   checkDatabase: false,
   downAll: false,
+  allowBaselineRollback: false,
   initFromDb: false,
   status: {
     exitCode: false,
@@ -59,9 +61,14 @@ const parseDownArgs = (rawArgs: string[]): ParsedCommandArgs => {
       continue;
     }
 
+    if (rawArg === "--allow-baseline-rollback") {
+      parsed.allowBaselineRollback = true;
+      continue;
+    }
+
     if (rawArg.startsWith("-") && !/^-?\d/.test(rawArg)) {
       throw createValidationError(
-        `Unknown down option: ${rawArg}. Valid options: --dry-run, --json, --all`,
+        `Unknown down option: ${rawArg}. Valid options: --dry-run, --json, --all, --allow-baseline-rollback`,
         { command, arg: rawArg }
       );
     }

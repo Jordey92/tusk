@@ -91,7 +91,10 @@ export const columnToSQL = (column: ColumnInfo): string => {
   return sql;
 };
 
-export const generateCreateTable = (table: TableInfo): string => {
+export const generateCreateTable = (
+  table: TableInfo,
+  includeForeignKeys: boolean = true
+): string => {
   logger.debug("Generating CREATE TABLE statement", {
     tableName: table.name,
   });
@@ -113,7 +116,7 @@ export const generateCreateTable = (table: TableInfo): string => {
     lines.push(`  UNIQUE (${quoteColumnList(unique.columnNames)})`);
   });
 
-  table.foreignKeys.forEach((fk) => {
+  if (includeForeignKeys) table.foreignKeys.forEach((fk) => {
     let fkLine =
       `  FOREIGN KEY (${quoteIdentifier(fk.columnName)}) REFERENCES ` +
       `${qualifyTableName(
@@ -141,6 +144,40 @@ export const generateCreateTable = (table: TableInfo): string => {
   return sql;
 };
 
+const generateForeignKeyStatements = (table: TableInfo): string[] => {
+  const byConstraint = new Map<string, typeof table.foreignKeys>();
+  for (const foreignKey of table.foreignKeys) {
+    const existing = byConstraint.get(foreignKey.constraintName) ?? [];
+    existing.push(foreignKey);
+    byConstraint.set(foreignKey.constraintName, existing);
+  }
+
+  return [...byConstraint.entries()].map(([constraintName, foreignKeys]) => {
+    const first = foreignKeys[0]!;
+    const columns = foreignKeys.map((foreignKey) => foreignKey.columnName);
+    const foreignColumns = foreignKeys.map(
+      (foreignKey) => foreignKey.foreignColumnName
+    );
+    let statement =
+      `ALTER TABLE ${qualifyTableName(table.name, table.schema)} ` +
+      `ADD CONSTRAINT ${quoteIdentifier(constraintName)} ` +
+      `FOREIGN KEY (${quoteColumnList(columns)}) REFERENCES ` +
+      `${qualifyTableName(
+        first.foreignTableName,
+        first.foreignSchema ?? table.schema
+      )}(${quoteColumnList(foreignColumns)})`;
+
+    if (first.updateRule && first.updateRule !== "NO ACTION") {
+      statement += ` ON UPDATE ${first.updateRule}`;
+    }
+    if (first.deleteRule && first.deleteRule !== "NO ACTION") {
+      statement += ` ON DELETE ${first.deleteRule}`;
+    }
+
+    return `${statement};`;
+  });
+};
+
 export const generateDropTable = (tableName: string, schema?: string): string => {
   return `DROP TABLE IF EXISTS ${qualifyTableName(tableName, schema)} CASCADE;`;
 };
@@ -153,8 +190,23 @@ export const generateUpMigration = (schema: IntrospectedSchema): string => {
   const sorted = sortTablesByDependencies(schema.tables);
   const statements: string[] = [];
 
+  const schemas = new Set(
+    sorted
+      .map((table) => table.schema)
+      .filter((schemaName): schemaName is string =>
+        Boolean(schemaName && schemaName !== "public")
+      )
+  );
+  for (const schemaName of schemas) {
+    statements.push(`CREATE SCHEMA IF NOT EXISTS ${quoteIdentifier(schemaName)};`);
+  }
+
   sorted.forEach((table) => {
-    statements.push(generateCreateTable(table));
+    statements.push(generateCreateTable(table, false));
+  });
+
+  sorted.forEach((table) => {
+    statements.push(...generateForeignKeyStatements(table));
   });
 
   sorted.forEach((table) => {

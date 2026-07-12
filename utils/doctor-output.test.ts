@@ -54,7 +54,7 @@ describe("doctor human output", () => {
     expect(output).toContain("Install one of:");
     expect(output).toContain("  1. Install a Postgres client, for example: bun add pg");
     expect(output).toContain("  2. Run tusk init to create a migrations directory");
-    expect(output).toContain("  3. Run tusk doctor");
+    expect(output).toContain("  3. Run tusk doctor again");
   });
 
   test("keeps normal check order when only the driver is missing", () => {
@@ -112,8 +112,84 @@ describe("doctor human output", () => {
 
     expect(collectDoctorNextSteps(report)).toEqual([
       "Add an .up.sql and .down.sql migration pair",
-      "Run tusk doctor",
-      "Run tusk up",
+      "Run tusk doctor again",
+    ]);
+  });
+
+  test("explains how to configure a missing database", () => {
+    const report = createReport([
+      {
+        id: "database.config",
+        status: "fail",
+        message: "Database configuration was not found",
+        context: {
+          cause: "Missing required database configuration: DB_NAME, DB_USER, DB_PASSWORD",
+        },
+      },
+    ]);
+
+    const output = formatDoctorReport(report);
+
+    expect(output).toContain(
+      "Cause: Missing required database configuration: DB_NAME, DB_USER, DB_PASSWORD"
+    );
+    expect(output).toContain(
+      "1. Set DATABASE_URL, or set DB_NAME, DB_USER, and DB_PASSWORD"
+    );
+    expect(output).toContain("2. Run tusk doctor again");
+  });
+
+  test("shows connection causes and a concrete recovery step", () => {
+    const report = createReport([
+      {
+        id: "database.connection",
+        status: "fail",
+        message: "Database connection failed",
+        context: {
+          cause: "connect ECONNREFUSED 127.0.0.1:5432",
+        },
+      },
+    ]);
+
+    const output = formatDoctorReport(report);
+
+    expect(output).toContain("Cause: connect ECONNREFUSED 127.0.0.1:5432");
+    expect(output).toContain(
+      "Check the database URL, credentials, network access, and server availability"
+    );
+    expect(output).toContain("Run tusk doctor again");
+  });
+
+  test("maps invalid migration and database state to focused commands", () => {
+    const report = createReport([
+      {
+        id: "migrations.valid",
+        status: "fail",
+        message: "Migration validation found 1 error",
+      },
+      {
+        id: "database.migrationTable",
+        status: "fail",
+        message: "_migrations table has an invalid shape",
+      },
+      {
+        id: "database.drift",
+        status: "fail",
+        message: "Database validation found 1 error",
+      },
+      {
+        id: "database.advisoryLock",
+        status: "warn",
+        message: "Advisory migration lock could not be acquired",
+      },
+    ]);
+
+    expect(collectDoctorNextSteps(report)).toEqual([
+      "Run tusk validate and fix every reported migration error",
+      "Compare _migrations with docs/metadata-table.md before repairing it",
+      "Run tusk validate --db and resolve migration drift",
+      "Confirm no other migration runner is active, then retry",
+      "Run tusk doctor again",
     ]);
   });
 

@@ -35,6 +35,53 @@ describe("createExecuteQuery", () => {
     expect(calls).toEqual([{ sql: "SELECT $1::int AS value", params: [1] }]);
     expect(queryResult.rows).toEqual([{ value: 1 }]);
   });
+
+  test("uses the lock-owning client when one is active", async () => {
+    const targets: string[] = [];
+    const activeClient = {
+      query: async <T extends QueryResultRow = QueryResultRow>() => {
+        targets.push("lock-client");
+        return result([] as T[]);
+      },
+      release: () => {},
+    };
+    const pool = {
+      query: async <T extends QueryResultRow = QueryResultRow>() => {
+        targets.push("pool");
+        return result([] as T[]);
+      },
+    };
+
+    await createExecuteQuery(pool, () => activeClient)("SELECT 1");
+    expect(targets).toEqual(["lock-client"]);
+  });
+
+  test("serializes concurrent queries on the lock-owning client", async () => {
+    let activeQueries = 0;
+    let maximumActiveQueries = 0;
+    const calls: string[] = [];
+    const activeClient: ConnectionClient = {
+      query: async <T extends QueryResultRow = QueryResultRow>(sql: string) => {
+        activeQueries++;
+        maximumActiveQueries = Math.max(maximumActiveQueries, activeQueries);
+        calls.push(sql);
+        await Bun.sleep(1);
+        activeQueries--;
+        return result([] as T[]);
+      },
+      release: () => {},
+    };
+    const pool = {
+      query: async <T extends QueryResultRow = QueryResultRow>() =>
+        result([] as T[]),
+    };
+    const query = createExecuteQuery(pool, () => activeClient);
+
+    await Promise.all([query("SELECT 1"), query("SELECT 2"), query("SELECT 3")]);
+
+    expect(maximumActiveQueries).toBe(1);
+    expect(calls).toEqual(["SELECT 1", "SELECT 2", "SELECT 3"]);
+  });
 });
 
 describe("createTransaction", () => {
@@ -130,5 +177,46 @@ describe("createTransaction", () => {
       "begin failed"
     );
     expect(calls).toEqual(["BEGIN", "release"]);
+  });
+
+  test("reuses the lock-owning connection and supports a one-connection pool", async () => {
+    const calls: string[] = [];
+    const client: ConnectionClient = {
+      query: async <T extends QueryResultRow = QueryResultRow>(sql: string) => {
+        calls.push(sql);
+        return result([] as T[]);
+      },
+      release: () => calls.push("release"),
+    };
+    const pool: ConnectionPool = {
+      connect: async () => {
+        throw new Error("a second connection must not be requested");
+      },
+      query: async <T extends QueryResultRow = QueryResultRow>() =>
+        result([] as T[]),
+    };
+
+    const transaction = createTransaction(pool, () => client, {
+      statementTimeoutMs: 0,
+    });
+    await transaction(async (tx) => {
+      await tx.query("SELECT 1");
+    });
+
+    expect(calls).toEqual(["BEGIN", "SELECT 1", "COMMIT"]);
+  });
+
+  test("rejects invalid statement timeout configuration", () => {
+    const pool = {
+      connect: async () => {
+        throw new Error("not used");
+      },
+      query: async <T extends QueryResultRow = QueryResultRow>() =>
+        result([] as T[]),
+    };
+
+    expect(() => createTransaction(pool, () => null, {
+      statementTimeoutMs: -1,
+    })).toThrow("statementTimeoutMs must be a non-negative safe integer");
   });
 });

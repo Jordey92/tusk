@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 
-import { Pool } from "pg";
 import { dirname } from "path";
 import { fileURLToPath } from "url";
-import { createPgAdapter } from "../adapters/pg.js";
+import {
+  createManagedPostgresAdapter,
+  type PostgresClientConfig,
+} from "../adapters/postgres-client.js";
 import { createMigrationFile } from "../core/create-migration.js";
 import { getMigrationStatus } from "../core/migration-status.js";
 import {
@@ -16,6 +18,7 @@ import {
   type ValidationResult,
 } from "../core/validate-migrations.js";
 import type { MigrationStatusPayload } from "../types/cli.js";
+import type { DatabaseAdapter } from "../types/migrations.js";
 import { getPackageVersion } from "../utils/version.js";
 
 type JsonValue =
@@ -155,6 +158,7 @@ const tools: ToolDefinition[] = [
         migrationsPath: { type: "string", default: defaultMigrationsPath },
         databaseUrl: { type: "string" },
         count: { type: "number", minimum: 1 },
+        allowBaselineRollback: { type: "boolean", default: false },
       },
     },
   },
@@ -244,34 +248,70 @@ const optionalPositiveInteger = (
   return value;
 };
 
-const createPool = (args: Record<string, JsonValue> = {}) => {
+const driverPreference = (): PostgresClientConfig["driver"] => {
+  const driver = process.env.TUSK_DRIVER;
+  if (!driver) {
+    return undefined;
+  }
+
+  if (driver === "pg" || driver === "postgres") {
+    return driver;
+  }
+
+  throw new Error("TUSK_DRIVER must be pg or postgres");
+};
+
+const statementTimeout = (): number | undefined => {
+  const rawTimeout = process.env.TUSK_STATEMENT_TIMEOUT_MS;
+  if (!rawTimeout) {
+    return undefined;
+  }
+
+  const timeout = Number(rawTimeout);
+  if (!Number.isSafeInteger(timeout) || timeout < 0) {
+    throw new Error("TUSK_STATEMENT_TIMEOUT_MS must be a non-negative integer");
+  }
+
+  return timeout;
+};
+
+const createDatabaseConfig = (
+  args: Record<string, JsonValue> = {}
+): PostgresClientConfig => {
   const databaseUrl = optionalStringArg(args, "databaseUrl") ??
     process.env.DATABASE_URL;
 
   if (databaseUrl) {
-    return new Pool({ connectionString: databaseUrl });
+    return {
+      connectionString: databaseUrl,
+      driver: driverPreference(),
+      statementTimeoutMs: statementTimeout(),
+    };
   }
 
-  return new Pool({
+  return {
     host: process.env.DB_HOST || "localhost",
     port: parseInt(process.env.DB_PORT || "5432"),
     database: process.env.DB_NAME,
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
-  });
+    driver: driverPreference(),
+    statementTimeoutMs: statementTimeout(),
+  };
 };
 
 const withAdapter = async <T>(
   args: Record<string, JsonValue>,
-  callback: (adapter: ReturnType<typeof createPgAdapter>) => Promise<T>
+  callback: (adapter: DatabaseAdapter) => Promise<T>
 ): Promise<T> => {
-  const pool = createPool(args);
-  const adapter = createPgAdapter(pool);
+  const database = await createManagedPostgresAdapter(
+    createDatabaseConfig(args)
+  );
 
   try {
-    return await callback(adapter);
+    return await callback(database.adapter);
   } finally {
-    await pool.end();
+    await database.cleanup();
   }
 };
 
@@ -313,8 +353,18 @@ const callTool = async (
   }
 
   if (name === "tusk_plan_down") {
+    const count = optionalPositiveInteger(args, "count");
+    const allowBaselineRollback = booleanArg(
+      args,
+      "allowBaselineRollback",
+      false
+    );
+
     return await withAdapter(args, (adapter) =>
-      createDownPlan(adapter, migrationsPath, optionalPositiveInteger(args, "count"))
+      createDownPlan(adapter, migrationsPath, {
+        count,
+        allowBaselineRollback,
+      })
     );
   }
 

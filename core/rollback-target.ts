@@ -5,6 +5,7 @@ export type RollbackTarget =
   | {
       count?: number;
       all?: boolean;
+      allowBaselineRollback?: boolean;
     };
 
 export type NormalizedRollbackTarget =
@@ -12,9 +13,11 @@ export type NormalizedRollbackTarget =
       mode: "count";
       count: number;
       requestedCount: number;
+      allowBaselineRollback: boolean;
     }
   | {
       mode: "all";
+      allowBaselineRollback: boolean;
     };
 
 const DEFAULT_ROLLBACK_COUNT = 1;
@@ -37,6 +40,7 @@ export const normalizeRollbackTarget = (
       mode: "count",
       count: target,
       requestedCount: target,
+      allowBaselineRollback: false,
     };
   }
 
@@ -48,7 +52,10 @@ export const normalizeRollbackTarget = (
   }
 
   if (target?.all) {
-    return { mode: "all" };
+    return {
+      mode: "all",
+      allowBaselineRollback: target.allowBaselineRollback ?? false,
+    };
   }
 
   const count = target?.count ?? DEFAULT_ROLLBACK_COUNT;
@@ -57,5 +64,6 @@ export const normalizeRollbackTarget = (
     mode: "count",
     count,
     requestedCount: count,
+    allowBaselineRollback: target?.allowBaselineRollback ?? false,
   };
 };

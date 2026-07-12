@@ -7,6 +7,7 @@ describe("rollback target", () => {
       mode: "count",
       count: 1,
       requestedCount: 1,
+      allowBaselineRollback: false,
     });
   });
 
@@ -15,8 +16,18 @@ describe("rollback target", () => {
       mode: "count",
       count: 2,
       requestedCount: 2,
+      allowBaselineRollback: false,
     });
-    expect(normalizeRollbackTarget({ all: true })).toEqual({ mode: "all" });
+    expect(normalizeRollbackTarget({ all: true })).toEqual({
+      mode: "all",
+      allowBaselineRollback: false,
+    });
+    expect(normalizeRollbackTarget({ allowBaselineRollback: true })).toEqual({
+      mode: "count",
+      count: 1,
+      requestedCount: 1,
+      allowBaselineRollback: true,
+    });
   });
 
   test("rejects invalid counts", () => {

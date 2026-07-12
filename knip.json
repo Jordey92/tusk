@@ -2,6 +2,9 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "entry": [
     "index.ts",
+    "adapters/pg.ts",
+    "adapters/postgresjs.ts",
+    "plugins/elysia.ts",
     "cli.ts",
     "mcp/server.ts",
     "scripts/quality/*.ts",

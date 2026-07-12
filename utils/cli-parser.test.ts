@@ -49,12 +49,18 @@ describe("CLI parser", () => {
   });
 
   test("parses explicit all-history down rollback", () => {
-    const parsed = parseAndValidate("down", ["--all", "--dry-run", "--json"]);
+    const parsed = parseAndValidate("down", [
+      "--all",
+      "--dry-run",
+      "--json",
+      "--allow-baseline-rollback",
+    ]);
 
     expect(parsed).toMatchObject({
       json: true,
       dryRun: true,
       downAll: true,
+      allowBaselineRollback: true,
     });
     expect(parsed.downCount).toBeUndefined();
     expect(getCliDownCount(parsed)).toBeUndefined();

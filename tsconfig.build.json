@@ -1,0 +1,26 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "sourceMap": false,
+    "declarationMap": false
+  },
+  "include": [
+    "index.ts",
+    "cli.ts",
+    "core/**/*.ts",
+    "adapters/**/*.ts",
+    "plugins/**/*.ts",
+    "mcp/**/*.ts",
+    "types/**/*.ts",
+    "templates/**/*.ts",
+    "utils/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.test.ts",
+    "fixtures",
+    "utils/cli-smoke.ts",
+    "utils/test-helper.ts"
+  ]
+}

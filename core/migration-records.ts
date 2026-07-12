@@ -1,5 +1,5 @@
 import type {
-  DatabaseAdapter,
+  QueryClient,
   MigrationRecord,
   QueryResultRow,
 } from "../types/migrations.js";
@@ -99,7 +99,7 @@ const expectedColumns: ExpectedMigrationTableColumn[] = [
 ];
 
 const readMigrationTablePresence = async (
-  adapter: DatabaseAdapter
+  adapter: QueryClient
 ): Promise<"present" | "missing"> => {
   const result = await adapter.query<MigrationTableExistsRow>(
     `SELECT to_regclass('${MIGRATION_METADATA_TABLE_NAME}')::text AS migration_table`
@@ -111,7 +111,7 @@ const readMigrationTablePresence = async (
 };
 
 const getMigrationTableColumns = async (
-  adapter: DatabaseAdapter
+  adapter: QueryClient
 ): Promise<MigrationTableColumnRow[]> => {
   const result = await adapter.query<MigrationTableColumnRow>(`
     SELECT
@@ -137,7 +137,7 @@ const getMigrationTableColumns = async (
 };
 
 const getMigrationTableConstraints = async (
-  adapter: DatabaseAdapter
+  adapter: QueryClient
 ): Promise<MigrationTableConstraintRow[]> => {
   const result = await adapter.query<MigrationTableConstraintRow>(`
     SELECT
@@ -314,7 +314,7 @@ const validateMigrationTableShape = (
 };
 
 export const getMigrationTableStateReadOnly = async (
-  adapter: DatabaseAdapter
+  adapter: QueryClient
 ): Promise<MigrationTableState> => {
   const tablePresence = await readMigrationTablePresence(adapter);
   if (tablePresence === "missing") {
@@ -339,7 +339,7 @@ const toIssueContext = (issue: MigrationTableShapeIssue) => ({
 });
 
 export const assertMigrationTableShape = async (
-  adapter: DatabaseAdapter
+  adapter: QueryClient
 ): Promise<TrustedMigrationTableState> => {
   const tableState = await getMigrationTableStateReadOnly(adapter);
 
@@ -357,7 +357,7 @@ export const assertMigrationTableShape = async (
 };
 
 export const getExecutedMigrationRecordsReadOnly = async (
-  adapter: DatabaseAdapter
+  adapter: QueryClient
 ): Promise<MigrationRecord[]> => {
   const tableState = await assertMigrationTableShape(adapter);
   if (tableState.state === "missing") {
@@ -381,7 +381,7 @@ export const getExecutedMigrationRecordsReadOnly = async (
 };
 
 export const getLastExecutedMigrationFilenamesReadOnly = async (
-  adapter: DatabaseAdapter,
+  adapter: QueryClient,
   count?: number
 ): Promise<string[]> => {
   const tableState = await assertMigrationTableShape(adapter);
@@ -399,7 +399,7 @@ export const getLastExecutedMigrationFilenamesReadOnly = async (
 };
 
 export const getExecutedMigrationCountReadOnly = async (
-  adapter: DatabaseAdapter
+  adapter: QueryClient
 ): Promise<number> => {
   const tableState = await assertMigrationTableShape(adapter);
   if (tableState.state === "missing") {

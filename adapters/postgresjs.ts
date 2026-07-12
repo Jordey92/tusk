@@ -1,10 +1,11 @@
 import type postgres from "postgres";
-import type { QueryResultRow } from "pg";
 import type {
   ConnectionClient,
   ConnectionPool,
+  DatabaseAdapterOptions,
   QueryParam,
   QueryResult,
+  QueryResultRow,
 } from "../types/migrations.js";
 import type { DatabaseAdapter } from "../types/migrations.js";
 import { createPgAdapter } from "./pg.js";
@@ -43,7 +44,8 @@ const createUnsafeQueryExecutor =
  * @example
  * ```typescript
  * import postgres from 'postgres'
- * import { createPostgresJsAdapter } from '@bydey/tusk'
+ * import { runUp } from '@bydey/tusk'
+ * import { createPostgresJsAdapter } from '@bydey/tusk/postgres'
  *
  * const sql = postgres(process.env.DATABASE_URL)
  * const adapter = createPostgresJsAdapter(sql)
@@ -53,7 +55,8 @@ const createUnsafeQueryExecutor =
  * ```
  */
 export const createPostgresJsAdapter = (
-  sql: postgres.Sql
+  sql: postgres.Sql,
+  options: DatabaseAdapterOptions = {}
 ): DatabaseAdapter => {
   const query = createUnsafeQueryExecutor(sql);
 
@@ -70,5 +73,5 @@ export const createPostgresJsAdapter = (
     },
   };
 
-  return createPgAdapter(poolLike);
+  return createPgAdapter(poolLike, options);
 };

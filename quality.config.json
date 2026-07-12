@@ -65,6 +65,10 @@
         "testCommand": "bun test adapters/postgres-client.test.ts cli.test.ts"
       },
       {
+        "file": "adapters/pg/locking.ts",
+        "testCommand": "bun test adapters/pg/locking.test.ts core/doctor.test.ts core/migration-lock.test.ts"
+      },
+      {
         "file": "mcp/server.ts",
         "testCommand": "bun test mcp/server.test.ts"
       }

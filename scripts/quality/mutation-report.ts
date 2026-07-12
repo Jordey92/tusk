@@ -125,11 +125,15 @@ const runCommand = async (command: string, timeoutMs: number) => {
     stdout: "pipe",
     stderr: "pipe",
   });
-  const timeout = setTimeout(() => child.kill(), timeoutMs);
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    child.kill();
+  }, timeoutMs);
 
   try {
     const exitCode = await child.exited;
-    return exitCode;
+    return { exitCode, timedOut };
   } finally {
     clearTimeout(timeout);
   }
@@ -148,11 +152,15 @@ const testMutant = async (
   await writeFile(mutant.file, applyMutant(originalSource, mutant));
 
   try {
-    const exitCode = await runCommand(testCommand, timeoutMs);
+    const commandResult = await runCommand(testCommand, timeoutMs);
 
     return {
       ...mutant,
-      status: exitCode === 0 ? "survived" : "killed",
+      status: commandResult.timedOut
+        ? "timed-out"
+        : commandResult.exitCode === 0
+          ? "survived"
+          : "killed",
     };
   } finally {
     await restoreActiveMutation();
@@ -161,9 +169,20 @@ const testMutant = async (
 
 const run = async () => {
   const config = await loadQualityConfig();
+  const requestedTargets = new Set(process.argv.slice(2));
+  const targets = requestedTargets.size === 0
+    ? config.mutation.targets
+    : config.mutation.targets.filter((target) => requestedTargets.has(target.file));
+  if (requestedTargets.size > 0 && targets.length !== requestedTargets.size) {
+    const configuredTargets = new Set(config.mutation.targets.map((target) => target.file));
+    const unknownTargets = [...requestedTargets].filter(
+      (target) => !configuredTargets.has(target)
+    );
+    throw new Error(`Unknown mutation target(s): ${unknownTargets.join(", ")}`);
+  }
   const results: MutantResult[] = [];
 
-  for (const target of config.mutation.targets) {
+  for (const target of targets) {
     const originalSource = await readFile(target.file, "utf-8");
     const mutants = collectMutants(
       target.file,
@@ -188,13 +207,21 @@ const run = async () => {
   }
 
   const killed = results.filter((result) => result.status === "killed").length;
+  const timedOut = results.filter(
+    (result) => result.status === "timed-out"
+  ).length;
   const survived = results.filter((result) => result.status === "survived").length;
-  const mutationScore = results.length === 0 ? 100 : (killed / results.length) * 100;
+  const detected = killed + timedOut;
+  const mutationScore = results.length === 0
+    ? 100
+    : (detected / results.length) * 100;
   const report = {
     generatedAt: new Date().toISOString(),
     minimumScore: config.mutation.minimumScore,
     score: Number(mutationScore.toFixed(2)),
+    detected,
     killed,
+    timedOut,
     survived,
     total: results.length,
     survivors: results.filter((result) => result.status === "survived"),
@@ -206,7 +233,7 @@ const run = async () => {
 
   console.log("");
   console.log(
-    `Mutation score: ${report.score}% (${killed}/${results.length} killed)`
+    `Mutation score: ${report.score}% (${detected}/${results.length} detected; ${killed} killed, ${timedOut} timed out)`
   );
   console.log(`Report: ${config.mutation.reportPath}`);
 

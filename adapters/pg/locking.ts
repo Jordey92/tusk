@@ -1,14 +1,19 @@
-import type { QueryResultRow } from "pg";
 import type {
   ConnectionClient,
   ConnectionPool,
+  QueryResultRow,
 } from "../../types/migrations.js";
 import { logger } from "../../utils/logger.js";
+import { createMigrationLockedError } from "../../utils/errors.js";
 
 const MIGRATION_LOCK_ID = 123456789;
 
 interface LockRow extends QueryResultRow {
   acquired: boolean;
+}
+
+interface UnlockRow extends QueryResultRow {
+  unlocked: boolean;
 }
 
 export const createLockingMethods = (pool: ConnectionPool) => {
@@ -17,8 +22,10 @@ export const createLockingMethods = (pool: ConnectionPool) => {
   return {
     acquireMigrationLock: async () => {
       if (lockClient) {
-        logger.debug("Migration lock already held by current adapter");
-        return;
+        throw createMigrationLockedError(
+          "This adapter is already running a migration operation. Wait for it to finish or use a separate adapter.",
+          { scope: "adapter" }
+        );
       }
 
       logger.debug("Attempting to acquire migration lock");
@@ -36,9 +43,10 @@ export const createLockingMethods = (pool: ConnectionPool) => {
           logger.warn(
             "Migration lock acquisition failed - another process is running migrations"
           );
-          throw new Error(
+          throw createMigrationLockedError(
             "Another migration process is currently running. " +
-              "Please wait for it to complete before running migrations again."
+              "Please wait for it to complete before running migrations again.",
+            { scope: "database" }
           );
         }
 
@@ -52,6 +60,8 @@ export const createLockingMethods = (pool: ConnectionPool) => {
       }
     },
 
+    getActiveLockClient: () => lockClient,
+
     releaseMigrationLock: async () => {
       if (!lockClient) {
         logger.debug("No migration lock held by current adapter");
@@ -63,7 +73,17 @@ export const createLockingMethods = (pool: ConnectionPool) => {
       lockClient = null;
 
       try {
-        await client.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_ID]);
+        const result = await client.query<UnlockRow>(
+          "SELECT pg_advisory_unlock($1) AS unlocked",
+          [MIGRATION_LOCK_ID]
+        );
+        if (!result.rows[0]?.unlocked) {
+          throw createMigrationLockedError(
+            "The database connection did not retain the advisory lock session. " +
+              "Use a direct or session-pooled PostgreSQL endpoint instead of a transaction pooler.",
+            { scope: "database", phase: "release" }
+          );
+        }
         logger.debug("Migration lock released successfully");
       } finally {
         client.release();

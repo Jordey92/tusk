@@ -57,6 +57,10 @@ The command exits with:
 Warnings do not fail the command. They mean Tusk can keep inspecting the
 project, but there is something worth reviewing before a mutating command.
 
+Human output includes concise causes and next steps when Tusk can identify a
+recovery action. JSON output keeps the same diagnostics in check `context`
+fields for automation.
+
 ## What It Checks
 
 `tusk.version`

@@ -85,6 +85,10 @@ bun run test:db
   applied migration count, Tusk rolls back all available applied migrations and
   reports the available count. Missing `.down.sql` files must fail planning
   before partial rollback.
+- Adopted baselines are protected from ordinary rollback. Do not pass
+  `--allow-baseline-rollback` unless the user explicitly authorizes dropping
+  the represented existing schema. Use the flag first with `--dry-run`; the
+  flag is required to display the protected destructive plan as well.
 - `tusk status --json` is the preferred machine-readable status check.
 - `--json` suppresses normal informational logs from stdout so agents can parse the response directly.
 
@@ -92,7 +96,15 @@ bun run test:db
 
 Use `tusk init` for local project setup; it creates the migrations directory and does not inspect the database.
 
-Use `tusk init --from-db --json` only when the user explicitly wants to adopt a database whose schema already exists. It creates the baseline migration files and records `0000000000000_initial.up.sql` as already applied, so agents can continue with the normal `create -> validate -> dry-run -> up` loop for future schema changes.
+Use `tusk init --from-db --json` only when the user explicitly wants to adopt a
+database whose schema already exists. It creates baseline migration files and
+records `0000000000000_initial.up.sql` as already applied, so agents can
+continue with the normal `create -> validate -> dry-run -> up` loop.
+
+The generated baseline is not a complete PostgreSQL backup or schema dump. Tusk
+fails closed when it detects schema features it cannot reproduce safely. Review
+[Existing database adoption](existing-databases.md) for the supported boundary
+and single-schema behavior.
 
 ## JSON Error Shape
 
@@ -124,6 +136,44 @@ Tusk also ships a lightweight stdio MCP server:
 tusk-mcp
 ```
 
+The MCP server requires one supported PostgreSQL driver:
+
+```bash
+bun add @bydey/tusk pg
+# or
+bun add @bydey/tusk postgres
+```
+
+When both are installed, Tusk uses `pg` unless `TUSK_DRIVER=postgres` selects
+postgres.js explicitly. Valid values are `pg` and `postgres`.
+
+Configure an MCP client with the project-local binary, project root as the
+working directory, and the same environment used by the CLI. A common JSON
+shape is:
+
+```json
+{
+  "mcpServers": {
+    "tusk": {
+      "command": "/absolute/path/to/project/node_modules/.bin/tusk-mcp",
+      "cwd": "/absolute/path/to/project",
+      "env": {
+        "DATABASE_URL": "postgresql://user:password@localhost:5432/app",
+        "MIGRATIONS_PATH": "./migrations",
+        "TUSK_DRIVER": "pg",
+        "TUSK_STATEMENT_TIMEOUT_MS": "300000"
+      }
+    }
+  }
+}
+```
+
+MCP clients use different configuration file names, but the `command`, working
+directory, and environment values have the same purpose. If a client does not
+support `cwd`, use an absolute `MIGRATIONS_PATH` and launch the server from the
+project root. Keep credentials in the client's secret/environment facility
+rather than committing them to the repository.
+
 Available tools:
 
 - `tusk_validate`: validate migration files, with optional read-only database checks.
@@ -132,4 +182,8 @@ Available tools:
 - `tusk_plan_down`: return the ordered down-migration dry-run plan.
 - `tusk_create_migration`: create paired migration files.
 
-Database-aware tools read `DATABASE_URL` by default and also accept a `databaseUrl` argument.
+Database-aware tools read `DATABASE_URL` by default and also accept a
+`databaseUrl` argument. Relative `migrationsPath` values resolve from the MCP
+server's working directory. `TUSK_STATEMENT_TIMEOUT_MS` follows the same
+non-negative millisecond contract as the CLI; `0` leaves PostgreSQL's existing
+statement timeout unchanged.
