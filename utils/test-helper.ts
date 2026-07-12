@@ -3,7 +3,9 @@ import { randomUUID } from "crypto";
 import { Pool } from "pg";
 
 export const parseTestDatabasePort = (rawPort?: string): number => {
-  const port = Number(rawPort ?? "5433");
+  const port = Number(
+    rawPort === undefined || rawPort === "" ? "5433" : rawPort
+  );
   if (!Number.isSafeInteger(port) || port < 1 || port > 65535) {
     throw new Error("TUSK_TEST_DB_PORT must be an integer between 1 and 65535");
   }

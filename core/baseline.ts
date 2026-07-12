@@ -18,7 +18,8 @@ export const assertBaselineRollbackAllowed = (
   ) {
     throw createValidationError(
       "Refusing to roll back the adopted baseline because it can remove the pre-existing schema. " +
-        "Pass allowBaselineRollback explicitly only after reviewing the full down migration.",
+        "Pass --allow-baseline-rollback from the CLI, or set allowBaselineRollback: true programmatically, " +
+        "only after reviewing the full down migration.",
       {
         filename: INITIAL_UP_MIGRATION_FILENAME,
         allowBaselineRollback: false,

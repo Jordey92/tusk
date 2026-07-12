@@ -2,8 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { parseTestDatabasePort } from "./test-helper";
 
 describe("test database configuration", () => {
-  test("defaults the test database port and accepts TCP boundaries", () => {
+  test("defaults omitted or blank test database ports and accepts TCP boundaries", () => {
     expect(parseTestDatabasePort()).toBe(5433);
+    expect(parseTestDatabasePort("")).toBe(5433);
     expect(parseTestDatabasePort("1")).toBe(1);
     expect(parseTestDatabasePort("65535")).toBe(65535);
   });

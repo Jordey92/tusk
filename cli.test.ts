@@ -436,7 +436,9 @@ describe("cli smoke test", () => {
         ok: false,
         error: {
           code: "VALIDATION_ERROR",
-          message: expect.stringContaining("Refusing to roll back the adopted baseline"),
+          message: expect.stringMatching(
+            /Refusing to roll back the adopted baseline.*--allow-baseline-rollback/
+          ),
         },
       });
       expect(accountsTable.rows[0]?.regclass).toBe("accounts");

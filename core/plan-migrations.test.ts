@@ -274,7 +274,7 @@ describe("migration plans", () => {
       const adapter = createAdapter(["0000000000000_initial.up.sql"]);
 
       await expect(createDownPlan(adapter, migrationsPath)).rejects.toThrow(
-        "Refusing to roll back the adopted baseline"
+        /Refusing to roll back the adopted baseline.*--allow-baseline-rollback.*allowBaselineRollback/
       );
 
       const plan = await createDownPlan(adapter, migrationsPath, {
