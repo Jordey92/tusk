@@ -44,7 +44,7 @@ jobs:
   hosted-evidence:
     name: Verify hosted-provider release evidence
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     permissions:
       actions: read
       contents: read
@@ -56,6 +56,27 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Require successful CI for the exact release commit
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          ci_run_id="$(
+            gh api --method GET \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
+              -f head_sha="${GITHUB_SHA}" \
+              -f branch="${DEFAULT_BRANCH}" \
+              -f status=completed \
+              -f per_page=100 \
+              --jq '.workflow_runs | map(select(.conclusion == "success")) | first | .id // empty'
+          )"
+          if [ -z "${ci_run_id}" ]; then
+            echo "No successful CI run exists for release commit ${GITHUB_SHA} on ${DEFAULT_BRANCH}"
+            exit 1
+          fi
+          echo "Using successful CI run ${ci_run_id} for ${GITHUB_SHA}"
 
       - name: Download and validate same-SHA evidence
         shell: bash
@@ -197,6 +218,7 @@ jobs:
       - platform-compatibility
       - hosted-evidence
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     environment: npm-release
 
     services:
@@ -359,11 +381,11 @@ jobs:
           DB_PASSWORD: password
           DB_NAME: migrate_tool_test
 
-      - name: Run release-quality verification
+      - name: Run fast release-quality verification
         shell: bash
         run: |
           set -o pipefail
-          bun run quality:release 2>&1 | tee artifacts/release/quality-release.log
+          bun run quality:release:fast 2>&1 | tee artifacts/release/quality-release-fast.log
         env:
           DATABASE_URL: postgresql://user:password@127.0.0.1:5433/migrate_tool_test
           DB_HOST: 127.0.0.1

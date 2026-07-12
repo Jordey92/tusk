@@ -249,6 +249,37 @@ describe("validateMigrations", () => {
     }
   });
 
+  test("continues scanning for forbidden statements after comments and strings", async () => {
+    const migrationsPath = await createTempDir();
+    const cases = [
+      ["1728123456791_after_line_comment", "-- harmless\nBEGIN;"],
+      ["1728123456792_after_block_comment", "/* harmless */\nCOMMIT;"],
+      ["1728123456793_after_string", "SELECT 'ROLLBACK;';\nROLLBACK;"],
+    ] as const;
+
+    try {
+      for (const [name, sql] of cases) {
+        await writeMigrationPair(
+          migrationsPath,
+          name,
+          sql,
+          `DROP TABLE IF EXISTS ${name};`
+        );
+      }
+
+      const result = await validateMigrations(migrationsPath);
+      const forbiddenFiles = result.issues
+        .filter((issue) => issue.code === "TRANSACTION_STATEMENT_NOT_ALLOWED")
+        .map((issue) => issue.filename);
+
+      for (const [name] of cases) {
+        expect(forbiddenFiles).toContain(`${name}.up.sql`);
+      }
+    } finally {
+      await rm(migrationsPath, { recursive: true, force: true });
+    }
+  });
+
   test("rejects PostgreSQL operations that cannot run in managed transactions", async () => {
     const migrationsPath = await createTempDir();
 

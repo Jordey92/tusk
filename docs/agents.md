@@ -21,7 +21,7 @@ tusk validate --json
 4. Start the local PostgreSQL service when database checks are needed.
 
 ```bash
-docker compose up -d db
+docker compose up -d --wait db
 ```
 
 5. Run a read-only doctor preflight against the project and database.

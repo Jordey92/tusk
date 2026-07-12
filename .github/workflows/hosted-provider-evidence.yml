@@ -55,10 +55,16 @@ jobs:
     name: Verify ${{ inputs.provider }}
     needs: preflight
     runs-on: ${{ (inputs.provider == 'rds' || inputs.provider == 'aurora') && fromJSON('["self-hosted","linux","tusk-hosted-postgres"]') || 'ubuntu-24.04' }}
-    timeout-minutes: 35
+    timeout-minutes: 5
     environment: hosted-pg-${{ inputs.provider }}
 
     steps:
+      - name: Establish cleanup-safe verification deadline
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "TUSK_HOSTED_VERIFY_DEADLINE_EPOCH=$(($(date +%s) + 210))" >> "${GITHUB_ENV}"
+
       - name: Validate protected target configuration
         shell: bash
         env:
@@ -107,7 +113,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          required=(awk bash find gh git jq node npm realpath sha256sum tar)
+          required=(awk bash date find gh git jq node npm realpath sha256sum tar timeout)
           for tool in "${required[@]}"; do
             if ! command -v "${tool}" >/dev/null 2>&1; then
               echo "Required runner tool is missing: ${tool}"
@@ -209,7 +215,14 @@ jobs:
           TUSK_HOSTED_RUN_ID: tusk_v1_${{ github.run_id }}_${{ github.run_attempt }}
           TUSK_HOSTED_TARGET_LABEL: ${{ vars.TARGET_LABEL }}
         run: |
-          bun scripts/verify-hosted-provider.ts \
+          set -euo pipefail
+          remaining_seconds=$((TUSK_HOSTED_VERIFY_DEADLINE_EPOCH - $(date +%s)))
+          if [ "${remaining_seconds}" -lt 30 ]; then
+            echo "Insufficient time remains to start guarded provider verification"
+            exit 1
+          fi
+          timeout --signal=TERM --kill-after=5s "${remaining_seconds}s" \
+            bun scripts/verify-hosted-provider.ts \
             --provider "${PROVIDER}" \
             --cli "${CLI_PATH}" \
             --artifact "${ARTIFACT_PATH}" \
@@ -232,7 +245,8 @@ jobs:
           TUSK_HOSTED_TARGET_LABEL: ${{ vars.TARGET_LABEL }}
         run: |
           if [ -f "${TUSK_HOSTED_CLEANUP_MANIFEST}" ]; then
-            bun scripts/cleanup-hosted-provider.ts \
+            timeout --signal=TERM --kill-after=5s 40s \
+              bun scripts/cleanup-hosted-provider.ts \
               "${PROVIDER}" \
               "${TUSK_HOSTED_CLEANUP_MANIFEST}"
           else

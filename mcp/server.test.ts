@@ -1,68 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readdir, rm } from "fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
-import { join, resolve } from "path";
-
-const serverEntrypoint = resolve(process.cwd(), "mcp/server.ts");
-
-const decode = async (stream: ReadableStream<Uint8Array> | null) => {
-  if (!stream) {
-    return "";
-  }
-
-  return await new Response(stream).text();
-};
-
-const callTool = async (
-  name: string,
-  args: Record<string, unknown>,
-  env: Record<string, string> = {}
-) => {
-  return sendRequest({
-    jsonrpc: "2.0",
-    id: 1,
-    method: "tools/call",
-    params: {
-      name,
-      arguments: args,
-    },
-  }, env) as Promise<{
-    result: {
-      isError: boolean;
-      content: Array<{ text: string }>;
-    };
-  }>;
-};
-
-const sendRequest = async (
-  request: Record<string, unknown>,
-  env: Record<string, string> = {}
-) => {
-  const child = Bun.spawn([process.execPath, serverEntrypoint], {
-    env: {
-      ...process.env,
-      LOG_LEVEL: "error",
-      ...env,
-    },
-    stdin: "pipe",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  child.stdin.write(`${JSON.stringify(request)}\n`);
-  child.stdin.end();
-
-  const [stdout, stderr, exitCode] = await Promise.all([
-    decode(child.stdout),
-    decode(child.stderr),
-    child.exited,
-  ]);
-
-  expect(exitCode).toBe(0);
-  expect(stderr).toBe("");
-
-  return JSON.parse(stdout.trim());
-};
+import { join } from "path";
+import {
+  callMcpTool as callTool,
+  sendMcpRequest as sendRequest,
+} from "./test-utils/server";
 
 describe("MCP server", () => {
   test("echoes the requested protocol version during initialization", async () => {
@@ -87,6 +30,27 @@ describe("MCP server", () => {
     });
 
     expect(response.result).toEqual({});
+  });
+
+  test("publishes safe boolean defaults in the tool schemas", async () => {
+    const response = await sendRequest({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/list",
+    });
+    const tools = response.result.tools as Array<{
+      name: string;
+      inputSchema: { properties: Record<string, { default?: unknown }> };
+    }>;
+
+    expect(
+      tools.find((tool) => tool.name === "tusk_validate")?.inputSchema.properties
+        .checkDatabase?.default
+    ).toBe(false);
+    expect(
+      tools.find((tool) => tool.name === "tusk_plan_down")?.inputSchema.properties
+        .allowBaselineRollback?.default
+    ).toBe(false);
   });
 
   test("rejects invalid explicit rollback counts", async () => {
@@ -120,6 +84,38 @@ describe("MCP server", () => {
     );
   });
 
+  test("validates without a database unless database checks are requested", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "tusk-mcp-validate-files-"));
+    try {
+      await writeFile(
+        join(workspace, "1728123456789_widgets.up.sql"),
+        "CREATE TABLE widgets (id INTEGER PRIMARY KEY);"
+      );
+      await writeFile(
+        join(workspace, "1728123456789_widgets.down.sql"),
+        "DROP TABLE widgets;"
+      );
+      const response = await callTool("tusk_validate", {
+        migrationsPath: workspace,
+      }, {
+        DATABASE_URL: "",
+        DB_HOST: "127.0.0.1",
+        DB_PORT: "1",
+        DB_NAME: "",
+        DB_USER: "",
+        DB_PASSWORD: "",
+      });
+
+      expect(response.result.isError).toBe(false);
+      expect(JSON.parse(response.result.content[0]!.text)).toMatchObject({
+        ok: true,
+        issues: [],
+      });
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+    }
+  });
+
   test("rejects malformed baseline rollback overrides", async () => {
     const response = await callTool("tusk_plan_down", {
       allowBaselineRollback: "true",
@@ -151,6 +147,30 @@ describe("MCP server", () => {
     );
   });
 
+  test("accepts a zero statement timeout", async () => {
+    const response = await callTool("tusk_status", {}, {
+      TUSK_STATEMENT_TIMEOUT_MS: "0",
+      DATABASE_URL: "",
+      DB_HOST: "127.0.0.1",
+      DB_PORT: "1",
+    });
+
+    expect(response.result.content[0]?.text).not.toContain(
+      "TUSK_STATEMENT_TIMEOUT_MS must be a non-negative integer"
+    );
+  });
+
+  test("treats an empty databaseUrl argument as an omitted override", async () => {
+    const response = await callTool("tusk_status", { databaseUrl: "" }, {
+      DATABASE_URL: "postgresql://user:password@127.0.0.1:1/from_environment",
+      DB_HOST: "127.0.0.1",
+      DB_PORT: "2",
+    });
+
+    expect(response.result.content[0]?.text).toContain("127.0.0.1:1");
+    expect(response.result.content[0]?.text).not.toContain("127.0.0.1:2");
+  });
+
   test("creates migration files with explicit string arguments", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "tusk-mcp-create-"));
     const migrationsPath = join(workspace, "migrations");
@@ -176,5 +196,19 @@ describe("MCP server", () => {
     } finally {
       await rm(workspace, { recursive: true, force: true });
     }
+  });
+
+  test("marks a missing tool name as an MCP tool error", async () => {
+    const response = await sendRequest({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { arguments: {} },
+    });
+
+    expect(response.result.isError).toBe(true);
+    expect(JSON.parse(response.result.content[0].text)).toEqual({
+      error: "Missing tool name",
+    });
   });
 });

@@ -7,6 +7,7 @@
     "plugins/elysia.ts",
     "cli.ts",
     "mcp/server.ts",
+    "scripts/cleanup-hosted-provider.ts",
     "scripts/quality/*.ts",
     "**/*.test.ts"
   ],

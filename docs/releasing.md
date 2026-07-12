@@ -135,6 +135,11 @@ For the release workflow to mean anything, the default branch should require the
 - `Package smoke (macos-latest)`
 - `Package smoke (windows-latest)`
 
+The stable `Verify (Node 24, PostgreSQL 18)` context is a fan-in check: it only
+passes after the fast verification lane and every exhaustive mutation shard
+passes. Publication verifies a successful run for the exact release commit
+instead of repeating the mutation suite serially.
+
 Recommended repository settings:
 
 - require pull requests before merging

@@ -1,6 +1,6 @@
 import { readFile } from "fs/promises";
 
-interface QualityConfig {
+export interface QualityConfig {
   crap: {
     lcovPath: string;
     sourceRoots: string[];
@@ -11,17 +11,16 @@ interface QualityConfig {
   mutation: {
     minimumScore: number;
     timeoutMs: number;
-    maxMutantsPerFile: number;
     reportPath: string;
     targets: Array<{
       file: string;
-      testCommand: string;
+      testCommand: string[];
     }>;
   };
 }
 
 export const loadQualityConfig = async (
-  path = "quality.config.json"
+  path = "quality.config.json",
 ): Promise<QualityConfig> => {
   const raw = await readFile(path, "utf-8");
   return JSON.parse(raw) as QualityConfig;

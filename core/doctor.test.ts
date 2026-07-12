@@ -403,6 +403,7 @@ describe("doctor", () => {
       });
 
       expect(report.result).toBe("fail");
+      expect(report.environment.databaseConfiguration).toBe("missing");
       expect(report.checks).toContainEqual(
         expect.objectContaining({
           id: "database.driver",

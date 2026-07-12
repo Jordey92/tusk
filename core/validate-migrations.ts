@@ -82,7 +82,7 @@ const advanceLineComment = (
   }
 
   const newlineIndex = sql.indexOf("\n", index + 2);
-  return newlineIndex < 0
+  return newlineIndex === -1
     ? { nextIndex: sql.length, replacement: "" }
     : { nextIndex: newlineIndex + 1, replacement: "\n" };
 };
@@ -97,7 +97,7 @@ const advanceBlockComment = (
 
   const commentEnd = sql.indexOf("*/", index + 2);
   return {
-    nextIndex: commentEnd < 0 ? sql.length : commentEnd + 2,
+    nextIndex: commentEnd === -1 ? sql.length : commentEnd + 2,
     replacement: " ",
   };
 };
@@ -110,7 +110,7 @@ const findDelimitedTextEnd = (
   let cursor = index + 1;
   const escapedDelimiter = `${delimiter}${delimiter}`;
 
-  while (cursor < sql.length) {
+  while (cursor !== sql.length) {
     if (sql.startsWith(escapedDelimiter, cursor)) {
       cursor += 2;
       continue;

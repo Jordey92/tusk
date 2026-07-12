@@ -160,6 +160,19 @@ describe("doctor human output", () => {
     expect(output).toContain("Run tusk doctor again");
   });
 
+  test("omits blank causes", () => {
+    const report = createReport([
+      {
+        id: "database.connection",
+        status: "fail",
+        message: "Database connection failed",
+        context: { cause: "   " },
+      },
+    ]);
+
+    expect(formatDoctorReport(report)).not.toContain("Cause:");
+  });
+
   test("maps invalid migration and database state to focused commands", () => {
     const report = createReport([
       {

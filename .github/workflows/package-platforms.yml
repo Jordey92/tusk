@@ -21,7 +21,7 @@ jobs:
   package-smoke:
     name: Package smoke (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 5
     strategy:
       fail-fast: false
       matrix:

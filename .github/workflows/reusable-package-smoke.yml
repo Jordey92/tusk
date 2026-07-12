@@ -15,10 +15,6 @@ on:
       artifact_name:
         required: true
         type: string
-      timeout_minutes:
-        required: false
-        type: number
-        default: 15
 
 permissions:
   contents: read
@@ -27,7 +23,7 @@ jobs:
   package-smoke:
     name: ${{ inputs.job_name }}
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ inputs.timeout_minutes }}
+    timeout-minutes: 5
 
     services:
       postgres:

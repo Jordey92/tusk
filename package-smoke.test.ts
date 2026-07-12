@@ -300,6 +300,7 @@ describe("package smoke test", () => {
     expectSuccess(archiveListing);
     expect(archiveListing.stdout).not.toContain(".map");
     expect(archiveListing.stdout).not.toContain("dist/scripts/quality");
+    expect(archiveListing.stdout).not.toContain("dist/mcp/test-utils");
     expect(archiveListing.stdout).not.toContain("dist/utils/test-helper");
     expect(archiveListing.stdout).toContain("package/docs/compatibility.md");
     expect(archiveListing.stdout).toContain("package/examples/basic/README.md");

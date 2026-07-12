@@ -45,13 +45,25 @@ This covers:
 
 ### Full modern verification
 
-Run the same command as the modern GitHub Actions verification lane:
+Run the build and test portion of the modern GitHub Actions verification lane:
 
 ```bash
 bun run test:ci
 ```
 
-This matches the `Verify (Node 24, PostgreSQL 18)` workflow when a local PostgreSQL service is available.
+With a local PostgreSQL service available, the complete fast lane is:
+
+```bash
+bun run test:ci
+bun run quality:release:fast
+```
+
+The required `Verify (Node 24, PostgreSQL 18)` check also waits for exhaustive
+mutation testing. Run that final gate locally with `bun run quality:mutation`.
+CI distributes the same deterministic executable-mutant manifest across 16
+isolated jobs, verifies that every mutant appears exactly once, and applies the
+85% threshold only to the merged report. Every concrete CI job has a hard
+five-minute timeout.
 
 ### Dead-code analysis
 
@@ -80,7 +92,8 @@ Run the deeper PostgreSQL-backed integration suites:
 bun run test:db
 ```
 
-This covers the adapter and migration engine integration paths beyond the smoke tests.
+This covers the adapter, migration engine, and MCP database-safety integration
+paths beyond the smoke tests.
 
 ### Minimum-supported packaged smoke test
 
@@ -98,7 +111,7 @@ This is the same path used by the `Minimum Support (Node 18, PostgreSQL 13)` wor
 Start the local PostgreSQL service used by the integration tests:
 
 ```bash
-docker compose up -d db
+docker compose up -d --wait db
 ```
 
 Then run the suite again:
@@ -176,8 +189,8 @@ and hostname are verified. Neon requires its direct URL;
 Supabase requires direct port 5432 or the session-pooler port 5432. RDS and
 Aurora run on a private ephemeral Linux runner labelled
 `tusk-hosted-postgres`. The runner image must provide Bash 4+, GitHub CLI,
-`jq`, `git`, GNU `find`, `realpath`, `sha256sum`, `awk`, and `tar`; the workflow
-installs pinned Node/npm and Bun versions. Install the RDS CA bundle on the
+`jq`, `git`, GNU `find`, `realpath`, `sha256sum`, `awk`, `tar`, and `timeout`;
+the workflow installs pinned Node/npm and Bun versions. Install the RDS CA bundle on the
 runner and include its percent-encoded `sslrootcert` path in the guarded URL.
 
 The workflow installs and exercises an exact packed tarball through doctor,
@@ -199,7 +212,7 @@ Tusk currently uses six user-facing GitHub Actions workflows plus one reusable
 package-smoke workflow:
 
 - `CI`
-  - `Verify (Node 24, PostgreSQL 18)` is intended to be a required branch check
+  - `Verify (Node 24, PostgreSQL 18)` is the stable required fan-in for fast verification and all 16 exhaustive mutation shards
   - `Minimum Support (Node 18, PostgreSQL 13)` is intended to be a required branch check
 - `Compatibility Matrix`
   - scheduled and manually runnable compatibility smoke coverage across multiple Node.js and PostgreSQL versions
@@ -208,7 +221,7 @@ package-smoke workflow:
 - `Prepare Release PR`
   - manually creates a version-bump PR against `main`
 - `Publish npm Release`
-  - manually publishes the version already merged to `main`
+  - manually publishes the version already merged to `main` after proving the exact commit has successful CI
 - `Hosted Provider Evidence`
   - manually verifies a protected disposable hosted database and uploads redacted evidence
 - `Reusable Package Smoke`
@@ -227,5 +240,5 @@ If you need a fresh database, remove the Docker volume and restart:
 
 ```bash
 docker compose down -v
-docker compose up -d db
+docker compose up -d --wait db
 ```

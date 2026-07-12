@@ -2,12 +2,17 @@ import "dotenv/config";
 import { randomUUID } from "crypto";
 import { Pool } from "pg";
 
+const testDatabasePort = Number(process.env.TUSK_TEST_DB_PORT ?? "5433");
+if (!Number.isSafeInteger(testDatabasePort) || testDatabasePort < 1) {
+  throw new Error("TUSK_TEST_DB_PORT must be a positive integer");
+}
+
 const TEST_CONNECTION = {
-  user: "user",
-  host: "localhost",
-  database: "migrate_tool_test",
-  password: "password",
-  port: 5433,
+  user: process.env.TUSK_TEST_DB_USER ?? "user",
+  host: process.env.TUSK_TEST_DB_HOST ?? "localhost",
+  database: process.env.TUSK_TEST_DB_NAME ?? "migrate_tool_test",
+  password: process.env.TUSK_TEST_DB_PASSWORD ?? "password",
+  port: testDatabasePort,
 };
 
 const ADMIN_DATABASE = "postgres";

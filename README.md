@@ -390,7 +390,7 @@ Tusk keeps a wide support floor for teams working on older projects while still 
 - Supported floor: Node.js `18+`, Bun `1.3.8+`, PostgreSQL `13+`
 - Recommended stack: Node.js `24`, PostgreSQL `18`
 - Required PR CI checks:
-  - `Verify (Node 24, PostgreSQL 18)` runs the full build and test suite
+  - `Verify (Node 24, PostgreSQL 18)` requires the full build/test/quality lane and the globally aggregated exhaustive mutation suite
   - `Minimum Support (Node 18, PostgreSQL 13)` runs the packaged smoke test against the oldest supported runtime/database pair
   - `Package smoke (macos-latest)` and `Package smoke (windows-latest)` verify the installed artifact on both desktop platforms
 - Scheduled compatibility coverage:

@@ -34,7 +34,7 @@ bun run test
 Database-backed checks require Docker Compose:
 
 ```bash
-docker compose up -d db
+docker compose up -d --wait db
 bun run test:smoke
 bun run test:db
 ```
@@ -42,7 +42,7 @@ bun run test:db
 Full local verification:
 
 ```bash
-docker compose up -d db
+docker compose up -d --wait db
 bun run test:ci
 bun run test:smoke
 bun run test:db
@@ -73,4 +73,4 @@ Before reporting completion, run the narrowest meaningful check and state what p
 
 - Documentation-only changes: inspect links and affected examples.
 - Core or CLI changes: `bun run build` and `bun run test`.
-- Database behavior changes: also run `docker compose up -d db`, `bun run test:smoke`, and `bun run test:db` when Docker is available.
+- Database behavior changes: also run `docker compose up -d --wait db`, `bun run test:smoke`, and `bun run test:db` when Docker is available.

@@ -36,4 +36,3 @@ jobs:
       node_version: ${{ matrix.node }}
       postgres_image: ${{ matrix.postgres_image }}
       artifact_name: compatibility-node-${{ matrix.node }}-pg-${{ matrix.postgres }}-logs
-      timeout_minutes: 20

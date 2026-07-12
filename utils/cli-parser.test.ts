@@ -30,6 +30,7 @@ describe("CLI parser", () => {
     expect(parsed).toMatchObject({
       json: false,
       dryRun: false,
+      checkDatabase: false,
       downAll: false,
     });
     expect(parsed.downCount).toBeUndefined();
@@ -154,5 +155,19 @@ describe("CLI parser", () => {
       () => parseCommandArgs("init", ["--baseline"]),
       "Unknown init option"
     );
+  });
+
+  test("accepts zero-argument informational commands only without arguments", () => {
+    for (const command of ["version", "help"]) {
+      expect(parseAndValidate(command, [])).toMatchObject({
+        json: false,
+        dryRun: false,
+        checkDatabase: false,
+      });
+      expectValidationError(
+        () => parseCommandArgs(command, ["unexpected"]),
+        "does not accept additional arguments"
+      );
+    }
   });
 });

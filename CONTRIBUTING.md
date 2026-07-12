@@ -13,7 +13,7 @@ bun run test
 For database-backed tests:
 
 ```bash
-docker compose up -d db
+docker compose up -d --wait db
 bun run test:smoke
 bun run test:db
 ```

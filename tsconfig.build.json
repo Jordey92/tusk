@@ -20,6 +20,7 @@
     "dist",
     "**/*.test.ts",
     "fixtures",
+    "mcp/test-utils/**",
     "utils/cli-smoke.ts",
     "utils/test-helper.ts"
   ]
