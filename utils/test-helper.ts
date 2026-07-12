@@ -2,10 +2,16 @@ import "dotenv/config";
 import { randomUUID } from "crypto";
 import { Pool } from "pg";
 
-const testDatabasePort = Number(process.env.TUSK_TEST_DB_PORT ?? "5433");
-if (!Number.isSafeInteger(testDatabasePort) || testDatabasePort < 1) {
-  throw new Error("TUSK_TEST_DB_PORT must be a positive integer");
-}
+export const parseTestDatabasePort = (rawPort?: string): number => {
+  const port = Number(rawPort ?? "5433");
+  if (!Number.isSafeInteger(port) || port < 1 || port > 65535) {
+    throw new Error("TUSK_TEST_DB_PORT must be an integer between 1 and 65535");
+  }
+
+  return port;
+};
+
+const testDatabasePort = parseTestDatabasePort(process.env.TUSK_TEST_DB_PORT);
 
 const TEST_CONNECTION = {
   user: process.env.TUSK_TEST_DB_USER ?? "user",
