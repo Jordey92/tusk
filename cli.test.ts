@@ -1286,33 +1286,33 @@ describe("cli smoke test", () => {
   });
 
   test("status rejects combining --json and --quiet", async () => {
-    const database = await createTemporaryDatabase("cli_status_json_quiet");
     const workspace = await mkdtemp(join(tmpdir(), "tusk-cli-status-json-quiet-"));
     cleanupPaths.push(workspace);
 
     const env = {
-      DATABASE_URL: database.connectionString,
+      DATABASE_URL: "",
+      DB_HOST: "",
+      DB_PORT: "",
+      DB_NAME: "",
+      DB_USER: "",
+      DB_PASSWORD: "",
       MIGRATIONS_PATH: "migrations",
       LOG_LEVEL: "error",
     };
 
-    try {
-      const result = await runCli(["status", "--json", "--quiet"], env, workspace);
-      expect(result.exitCode).toBe(1);
-      expect(result.stderr).toBe("");
+    const result = await runCli(["status", "--json", "--quiet"], env, workspace);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe("");
 
-      const payload = JSON.parse(result.stdout) as {
-        ok: boolean;
-        command: string;
-        error: { code: string; message: string };
-      };
+    const payload = JSON.parse(result.stdout) as {
+      ok: boolean;
+      command: string;
+      error: { code: string; message: string };
+    };
 
-      expect(payload.ok).toBe(false);
-      expect(payload.command).toBe("status");
-      expect(payload.error.code).toBe("VALIDATION_ERROR");
-      expect(payload.error.message).toContain("cannot be combined");
-    } finally {
-      await database.cleanup();
-    }
+    expect(payload.ok).toBe(false);
+    expect(payload.command).toBe("status");
+    expect(payload.error.code).toBe("VALIDATION_ERROR");
+    expect(payload.error.message).toContain("cannot be combined");
   });
 });

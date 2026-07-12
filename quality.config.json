@@ -99,6 +99,10 @@
         ]
       },
       {
+        "file": "mcp/database-port.ts",
+        "testCommand": ["bun", "test", "mcp/database-port.test.ts"]
+      },
+      {
         "file": "mcp/server.ts",
         "testCommand": [
           "bun",
