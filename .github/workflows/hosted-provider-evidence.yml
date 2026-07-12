@@ -271,7 +271,7 @@ jobs:
 
       - name: Upload immutable candidate
         if: always() && steps.candidate.outputs.tarball != ''
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: hosted-candidate-${{ inputs.provider }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ steps.candidate.outputs.tarball }}
@@ -280,7 +280,7 @@ jobs:
 
       - name: Upload redacted provider evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: hosted-evidence-${{ inputs.provider }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/hosted/evidence-*.json
