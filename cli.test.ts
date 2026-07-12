@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
@@ -11,6 +11,10 @@ import { createTemporaryDatabase } from "./utils/test-helper";
 
 const cliEntrypoint = resolve(process.cwd(), "cli.ts");
 type TestDatabase = Awaited<ReturnType<typeof createTemporaryDatabase>>;
+
+// Database lifecycle tests can exceed Bun's 5-second default on shared CI runners.
+// Keep this comfortably below the mutation runner's and workflow's hard limits.
+setDefaultTimeout(15_000);
 
 const decode = async (stream: ReadableStream<Uint8Array> | null) => {
   if (!stream) {

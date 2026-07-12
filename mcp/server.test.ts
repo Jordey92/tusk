@@ -161,14 +161,27 @@ describe("MCP server", () => {
   });
 
   test("treats an empty databaseUrl argument as an omitted override", async () => {
-    const response = await callTool("tusk_status", { databaseUrl: "" }, {
-      DATABASE_URL: "postgresql://user:password@127.0.0.1:1/from_environment",
-      DB_HOST: "127.0.0.1",
-      DB_PORT: "2",
-    });
+    const migrationsPath = await mkdtemp(
+      join(tmpdir(), "tusk-mcp-empty-database-url-"),
+    );
 
-    expect(response.result.content[0]?.text).toContain("127.0.0.1:1");
-    expect(response.result.content[0]?.text).not.toContain("127.0.0.1:2");
+    try {
+      const response = await callTool(
+        "tusk_status",
+        { databaseUrl: "", migrationsPath },
+        {
+          DATABASE_URL:
+            "postgresql://user:password@127.0.0.1:1/from_environment",
+          DB_HOST: "127.0.0.1",
+          DB_PORT: "2",
+        },
+      );
+
+      expect(response.result.content[0]?.text).toContain("127.0.0.1:1");
+      expect(response.result.content[0]?.text).not.toContain("127.0.0.1:2");
+    } finally {
+      await rm(migrationsPath, { recursive: true, force: true });
+    }
   });
 
   test("creates migration files with explicit string arguments", async () => {

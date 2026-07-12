@@ -558,6 +558,23 @@ const run = async () => {
       `  ${result.status.padEnd(9)} ${result.file}:${result.line} ` +
         `[${result.manifestIndex}] ${result.description}`,
     );
+    if (result.status === "timed-out") {
+      console.log(`Recovery baseline: ${mutant.file}`);
+      await verifyBaseline(
+        mutant.file,
+        mutant.testCommand,
+        config.mutation.timeoutMs,
+      );
+    }
+  }
+
+  for (const mutant of selectedTargets.values()) {
+    console.log(`Final baseline: ${mutant.file}`);
+    await verifyBaseline(
+      mutant.file,
+      mutant.testCommand,
+      config.mutation.timeoutMs,
+    );
   }
 
   const report = createMutationReport(results, {

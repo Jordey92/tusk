@@ -8,7 +8,7 @@
   },
   "mutation": {
     "minimumScore": 85,
-    "timeoutMs": 15000,
+    "timeoutMs": 30000,
     "reportPath": ".tmp/quality/mutation-report.json",
     "targets": [
       {

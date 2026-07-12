@@ -1,9 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTemporaryDatabase } from "../utils/test-helper";
 import { callMcpTool } from "./test-utils/server";
+
+setDefaultTimeout(15_000);
 
 const createMigrationTable = async (
   database: Awaited<ReturnType<typeof createTemporaryDatabase>>,
