@@ -103,12 +103,20 @@ const decode = async (stream: ReadableStream<Uint8Array> | null) => {
   return await new Response(stream).text();
 };
 
+const platformCommand = (
+  cmd: string[],
+  platform = process.platform
+): string[] =>
+  platform === "win32" && cmd[0] === "npm"
+    ? ["cmd.exe", "/d", "/s", "/c", ...cmd]
+    : cmd;
+
 const runCommand = async (
   cmd: string[],
   cwd: string,
   envOverrides: Record<string, string> = {}
 ): Promise<CliCommandResult> => {
-  const child = Bun.spawn(cmd, {
+  const child = Bun.spawn(platformCommand(cmd), {
     cwd,
     env: {
       ...process.env,
@@ -225,6 +233,30 @@ const runMcpRequest = async (
   expect(stderr).toBe("");
   return JSON.parse(stdout.trim()) as Record<string, unknown>;
 };
+
+describe("package smoke command portability", () => {
+  test("routes npm through the Windows command shim", () => {
+    expect(platformCommand(["npm", "pack"], "win32")).toEqual([
+      "cmd.exe",
+      "/d",
+      "/s",
+      "/c",
+      "npm",
+      "pack",
+    ]);
+  });
+
+  test("leaves native executables and non-Windows commands unchanged", () => {
+    expect(platformCommand(["node", "consumer.mjs"], "win32")).toEqual([
+      "node",
+      "consumer.mjs",
+    ]);
+    expect(platformCommand(["npm", "pack"], "darwin")).toEqual([
+      "npm",
+      "pack",
+    ]);
+  });
+});
 
 describe("package smoke test", () => {
   const cleanupPaths: string[] = [];
