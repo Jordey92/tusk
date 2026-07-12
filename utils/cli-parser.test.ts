@@ -32,6 +32,13 @@ describe("CLI parser", () => {
       dryRun: false,
       checkDatabase: false,
       downAll: false,
+      allowBaselineRollback: false,
+      initFromDb: false,
+      status: {
+        exitCode: false,
+        json: false,
+        quiet: false,
+      },
     });
     expect(parsed.downCount).toBeUndefined();
     expect(getCliDownCount(parsed)).toBe(1);
@@ -47,6 +54,9 @@ describe("CLI parser", () => {
       downCount: "3",
     });
     expect(getCliDownCount(parsed)).toBe(3);
+    expect(
+      getCliDownCount(parseAndValidate("down", ["1"])),
+    ).toBe(1);
   });
 
   test("parses explicit all-history down rollback", () => {
@@ -106,6 +116,10 @@ describe("CLI parser", () => {
     expect(parseAndValidate("validate", ["--db", "--json"])).toMatchObject({
       json: true,
       checkDatabase: true,
+    });
+    expect(parseAndValidate("up", ["--dry-run", "--json"])).toMatchObject({
+      json: true,
+      dryRun: true,
     });
     expect(parseAndValidate("status", ["--exit-code", "--json"])).toMatchObject({
       json: true,
