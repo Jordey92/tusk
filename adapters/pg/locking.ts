@@ -18,6 +18,7 @@ interface UnlockRow extends QueryResultRow {
 
 export const createLockingMethods = (pool: ConnectionPool) => {
   let lockClient: ConnectionClient | null = null;
+  let releasePromise: Promise<void> | null = null;
 
   return {
     acquireMigrationLock: async () => {
@@ -60,9 +61,16 @@ export const createLockingMethods = (pool: ConnectionPool) => {
       }
     },
 
-    getActiveLockClient: () => lockClient,
+    // Stop routing new work to the dedicated client as soon as release starts,
+    // while retaining it internally so lock acquisition remains blocked.
+    getActiveLockClient: () => releasePromise ? null : lockClient,
 
     releaseMigrationLock: async () => {
+      if (releasePromise) {
+        await releasePromise;
+        return;
+      }
+
       if (!lockClient) {
         logger.debug("No migration lock held by current adapter");
         return;
@@ -70,23 +78,32 @@ export const createLockingMethods = (pool: ConnectionPool) => {
 
       logger.debug("Releasing migration lock");
       const client = lockClient;
-      lockClient = null;
 
       try {
-        const result = await client.query<UnlockRow>(
-          "SELECT pg_advisory_unlock($1) AS unlocked",
-          [MIGRATION_LOCK_ID]
-        );
-        if (!result.rows[0]?.unlocked) {
-          throw createMigrationLockedError(
-            "The database connection did not retain the advisory lock session. " +
-              "Use a direct or session-pooled PostgreSQL endpoint instead of a transaction pooler.",
-            { scope: "database", phase: "release" }
-          );
-        }
-        logger.debug("Migration lock released successfully");
+        // Defer the unlock to a microtask so releasePromise is observable before
+        // the client query begins, even if a driver throws synchronously.
+        releasePromise = Promise.resolve().then(async () => {
+          try {
+            const result = await client.query<UnlockRow>(
+              "SELECT pg_advisory_unlock($1) AS unlocked",
+              [MIGRATION_LOCK_ID]
+            );
+            if (!result.rows[0]?.unlocked) {
+              throw createMigrationLockedError(
+                "The database connection did not retain the advisory lock session. " +
+                  "Use a direct or session-pooled PostgreSQL endpoint instead of a transaction pooler.",
+                { scope: "database", phase: "release" }
+              );
+            }
+            logger.debug("Migration lock released successfully");
+          } finally {
+            lockClient = null;
+            client.release();
+          }
+        });
+        await releasePromise;
       } finally {
-        client.release();
+        releasePromise = null;
       }
     },
   };

@@ -101,6 +101,54 @@ describe("createLockingMethods", () => {
     await locking.releaseMigrationLock();
   });
 
+  test("coalesces release while blocking reacquisition and new client routing", async () => {
+    let finishUnlock: (() => void) | undefined;
+    const unlockPending = new Promise<void>((resolve) => {
+      finishUnlock = resolve;
+    });
+    let connections = 0;
+    let unlocks = 0;
+    let releases = 0;
+    const client = {
+      query: async (sql: string) => {
+        if (sql.includes("pg_try_advisory_lock")) {
+          return { rows: [{ acquired: true }] };
+        }
+
+        unlocks++;
+        await unlockPending;
+        return { rows: [{ unlocked: true }] };
+      },
+      release: () => {
+        releases++;
+      },
+    };
+    const locking = createLockingMethods({
+      connect: async () => {
+        connections++;
+        return client;
+      },
+    });
+
+    await locking.acquireMigrationLock();
+    const firstRelease = locking.releaseMigrationLock();
+    const secondRelease = locking.releaseMigrationLock();
+
+    expect(locking.getActiveLockClient()).toBeNull();
+    await expect(locking.acquireMigrationLock()).rejects.toThrow(
+      "already running a migration operation"
+    );
+    expect(connections).toBe(1);
+    expect(unlocks).toBe(1);
+    expect(releases).toBe(0);
+
+    finishUnlock?.();
+    await Promise.all([firstRelease, secondRelease]);
+    expect(unlocks).toBe(1);
+    expect(releases).toBe(1);
+    expect(locking.getActiveLockClient()).toBeNull();
+  });
+
   test("rejects endpoints that do not retain the advisory lock session", async () => {
     let released = false;
     const client = {
