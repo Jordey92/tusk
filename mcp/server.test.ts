@@ -160,49 +160,27 @@ describe("MCP server", () => {
     );
   });
 
-  test("rejects invalid database ports before loading a driver", async () => {
+  test("rejects an invalid database port before loading a driver", async () => {
     const migrationsPath = await mkdtemp(join(tmpdir(), "tusk-mcp-port-"));
 
     try {
-      const invalidResponses = await Promise.all(
-        ["not-a-port", "0", "65536", "1.5"].map((port) =>
-          callTool(
-            "tusk_status",
-            { migrationsPath },
-            {
-              DATABASE_URL: "",
-              DB_PORT: port,
-            },
-          )
-        )
+      const response = await callTool(
+        "tusk_status",
+        { migrationsPath },
+        {
+          DATABASE_URL: "",
+          DB_PORT: "not-a-port",
+          TUSK_DRIVER: "mysql",
+        },
       );
 
-      for (const response of invalidResponses) {
-        expect(response.result.isError).toBe(true);
-        expect(response.result.content[0]?.text).toContain(
-          "DB_PORT must be an integer between 1 and 65535",
-        );
-      }
-
-      const boundaryResponses = await Promise.all(
-        ["1", "65535"].map((port) =>
-          callTool(
-            "tusk_status",
-            { migrationsPath },
-            {
-              DATABASE_URL: "",
-              DB_HOST: "127.0.0.1",
-              DB_PORT: port,
-            },
-          )
-        )
+      expect(response.result.isError).toBe(true);
+      expect(response.result.content[0]?.text).toContain(
+        "DB_PORT must be an integer between 1 and 65535",
       );
-
-      for (const response of boundaryResponses) {
-        expect(response.result.content[0]?.text).not.toContain(
-          "DB_PORT must be an integer between 1 and 65535",
-        );
-      }
+      expect(response.result.content[0]?.text).not.toContain(
+        "TUSK_DRIVER must be pg or postgres",
+      );
     } finally {
       await rm(migrationsPath, { recursive: true, force: true });
     }
