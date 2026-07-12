@@ -1,22 +1,23 @@
 export type {
   ConnectionConfig,
+  ConnectionClient,
+  ConnectionPool,
   DatabaseAdapter,
+  DatabaseAdapterOptions,
   DownRunResult,
   MigrationRunResult,
+  MigrationAdapter,
   Migration,
   MigrationRecord,
   QueryResult,
+  QueryClient,
+  QueryParam,
+  QueryResultRow,
   RollbackTargetPayload,
   RunResult,
   TransactionClient,
   UpRunResult,
 } from "./types/migrations.js";
-export type { ElysiaMigrateConfig } from "./plugins/elysia.js";
-export type {
-  ManagedPostgresAdapter,
-  PostgresClientConfig,
-  SupportedPostgresDriver,
-} from "./adapters/postgres-client.js";
 export type {
   ColumnInfo,
   PrimaryKeyInfo,
@@ -56,6 +57,7 @@ export type {
 export type { InitMigrationResult } from "./core/init-migration.js";
 export type { InitProjectResult } from "./core/init-project.js";
 export type {
+  CliCommand,
   CliErrorPayload,
   CliResultPayload,
   CliSuccessPayload,
@@ -78,6 +80,7 @@ export type {
 } from "./types/cli.js";
 export type {
   DoctorCheck,
+  DoctorCheckStatus,
   DoctorDatabase,
   DoctorDatabaseConfiguration,
   DoctorDatabaseEngine,
@@ -88,7 +91,10 @@ export type {
   DoctorResult,
   DoctorSummary,
 } from "./types/doctor.js";
+export type { StructuredContext, StructuredValue } from "./types/structured.js";
+export type { TuskErrorCode } from "./utils/errors.js";
 
+export { TuskError, createTuskError, isTuskError } from "./utils/errors.js";
 export { runUp, runDown } from "./core/run-migrations.js";
 export { readMigrations } from "./core/read-migrations.js";
 export { createUpPlan, createDownPlan } from "./core/plan-migrations.js";
@@ -101,7 +107,3 @@ export {
 } from "./core/track-migrations.js";
 export { createInitialMigration } from "./core/init-migration.js";
 export { initializeProject } from "./core/init-project.js";
-
-export { createPgAdapter } from "./adapters/pg.js";
-export { createPostgresJsAdapter } from "./adapters/postgresjs.js";
-export { migrate } from "./plugins/elysia.js";

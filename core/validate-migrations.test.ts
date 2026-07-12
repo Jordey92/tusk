@@ -1,9 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import { randomUUID } from "crypto";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { DatabaseAdapter } from "../types/migrations";
-import { validateMigrations } from "./validate-migrations";
+import {
+  assertMigrationDirectoryExecutable,
+  assertNoValidationErrors,
+  validateMigrations,
+} from "./validate-migrations";
 
 const createTempDir = async () => mkdtemp(join(tmpdir(), "tusk-validate-"));
 
@@ -57,6 +62,38 @@ const validMigrationTableConstraints: Array<{
 ];
 
 describe("validateMigrations", () => {
+  test("throws only when validation contains an error", () => {
+    expect(() => assertNoValidationErrors([{
+      severity: "warning",
+      code: "FUTURE_WARNING",
+      message: "warning only",
+    }])).not.toThrow();
+
+    expect(() => assertNoValidationErrors([{
+      severity: "error",
+      code: "TEST_ERROR",
+      message: "error",
+    }])).toThrow("Migration validation failed");
+  });
+
+  test("maps only a missing directory to the dedicated directory error", async () => {
+    const missingPath = join(tmpdir(), `tusk-missing-${randomUUID()}`);
+    await expect(assertMigrationDirectoryExecutable(missingPath)).rejects
+      .toMatchObject({ code: "MIGRATION_DIRECTORY_NOT_FOUND" });
+
+    const migrationsPath = await createTempDir();
+    try {
+      await writeFile(
+        join(migrationsPath, "1728123456789_unpaired.up.sql"),
+        "SELECT 1;"
+      );
+      await expect(assertMigrationDirectoryExecutable(migrationsPath)).rejects
+        .toMatchObject({ code: "VALIDATION_ERROR" });
+    } finally {
+      await rm(migrationsPath, { recursive: true, force: true });
+    }
+  });
+
   test("passes for paired migration files with executable SQL", async () => {
     const migrationsPath = await createTempDir();
 
@@ -207,6 +244,58 @@ describe("validateMigrations", () => {
       expect(result.issues.map((issue) => issue.code)).not.toContain(
         "TRANSACTION_STATEMENT_NOT_ALLOWED"
       );
+    } finally {
+      await rm(migrationsPath, { recursive: true, force: true });
+    }
+  });
+
+  test("continues scanning for forbidden statements after comments and strings", async () => {
+    const migrationsPath = await createTempDir();
+    const cases = [
+      ["1728123456791_after_line_comment", "-- harmless\nBEGIN;"],
+      ["1728123456792_after_block_comment", "/* harmless */\nCOMMIT;"],
+      ["1728123456793_after_string", "SELECT 'ROLLBACK;';\nROLLBACK;"],
+    ] as const;
+
+    try {
+      for (const [name, sql] of cases) {
+        await writeMigrationPair(
+          migrationsPath,
+          name,
+          sql,
+          `DROP TABLE IF EXISTS ${name};`
+        );
+      }
+
+      const result = await validateMigrations(migrationsPath);
+      const forbiddenFiles = result.issues
+        .filter((issue) => issue.code === "TRANSACTION_STATEMENT_NOT_ALLOWED")
+        .map((issue) => issue.filename);
+
+      for (const [name] of cases) {
+        expect(forbiddenFiles).toContain(`${name}.up.sql`);
+      }
+    } finally {
+      await rm(migrationsPath, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects PostgreSQL operations that cannot run in managed transactions", async () => {
+    const migrationsPath = await createTempDir();
+
+    try {
+      await writeMigrationPair(
+        migrationsPath,
+        "1728123456789_concurrent_index",
+        "CREATE INDEX CONCURRENTLY widgets_name_idx ON widgets(name);",
+        "DROP INDEX CONCURRENTLY widgets_name_idx;"
+      );
+
+      const result = await validateMigrations(migrationsPath);
+      expect(result.ok).toBe(false);
+      expect(result.issues.filter((issue) =>
+        issue.code === "NON_TRANSACTIONAL_STATEMENT_NOT_ALLOWED"
+      )).toHaveLength(2);
     } finally {
       await rm(migrationsPath, { recursive: true, force: true });
     }

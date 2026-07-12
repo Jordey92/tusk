@@ -1,5 +1,8 @@
-import type { DatabaseAdapter } from "../types/migrations.js";
-import type { ConnectionPool } from "../types/migrations.js";
+import type {
+  ConnectionPool,
+  DatabaseAdapter,
+  DatabaseAdapterOptions,
+} from "../types/migrations.js";
 import { createExecuteQuery, createTransaction } from "./pg/query.js";
 import { createLockingMethods } from "./pg/locking.js";
 import { createIntrospectionMethods } from "./pg/introspection.js";
@@ -12,16 +15,21 @@ import {
 } from "./pg/sql-generator.js";
 import { sortTablesByDependencies } from "./pg/dependencies.js";
 
-export const createPgAdapter = (pool: ConnectionPool): DatabaseAdapter => {
-  const executeQuery = createExecuteQuery(pool);
-  const transaction = createTransaction(pool);
+export const createPgAdapter = (
+  pool: ConnectionPool,
+  options: DatabaseAdapterOptions = {}
+): DatabaseAdapter => {
   const lockingMethods = createLockingMethods(pool);
+  const getActiveClient = lockingMethods.getActiveLockClient;
+  const executeQuery = createExecuteQuery(pool, getActiveClient);
+  const transaction = createTransaction(pool, getActiveClient, options);
   const introspectionMethods = createIntrospectionMethods(executeQuery);
 
   return {
     query: executeQuery,
     transaction,
-    ...lockingMethods,
+    acquireMigrationLock: lockingMethods.acquireMigrationLock,
+    releaseMigrationLock: lockingMethods.releaseMigrationLock,
     ...introspectionMethods,
     columnToSQL,
     generateCreateTable,

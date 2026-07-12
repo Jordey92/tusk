@@ -1,5 +1,5 @@
 import type {
-  DatabaseAdapter,
+  MigrationAdapter,
   DownRunResult,
   Migration,
   TransactionClient,
@@ -29,9 +29,14 @@ import {
   resolveUpMigrationState,
   toRollbackTargetPayload,
 } from "./migration-resolution.js";
+import {
+  assertMigrationBatchExecutable,
+  assertMigrationDirectoryExecutable,
+} from "./validate-migrations.js";
+import { withMigrationLock } from "./migration-lock.js";
 
 interface MigrationBatchOptions {
-  adapter: DatabaseAdapter;
+  adapter: MigrationAdapter;
   migrations: Migration[];
   debugMessage: string;
   successMessage: string;
@@ -77,14 +82,13 @@ const executeMigrationBatch = async ({
 };
 
 export const runUp = async (
-  adapter: DatabaseAdapter,
+  adapter: MigrationAdapter,
   migrationsPath: string
 ): Promise<UpRunResult> => {
   logger.info("Starting migration up process", { migrationsPath });
 
-  await adapter.acquireMigrationLock();
-
-  try {
+  return withMigrationLock(adapter, "up", async () => {
+    await assertMigrationDirectoryExecutable(migrationsPath);
     try {
       await ensureMigrationsTable(adapter);
       logger.debug("Migrations table ensured");
@@ -102,6 +106,7 @@ export const runUp = async (
     }
 
     const migrationState = await resolveUpMigrationState(adapter, migrationsPath);
+    assertMigrationBatchExecutable(migrationState.pendingMigrations);
 
     logger.debug("Migration checksums verified");
 
@@ -135,13 +140,11 @@ export const runUp = async (
       executed: migrationState.pendingMigrations.length,
     });
     return { executed: migrationState.pendingMigrations.length, pending };
-  } finally {
-    await adapter.releaseMigrationLock();
-  }
+  });
 };
 
 export const runDown = async (
-  adapter: DatabaseAdapter,
+  adapter: MigrationAdapter,
   migrationsPath: string,
   target?: RollbackTarget
 ): Promise<DownRunResult> => {
@@ -149,15 +152,14 @@ export const runDown = async (
     migrationsPath,
   });
 
-  await adapter.acquireMigrationLock();
-
-  try {
+  return withMigrationLock(adapter, "down", async () => {
     await ensureMigrationsTable(adapter);
     const migrationState = await resolveDownMigrationState(
       adapter,
       migrationsPath,
       target
     );
+    assertMigrationBatchExecutable(migrationState.rollbackMigrations);
 
     logger.info("Found migrations to rollback", {
       total: migrationState.migrationsFromDirectory.length,
@@ -190,7 +192,5 @@ export const runDown = async (
       pending,
       rollbackTarget: toRollbackTargetPayload(migrationState),
     };
-  } finally {
-    await adapter.releaseMigrationLock();
-  }
+  });
 };

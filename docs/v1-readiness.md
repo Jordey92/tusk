@@ -17,9 +17,10 @@ Tusk should be ready for v1 when these contracts feel stable enough to support a
 
 ## Code Changes
 
-### Define a compatibility policy
+### Compatibility policy
 
-Add a short compatibility policy to the docs that explains what counts as a breaking change:
+The [compatibility policy](compatibility.md) defines supported entrypoints and
+what counts as a breaking change:
 
 - changing `tusk up`, `tusk down`, `tusk init`, `tusk status`, `tusk validate`, or `tusk doctor` behavior
 - changing JSON response envelopes or check IDs
@@ -98,9 +99,9 @@ Document the JSON fields that are intended to be stable for automation. See
 
 Anything not documented can remain implementation detail until v1.
 
-### Add a v1 release checklist
+### Use the v1 release checklist
 
-Add a reusable release checklist that includes:
+The reusable [v1 release checklist](v1-release-checklist.md) includes:
 
 - full CI passing
 - compatibility matrix passing
@@ -151,6 +152,10 @@ tusk down --dry-run --json
 
 Do not include Redshift in the support matrix. Doctor should keep failing Redshift clearly because Redshift is PostgreSQL-like, not normal PostgreSQL.
 
+Record dates, exact versions, provider details, and evidence links in the
+[release checklist](v1-release-checklist.md). An unrecorded manual result does
+not close the release item.
+
 ## Documentation
 
 Before v1, the docs should clearly cover:
@@ -160,10 +165,16 @@ Before v1, the docs should clearly cover:
 - rollback behavior and why `down` defaults to one migration
 - custom migrations paths
 - hosted PostgreSQL caveats
+- per-migration transaction boundaries and statement timeout configuration
+- adopted-baseline rollback protection and introspection limitations
 - `doctor`
 - JSON output for agents and scripts
 - MCP usage
 - release and compatibility policy
+
+The current sources are [Transactions and timeouts](transactions.md), [Existing
+database adoption](existing-databases.md), and [Compatibility
+policy](compatibility.md).
 
 ## Not Required For v1
 

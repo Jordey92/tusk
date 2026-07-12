@@ -55,7 +55,7 @@ describe("createMigrationFile", () => {
   });
 
   test("should create unique filenames for concurrent calls", async () => {
-    const { mkdtemp, rm } = await import("fs/promises");
+    const { mkdtemp, readdir, rm } = await import("fs/promises");
     const { tmpdir } = await import("os");
     const { join } = await import("path");
 
@@ -76,6 +76,11 @@ describe("createMigrationFile", () => {
 
       expect(new Set(upFiles).size).toBe(upFiles.length);
       expect(new Set(downFiles).size).toBe(downFiles.length);
+      expect(new Set(upFiles.map((file) => file.split("_")[0])).size).toBe(
+        upFiles.length
+      );
+      expect((await readdir(tempDir)).some((file) => file.endsWith(".lock")))
+        .toBe(false);
 
       upFiles.forEach((upFile) => {
         const timestamp = upFile.split("_")[0];
@@ -86,7 +91,7 @@ describe("createMigrationFile", () => {
     }
   });
 
-  test("should handle filenames with underscores and special characters", async () => {
+  test("accepts names with letters, numbers, underscores, and hyphens", async () => {
     const { mkdtemp, rm } = await import("fs/promises");
     const { tmpdir } = await import("os");
     const { join } = await import("path");
@@ -95,13 +100,13 @@ describe("createMigrationFile", () => {
     let result: { upFile: string; downFile: string };
 
     try {
-      const specialName = "add_user_emails-v2@2024";
+      const specialName = "add_user_emails-v2-2024";
       result = await createMigrationFile(tempDir, specialName);
 
       expect(result.upFile).toContain(specialName);
       expect(result.downFile).toContain(specialName);
-      expect(result.upFile).toMatch(/^\d+_add_user_emails-v2@2024\.up\.sql$/);
-      expect(result.downFile).toMatch(/^\d+_add_user_emails-v2@2024\.down\.sql$/);
+      expect(result.upFile).toMatch(/^\d+_add_user_emails-v2-2024\.up\.sql$/);
+      expect(result.downFile).toMatch(/^\d+_add_user_emails-v2-2024\.down\.sql$/);
 
     } finally {
       await rm(tempDir, { recursive: true, force: true });
@@ -166,19 +171,34 @@ describe("createMigrationFile", () => {
     }
   });
 
-  test("should handle empty filename", async () => {
+  test("rejects empty, flag-like, special-character, and traversal names", async () => {
     const { mkdtemp, rm } = await import("fs/promises");
     const { tmpdir } = await import("os");
     const { join } = await import("path");
 
     const tempDir = await mkdtemp(join(tmpdir(), "tusk-test-empty-"));
-    let result: { upFile: string; downFile: string };
+    try {
+      for (const name of ["", "--help", "bad@name", "../../../escaped", "has space"]) {
+        await expect(createMigrationFile(tempDir, name)).rejects.toThrow();
+      }
+
+      const { readdir } = await import("fs/promises");
+      expect(await readdir(tempDir)).toEqual([]);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects names whose final filename exceeds the portable limit", async () => {
+    const { mkdtemp, rm } = await import("fs/promises");
+    const { tmpdir } = await import("os");
+    const { join } = await import("path");
+    const tempDir = await mkdtemp(join(tmpdir(), "tusk-test-too-long-"));
 
     try {
-      result = await createMigrationFile(tempDir, "");
-
-      expect(result.upFile).toMatch(/^\d+_\.up\.sql$/);
-      expect(result.downFile).toMatch(/^\d+_\.down\.sql$/);
+      await expect(
+        createMigrationFile(tempDir, "a".repeat(250))
+      ).rejects.toThrow("exceeds the 255-byte");
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

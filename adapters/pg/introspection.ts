@@ -134,9 +134,9 @@ export const createIntrospectionMethods = (
       `
       SELECT
         kcu.column_name,
-        ccu.table_schema AS foreign_table_schema,
-        ccu.table_name AS foreign_table_name,
-        ccu.column_name AS foreign_column_name,
+        referenced_kcu.table_schema AS foreign_table_schema,
+        referenced_kcu.table_name AS foreign_table_name,
+        referenced_kcu.column_name AS foreign_column_name,
         rc.update_rule,
         rc.delete_rule,
         tc.constraint_name
@@ -147,12 +147,14 @@ export const createIntrospectionMethods = (
       JOIN information_schema.referential_constraints rc
         ON rc.constraint_name = tc.constraint_name
         AND rc.constraint_schema = tc.constraint_schema
-      JOIN information_schema.constraint_column_usage ccu
-        ON ccu.constraint_name = rc.unique_constraint_name
-        AND ccu.constraint_schema = rc.unique_constraint_schema
+      JOIN information_schema.key_column_usage referenced_kcu
+        ON referenced_kcu.constraint_name = rc.unique_constraint_name
+        AND referenced_kcu.constraint_schema = rc.unique_constraint_schema
+        AND referenced_kcu.ordinal_position = kcu.position_in_unique_constraint
       WHERE tc.table_schema = $1
         AND tc.table_name = $2
         AND tc.constraint_type = 'FOREIGN KEY'
+      ORDER BY tc.constraint_name, kcu.ordinal_position
       `,
       [schema, tableName]
     );

@@ -1,11 +1,13 @@
 import type { StructuredContext } from "../types/structured.js";
 
-type TuskErrorCode =
+export type TuskErrorCode =
   | "DATABASE_CONNECTION_FAILED"
   | "DRIVER_NOT_FOUND"
   | "MIGRATION_DIRECTORY_NOT_FOUND"
   | "MIGRATION_FILE_INVALID"
   | "MIGRATION_EXECUTION_FAILED"
+  | "MIGRATION_LOCKED"
+  | "BASELINE_UNSUPPORTED"
   | "METADATA_TABLE_INVALID"
   | "ROLLBACK_FAILED"
   | "VALIDATION_ERROR"
@@ -79,6 +81,16 @@ export const createMigrationExecutionError = (filename: string, cause?: Error): 
     cause,
     { filename }
   );
+
+export const createMigrationLockedError = (
+  message: string,
+  context?: StructuredContext
+): TuskError => createTuskError("MIGRATION_LOCKED", message, undefined, context);
+
+export const createBaselineUnsupportedError = (
+  message: string,
+  context?: StructuredContext
+): TuskError => createTuskError("BASELINE_UNSUPPORTED", message, undefined, context);
 
 export const createMetadataTableError = (
   message: string,

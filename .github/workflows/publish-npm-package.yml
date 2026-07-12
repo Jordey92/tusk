@@ -3,18 +3,27 @@ name: Publish npm Release
 on:
   workflow_dispatch:
     inputs:
-      create_github_release:
-        description: "Create a GitHub release for the published tag"
+      public_evidence_run_id:
+        description: "Successful Neon or Supabase evidence run for this exact commit"
         required: true
-        default: true
-        type: boolean
+        type: string
+      rds_evidence_run_id:
+        description: "Successful RDS evidence run reusing the public-provider candidate"
+        required: true
+        type: string
+      aurora_evidence_run_id:
+        description: "Optional successful Aurora evidence run reusing the same candidate"
+        required: false
+        type: string
 
 concurrency:
   group: release-${{ github.workflow }}
   cancel-in-progress: false
 
 permissions:
+  actions: read
   contents: write
+  id-token: write
 
 jobs:
   compatibility:
@@ -27,9 +36,190 @@ jobs:
       postgres_image: postgres:13.23-bookworm
       artifact_name: release-minimum-supported-logs
 
+  platform-compatibility:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/package-platforms.yml
+
+  hosted-evidence:
+    name: Verify hosted-provider release evidence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PUBLIC_RUN_ID: ${{ inputs.public_evidence_run_id }}
+      RDS_RUN_ID: ${{ inputs.rds_evidence_run_id }}
+      AURORA_RUN_ID: ${{ inputs.aurora_evidence_run_id }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Require successful CI for the exact release commit
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          ci_run_id="$(
+            gh api --method GET \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
+              -f head_sha="${GITHUB_SHA}" \
+              -f branch="${DEFAULT_BRANCH}" \
+              -f status=completed \
+              -f per_page=100 \
+              --jq '.workflow_runs | map(select(.conclusion == "success")) | first | .id // empty'
+          )"
+          if [ -z "${ci_run_id}" ]; then
+            echo "No successful CI run exists for release commit ${GITHUB_SHA} on ${DEFAULT_BRANCH}"
+            exit 1
+          fi
+          echo "Using successful CI run ${ci_run_id} for ${GITHUB_SHA}"
+
+      - name: Download and validate same-SHA evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/hosted-release .tmp/hosted-runs
+
+          validate_run() {
+            local run_id="$1"
+            local expected_provider="$2"
+            local destination=".tmp/hosted-runs/${expected_provider}"
+
+            if ! [[ "${run_id}" =~ ^[0-9]+$ ]]; then
+              echo "Evidence run id for ${expected_provider} must be numeric"
+              exit 1
+            fi
+
+            run_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}")"
+            run_attempt="$(jq -r .run_attempt <<<"${run_json}")"
+            if [ "$(jq -r .head_sha <<<"${run_json}")" != "${GITHUB_SHA}" ]; then
+              echo "Evidence run ${run_id} did not test ${GITHUB_SHA}"
+              exit 1
+            fi
+            if ! [[ "${run_attempt}" =~ ^[1-9][0-9]*$ ]]; then
+              echo "Evidence run ${run_id} has an invalid run attempt"
+              exit 1
+            fi
+            if [ "$(jq -r .conclusion <<<"${run_json}")" != "success" ]; then
+              echo "Evidence run ${run_id} was not successful"
+              exit 1
+            fi
+            if [ "$(jq -r .path <<<"${run_json}")" != ".github/workflows/hosted-provider-evidence.yml" ]; then
+              echo "Run ${run_id} is not a hosted-provider evidence workflow"
+              exit 1
+            fi
+
+            gh run download "${run_id}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --pattern "hosted-evidence-*-${run_id}-${run_attempt}" \
+              --dir "${destination}/evidence" >/dev/null
+            gh run download "${run_id}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --pattern "hosted-candidate-*-${run_id}-${run_attempt}" \
+              --dir "${destination}/candidate" >/dev/null
+
+            mapfile -t evidence_files < <(find "${destination}/evidence" -type f -name 'evidence-*.json')
+            mapfile -t tarballs < <(find "${destination}/candidate" -type f -name '*.tgz')
+            if [ "${#evidence_files[@]}" -ne 1 ] || [ "${#tarballs[@]}" -ne 1 ]; then
+              echo "Run ${run_id} must contain exactly one evidence file and one candidate tarball"
+              exit 1
+            fi
+
+            evidence="${evidence_files[0]}"
+            tarball="${tarballs[0]}"
+            actual_provider="$(jq -r .provider "${evidence}")"
+            if [ "${expected_provider}" = "public" ]; then
+              if [ "${actual_provider}" != "neon" ] && [ "${actual_provider}" != "supabase" ]; then
+                echo "Public evidence must come from Neon or Supabase"
+                exit 1
+              fi
+            elif [ "${actual_provider}" != "${expected_provider}" ]; then
+              echo "Expected ${expected_provider} evidence, found ${actual_provider}"
+              exit 1
+            fi
+
+            jq -e \
+              --arg sha "${GITHUB_SHA}" \
+              '.status == "passed" and
+               .source.commit == $sha and
+               .target.localTestOverride == false and
+               .target.tls == true and
+               .sessionLockProof == "passed" and
+               .adoption.status == "passed" and
+               .cleanup.verified == true' \
+              "${evidence}" >/dev/null
+
+            recorded_sha="$(jq -r .source.artifactSha256 "${evidence}")"
+            actual_sha="$(sha256sum "${tarball}" | awk '{print $1}')"
+            if [ "${recorded_sha}" != "${actual_sha}" ]; then
+              echo "Evidence and candidate checksums differ for run ${run_id}"
+              exit 1
+            fi
+
+            cp "${evidence}" "artifacts/hosted-release/${actual_provider}-${run_id}.json"
+            fingerprint="$(jq -r .target.fingerprint "${evidence}")"
+            printf '%s|%s' "${actual_sha}" "${fingerprint}"
+          }
+
+          public_result="$(validate_run "${PUBLIC_RUN_ID}" public)"
+          rds_result="$(validate_run "${RDS_RUN_ID}" rds)"
+          public_sha="${public_result%%|*}"
+          public_fingerprint="${public_result#*|}"
+          rds_sha="${rds_result%%|*}"
+          rds_fingerprint="${rds_result#*|}"
+          if [ "${public_sha}" != "${rds_sha}" ]; then
+            echo "Public-provider and RDS evidence did not test the same tarball"
+            exit 1
+          fi
+          if [ "${public_fingerprint}" = "${rds_fingerprint}" ]; then
+            echo "Public-provider and RDS evidence resolved to the same guarded target"
+            exit 1
+          fi
+
+          if [ -n "${AURORA_RUN_ID}" ]; then
+            aurora_result="$(validate_run "${AURORA_RUN_ID}" aurora)"
+            aurora_sha="${aurora_result%%|*}"
+            aurora_fingerprint="${aurora_result#*|}"
+            if [ "${public_sha}" != "${aurora_sha}" ]; then
+              echo "Aurora evidence did not test the same tarball"
+              exit 1
+            fi
+            if [ "${aurora_fingerprint}" = "${public_fingerprint}" ] || \
+               [ "${aurora_fingerprint}" = "${rds_fingerprint}" ]; then
+              echo "Aurora evidence must use a distinct guarded target"
+              exit 1
+            fi
+          fi
+
+          mapfile -t public_tarballs < <(find ".tmp/hosted-runs/public/candidate" -type f -name '*.tgz')
+          cp "${public_tarballs[0]}" artifacts/hosted-release/
+          package_version="$(tar -xOf "artifacts/hosted-release/$(basename "${public_tarballs[0]}")" package/package.json | jq -r .version)"
+          repository_version="$(node -p "require('./package.json').version")"
+          if [ "${package_version}" != "${repository_version}" ]; then
+            echo "Hosted candidate version ${package_version} does not match package.json ${repository_version}"
+            exit 1
+          fi
+
+      - name: Upload hosted-tested release candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hosted-tested-release-candidate
+          path: artifacts/hosted-release
+          if-no-files-found: error
+          retention-days: 30
+
   release:
-    needs: compatibility
+    needs:
+      - compatibility
+      - platform-compatibility
+      - hosted-evidence
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: npm-release
 
     services:
       postgres:
@@ -48,7 +238,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           fetch-depth: 0
 
@@ -62,18 +252,21 @@ jobs:
           fi
 
       - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: latest
+          bun-version: 1.3.8
 
       - name: Set up Node.js for npm
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
 
+      - name: Set up trusted-publishing npm CLI
+        run: npm install --global npm@12.0.1
+
       - name: Restore Bun cache
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
@@ -83,6 +276,12 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Download hosted-tested release candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: hosted-tested-release-candidate
+          path: artifacts/hosted-candidate
+
       - name: Determine release version
         id: version
         shell: bash
@@ -90,18 +289,83 @@ jobs:
           version="$(node -p "require('./package.json').version")"
           tag="v${version}"
 
-          if git ls-remote --tags origin "refs/tags/${tag}" | grep -q "${tag}$"; then
-            echo "Tag ${tag} already exists on origin"
+          tag_commit="$(git ls-remote origin "refs/tags/${tag}^{}" | awk '{print $1}')"
+          if [ -z "${tag_commit}" ]; then
+            tag_commit="$(git ls-remote origin "refs/tags/${tag}" | awk '{print $1}')"
+          fi
+
+          if [ -n "${tag_commit}" ] && [ "${tag_commit}" != "${GITHUB_SHA}" ]; then
+            echo "Tag ${tag} exists at ${tag_commit}, expected ${GITHUB_SHA}"
             exit 1
           fi
 
-          if npm view @bydey/tusk@"${version}" version >/dev/null 2>&1; then
-            echo "Version ${version} already exists on npm"
-            exit 1
+          npm_view_optional() {
+            local spec="$1"
+            local field="$2"
+            local error_file
+            local output
+            local status
+
+            error_file="$(mktemp)"
+            set +e
+            output="$(npm view "${spec}" "${field}" 2>"${error_file}")"
+            status=$?
+            set -e
+
+            if [ "${status}" -eq 0 ]; then
+              rm -f "${error_file}"
+              printf '%s' "${output}"
+              return 0
+            fi
+
+            if grep -q 'E404' "${error_file}"; then
+              rm -f "${error_file}"
+              return 0
+            fi
+
+            cat "${error_file}" >&2
+            rm -f "${error_file}"
+            return "${status}"
+          }
+
+          package_published=false
+          published_version="$(npm_view_optional "@bydey/tusk@${version}" version)"
+          if [ -n "${published_version}" ]; then
+            published_git_head="$(npm_view_optional "@bydey/tusk@${version}" gitHead)"
+            if [ -z "${published_git_head}" ] || [ "${published_git_head}" != "${GITHUB_SHA}" ]; then
+              echo "Version ${version} already exists on npm from ${published_git_head:-an unknown commit}"
+              exit 1
+            fi
+
+            echo "Version ${version} is already published from this commit; continuing release finalization"
+            package_published=true
+          fi
+
+          if [[ "${version}" == *-* ]]; then
+            npm_tag="next"
+            prerelease=true
+          else
+            npm_tag="latest"
+            prerelease=false
+          fi
+
+          if [ "${package_published}" != "true" ]; then
+            latest_version="$(npm_view_optional "@bydey/tusk" dist-tags.latest)"
+            if [ -n "${latest_version}" ]; then
+              bun scripts/validate-release-version.ts "${latest_version}" "${version}"
+            fi
+
+            selected_tag_version="$(npm_view_optional "@bydey/tusk" "dist-tags.${npm_tag}")"
+            if [ -n "${selected_tag_version}" ] && [ "${selected_tag_version}" != "${latest_version}" ]; then
+              bun scripts/validate-release-version.ts "${selected_tag_version}" "${version}"
+            fi
           fi
 
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "npm_tag=${npm_tag}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
+          echo "package_published=${package_published}" >> "$GITHUB_OUTPUT"
 
       - name: Run CI verification
         shell: bash
@@ -117,33 +381,155 @@ jobs:
           DB_PASSWORD: password
           DB_NAME: migrate_tool_test
 
+      - name: Run fast release-quality verification
+        shell: bash
+        run: |
+          set -o pipefail
+          bun run quality:release:fast 2>&1 | tee artifacts/release/quality-release-fast.log
+        env:
+          DATABASE_URL: postgresql://user:password@127.0.0.1:5433/migrate_tool_test
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5433
+          DB_USER: user
+          DB_PASSWORD: password
+          DB_NAME: migrate_tool_test
+
+      - name: Verify immutable hosted-tested release artifact
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t candidates < <(find artifacts/hosted-candidate -maxdepth 1 -type f -name '*.tgz')
+          if [ "${#candidates[@]}" -ne 1 ]; then
+            echo "Expected one hosted-tested release tarball"
+            exit 1
+          fi
+          tarball_name="$(basename "${candidates[0]}")"
+          cp "${candidates[0]}" "artifacts/release/${tarball_name}"
+          tarball_path="${GITHUB_WORKSPACE}/artifacts/release/${tarball_name}"
+          checksum_path="${tarball_path}.sha256"
+          (cd artifacts/release && sha256sum "${tarball_name}" > "${tarball_name}.sha256")
+          artifact_version="$(tar -xOf "${tarball_path}" package/package.json | jq -r .version)"
+          if [ "${artifact_version}" != "${{ steps.version.outputs.version }}" ]; then
+            echo "Hosted-tested artifact version ${artifact_version} does not match release ${{ steps.version.outputs.version }}"
+            exit 1
+          fi
+          mkdir -p artifacts/release/artifact-root
+          tar -xzf "${tarball_path}" -C artifacts/release/artifact-root
+          echo "path=${tarball_path}" >> "$GITHUB_OUTPUT"
+          echo "checksum_path=${checksum_path}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify registry artifact during recovery
+        if: ${{ steps.version.outputs.package_published == 'true' }}
+        shell: bash
+        env:
+          TARBALL_PATH: ${{ steps.package.outputs.path }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          published_integrity="$(npm view "@bydey/tusk@${VERSION}" dist.integrity)"
+          if [ -z "${published_integrity}" ]; then
+            echo "Published package ${VERSION} does not expose dist.integrity"
+            exit 1
+          fi
+          published_provenance="$(npm view "@bydey/tusk@${VERSION}" dist.attestations.provenance.predicateType)"
+          if [ "${published_provenance}" != "https://slsa.dev/provenance/v1" ]; then
+            echo "Published package ${VERSION} does not expose npm provenance"
+            exit 1
+          fi
+          candidate_integrity="$(node -e '
+            const crypto = require("node:crypto");
+            const fs = require("node:fs");
+            const bytes = fs.readFileSync(process.argv[1]);
+            const digest = crypto.createHash("sha512").update(bytes).digest("base64");
+            process.stdout.write(`sha512-${digest}`);
+          ' "${TARBALL_PATH}")"
+          if [ "${published_integrity}" != "${candidate_integrity}" ]; then
+            echo "Published package ${VERSION} does not match the hosted-tested tarball"
+            exit 1
+          fi
+
+      - name: Smoke-test immutable release artifact
+        env:
+          TUSK_PACKAGE_SMOKE_SKIP_BUILD: "1"
+          TUSK_PACKAGE_SMOKE_TARBALL: ${{ steps.package.outputs.path }}
+          TUSK_SMOKE_DATABASE_URL: postgresql://user:password@127.0.0.1:5433/migrate_tool_test
+        run: bun run test:smoke:package
+
+      - name: Generate release SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          path: artifacts/release/artifact-root/package
+          format: cyclonedx-json
+          artifact-name: tusk-${{ steps.version.outputs.version }}-sbom.cdx.json
+          output-file: artifacts/release/tusk-${{ steps.version.outputs.version }}-sbom.cdx.json
+          upload-release-assets: false
+
+      - name: Upload immutable release evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tusk-${{ steps.version.outputs.version }}-release-artifact
+          path: |
+            ${{ steps.package.outputs.path }}
+            ${{ steps.package.outputs.checksum_path }}
+            artifacts/hosted-candidate/*.json
+          retention-days: 30
+
       - name: Upload failure artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-logs
           path: |
             artifacts/release
             .tmp
+            coverage
           if-no-files-found: ignore
           retention-days: 14
 
       - name: Publish to npm
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        if: ${{ steps.version.outputs.package_published != 'true' }}
+        run: >-
+          npm publish "${{ steps.package.outputs.path }}"
+          --access public
+          --provenance
+          --tag "${{ steps.version.outputs.npm_tag }}"
 
       - name: Create and push tag
         run: |
-          git tag "${{ steps.version.outputs.tag }}"
-          git push origin "${{ steps.version.outputs.tag }}"
+          tag="${{ steps.version.outputs.tag }}"
+          if git ls-remote --exit-code origin "refs/tags/${tag}" >/dev/null 2>&1; then
+            echo "Tag ${tag} already exists at the expected commit"
+          else
+            git tag "${tag}"
+            git push origin "${tag}"
+          fi
 
       - name: Create GitHub release
-        if: ${{ github.event.inputs.create_github_release == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ steps.version.outputs.tag }}" \
-            --title "${{ steps.version.outputs.tag }}" \
-            --generate-notes \
-            --latest
+          tag="${{ steps.version.outputs.tag }}"
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            echo "GitHub release ${tag} already exists"
+          elif [ "${{ steps.version.outputs.prerelease }}" = "true" ]; then
+            gh release create "${tag}" \
+              --title "${tag}" \
+              --generate-notes \
+              --prerelease
+          else
+            gh release create "${tag}" \
+              --title "${tag}" \
+              --generate-notes \
+              --latest
+          fi
+
+      - name: Attach SBOM to GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ steps.version.outputs.tag }}" \
+            "artifacts/release/tusk-${{ steps.version.outputs.version }}-sbom.cdx.json" \
+            "${{ steps.package.outputs.checksum_path }}" \
+            artifacts/hosted-candidate/*.json \
+            --clobber

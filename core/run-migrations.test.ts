@@ -58,8 +58,7 @@ describe("run migrations", () => {
       }
     });
 
-    test("should handle directory with no .up.sql files", async () => {
-      // Create temporary directory with non-migration files
+    test("should reject a directory containing an unpaired down migration", async () => {
       const { mkdtemp, rmdir, writeFile, unlink } = await import("fs/promises");
       const { tmpdir } = await import("os");
       const { join } = await import("path");
@@ -72,9 +71,9 @@ describe("run migrations", () => {
         await writeFile(downFile, "DROP TABLE test;");
         await writeFile(textFile, "Not a migration");
 
-        const result = await runUp(adapter, tempDir);
-        expect(result.executed).toBe(0);
-        expect(result.pending).toBe(0);
+        await expect(runUp(adapter, tempDir)).rejects.toThrow(
+          "Migration validation failed"
+        );
       } finally {
         await unlink(downFile);
         await unlink(textFile);
@@ -113,7 +112,7 @@ describe("run migrations", () => {
         await unlink(upFile);
 
         await expect(runUp(adapter, tempDir)).rejects.toThrow(
-          "is missing from the migrations directory"
+          "Migration validation failed"
         );
       } finally {
         await adapter.query("DROP TABLE IF EXISTS test_missing_up;");
@@ -129,9 +128,11 @@ describe("run migrations", () => {
 
       const tempDir = await mkdtemp(join(tmpdir(), "tusk-test-bad-sql-"));
       const badSqlFile = join(tempDir, "123_bad_sql.up.sql");
+      const downSqlFile = join(tempDir, "123_bad_sql.down.sql");
 
       try {
         await writeFile(badSqlFile, "INVALID SQL STATEMENT;");
+        await writeFile(downSqlFile, "DROP TABLE IF EXISTS bad_sql;");
 
         await expect(
           runUp(adapter, tempDir)
@@ -149,9 +150,11 @@ describe("run migrations", () => {
 
       const tempDir = await mkdtemp(join(tmpdir(), "tusk-test-rollback-"));
       const badSqlFile = join(tempDir, "123_should_rollback.up.sql");
+      const downSqlFile = join(tempDir, "123_should_rollback.down.sql");
 
       try {
         await writeFile(badSqlFile, "INVALID SQL STATEMENT;");
+        await writeFile(downSqlFile, "DROP TABLE IF EXISTS should_rollback;");
 
         await expect(runUp(adapter, tempDir)).rejects.toThrow(
           "Migration failed: 123_should_rollback.up.sql"
@@ -160,6 +163,34 @@ describe("run migrations", () => {
         // Verify migration was not marked as executed
         const executed = await getExecutedMigrations(adapter);
         expect(executed.has("123_should_rollback.up.sql")).toBe(false);
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    test("rejects transaction control before applying SQL or metadata", async () => {
+      const { mkdtemp, rm, writeFile } = await import("fs/promises");
+      const { tmpdir } = await import("os");
+      const { join } = await import("path");
+      const tempDir = await mkdtemp(join(tmpdir(), "tusk-test-transaction-control-"));
+
+      try {
+        await writeFile(
+          join(tempDir, "123_unsafe.up.sql"),
+          "CREATE TABLE unsafe_transaction (id INT); COMMIT;"
+        );
+        await writeFile(
+          join(tempDir, "123_unsafe.down.sql"),
+          "DROP TABLE unsafe_transaction;"
+        );
+
+        await expect(runUp(adapter, tempDir)).rejects.toThrow(
+          "Migration validation failed"
+        );
+        const table = await adapter.query(
+          "SELECT to_regclass('unsafe_transaction') AS regclass"
+        );
+        expect(table.rows[0]?.regclass).toBeNull();
       } finally {
         await rm(tempDir, { recursive: true, force: true });
       }
@@ -265,7 +296,7 @@ describe("run migrations", () => {
       });
     });
 
-    test("should handle missing down files gracefully", async () => {
+    test("should refuse to apply a migration with no rollback pair", async () => {
       // Create temporary directory with up file but no corresponding down file
       const { mkdtemp, rmdir, writeFile, unlink } = await import("fs/promises");
       const { tmpdir } = await import("os");
@@ -277,12 +308,14 @@ describe("run migrations", () => {
       try {
         await writeFile(upFile, "CREATE TABLE test_missing_down (id INT);");
 
-        // Run up migration
-        await runUp(adapter, tempDir);
-
-        await expect(runDown(adapter, tempDir)).rejects.toThrow(
-          "Missing rollback migration file"
+        await expect(runUp(adapter, tempDir)).rejects.toThrow(
+          "Migration validation failed"
         );
+
+        const table = await adapter.query<{ regclass: string | null }>(
+          "SELECT to_regclass('test_missing_down') AS regclass"
+        );
+        expect(table.rows[0]?.regclass).toBeNull();
 
       } finally {
         await unlink(upFile);

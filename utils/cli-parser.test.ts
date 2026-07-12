@@ -30,7 +30,15 @@ describe("CLI parser", () => {
     expect(parsed).toMatchObject({
       json: false,
       dryRun: false,
+      checkDatabase: false,
       downAll: false,
+      allowBaselineRollback: false,
+      initFromDb: false,
+      status: {
+        exitCode: false,
+        json: false,
+        quiet: false,
+      },
     });
     expect(parsed.downCount).toBeUndefined();
     expect(getCliDownCount(parsed)).toBe(1);
@@ -46,15 +54,24 @@ describe("CLI parser", () => {
       downCount: "3",
     });
     expect(getCliDownCount(parsed)).toBe(3);
+    expect(
+      getCliDownCount(parseAndValidate("down", ["1"])),
+    ).toBe(1);
   });
 
   test("parses explicit all-history down rollback", () => {
-    const parsed = parseAndValidate("down", ["--all", "--dry-run", "--json"]);
+    const parsed = parseAndValidate("down", [
+      "--all",
+      "--dry-run",
+      "--json",
+      "--allow-baseline-rollback",
+    ]);
 
     expect(parsed).toMatchObject({
       json: true,
       dryRun: true,
       downAll: true,
+      allowBaselineRollback: true,
     });
     expect(parsed.downCount).toBeUndefined();
     expect(getCliDownCount(parsed)).toBeUndefined();
@@ -99,6 +116,10 @@ describe("CLI parser", () => {
     expect(parseAndValidate("validate", ["--db", "--json"])).toMatchObject({
       json: true,
       checkDatabase: true,
+    });
+    expect(parseAndValidate("up", ["--dry-run", "--json"])).toMatchObject({
+      json: true,
+      dryRun: true,
     });
     expect(parseAndValidate("status", ["--exit-code", "--json"])).toMatchObject({
       json: true,
@@ -148,5 +169,19 @@ describe("CLI parser", () => {
       () => parseCommandArgs("init", ["--baseline"]),
       "Unknown init option"
     );
+  });
+
+  test("accepts zero-argument informational commands only without arguments", () => {
+    for (const command of ["version", "help"]) {
+      expect(parseAndValidate(command, [])).toMatchObject({
+        json: false,
+        dryRun: false,
+        checkDatabase: false,
+      });
+      expectValidationError(
+        () => parseCommandArgs(command, ["unexpected"]),
+        "does not accept additional arguments"
+      );
+    }
   });
 });

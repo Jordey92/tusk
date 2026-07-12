@@ -45,13 +45,25 @@ This covers:
 
 ### Full modern verification
 
-Run the same command as the modern GitHub Actions verification lane:
+Run the build and test portion of the modern GitHub Actions verification lane:
 
 ```bash
 bun run test:ci
 ```
 
-This matches the `Verify (Node 24, PostgreSQL 18)` workflow when a local PostgreSQL service is available.
+With a local PostgreSQL service available, the complete fast lane is:
+
+```bash
+bun run test:ci
+bun run quality:release:fast
+```
+
+The required `Verify (Node 24, PostgreSQL 18)` check also waits for exhaustive
+mutation testing. Run that final gate locally with `bun run quality:mutation`.
+CI distributes the same deterministic executable-mutant manifest across 16
+isolated jobs, verifies that every mutant appears exactly once, and applies the
+85% threshold only to the merged report. Every concrete CI job has a hard
+five-minute timeout.
 
 ### Dead-code analysis
 
@@ -80,7 +92,8 @@ Run the deeper PostgreSQL-backed integration suites:
 bun run test:db
 ```
 
-This covers the adapter and migration engine integration paths beyond the smoke tests.
+This covers the adapter, migration engine, and MCP database-safety integration
+paths beyond the smoke tests.
 
 ### Minimum-supported packaged smoke test
 
@@ -98,7 +111,7 @@ This is the same path used by the `Minimum Support (Node 18, PostgreSQL 13)` wor
 Start the local PostgreSQL service used by the integration tests:
 
 ```bash
-docker compose up -d db
+docker compose up -d --wait db
 ```
 
 Then run the suite again:
@@ -128,19 +141,91 @@ new-project flow: `init`, `doctor`, `create`, `validate`, `validate --db`,
 The same smoke test also creates a second project and verifies existing
 database adoption with `init --from-db`, followed by a post-baseline migration.
 
+## Hosted Provider Evidence
+
+Use the manual `Hosted Provider Evidence` workflow for v1 compatibility proof
+against Neon, Supabase, RDS PostgreSQL, or Aurora PostgreSQL. Configure one
+protected environment per provider (`hosted-pg-neon`, `hosted-pg-supabase`,
+`hosted-pg-rds`, and `hosted-pg-aurora`) with these values:
+
+- secrets: `HOSTED_DATABASE_URL`, `HOSTED_GUARD_TOKEN`
+- variables: `EXPECTED_DATABASE`, `EXPECTED_HOST_SUFFIX`,
+  `EXPECTED_DOCTOR_PROVIDER`, `PROVIDER_REGION`, `TARGET_LABEL`
+
+Restrict each environment to the `main` branch and require deployment approval.
+For a solo-owned repository the owner can approve; add an independent reviewer
+and enable prevention of self-review when another maintainer is available.
+
+Provision the disposable role and guard as an administrator, replacing the
+placeholders with a generated 32+-character token and the role used by
+`HOSTED_DATABASE_URL`:
+
+```sql
+ALTER ROLE tusk_evidence_role
+  NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;
+GRANT CONNECT, CREATE ON DATABASE disposable_database TO tusk_evidence_role;
+GRANT USAGE, CREATE ON SCHEMA public TO tusk_evidence_role;
+
+CREATE SCHEMA tusk_evidence_guard;
+CREATE TABLE tusk_evidence_guard.target (
+  guard_token text PRIMARY KEY
+);
+INSERT INTO tusk_evidence_guard.target (guard_token)
+VALUES ('replace-with-a-high-entropy-token');
+REVOKE ALL ON SCHEMA tusk_evidence_guard FROM PUBLIC;
+REVOKE ALL ON TABLE tusk_evidence_guard.target FROM PUBLIC;
+GRANT USAGE ON SCHEMA tusk_evidence_guard TO tusk_evidence_role;
+GRANT SELECT ON TABLE tusk_evidence_guard.target TO tusk_evidence_role;
+```
+
+Store the same token as `HOSTED_GUARD_TOKEN`. The verifier confirms the role
+can select the marker but cannot change it, and refuses any pre-existing object
+owned by `public` before authorizing cleanup.
+
+The target role must be least-privileged and read, but not modify, the matching
+token in `tusk_evidence_guard.target`. The URL must identify that dedicated,
+empty, disposable database and use `sslmode=verify-full` so both its certificate
+and hostname are verified. Neon requires its direct URL;
+Supabase requires direct port 5432 or the session-pooler port 5432. RDS and
+Aurora run on a private ephemeral Linux runner labelled
+`tusk-hosted-postgres`. The runner image must provide Bash 4+, GitHub CLI,
+`jq`, `git`, GNU `find`, `realpath`, `sha256sum`, `awk`, `tar`, and `timeout`;
+the workflow installs pinned Node/npm and Bun versions. Install the RDS CA bundle on the
+runner and include its percent-encoded `sslrootcert` path in the guarded URL.
+
+The workflow installs and exercises an exact packed tarball through doctor,
+database validation, up/down plans, apply, status, rollback, adoption, and
+baseline protection. It also proves advisory-lock exclusion and release on two
+fixed sessions. The normal lifecycle runs in a randomized schema; adoption uses
+`public` only after the guard proves it empty. A redacted JSON result is
+uploaded, and publication requires successful cleanup plus matching evidence
+and tarball checksums. Pass the first successful evidence run ID into later
+provider runs to reuse the exact candidate.
+
+`TUSK_HOSTED_ALLOW_LOCAL_FOR_TESTS=1` exists only to regression-test the harness
+against local Docker. Evidence carrying `target.localTestOverride: true` does
+not qualify for publication.
+
 ## CI Coverage
 
-Tusk currently uses three GitHub Actions workflows:
+Tusk currently uses six user-facing GitHub Actions workflows plus one reusable
+package-smoke workflow:
 
 - `CI`
-  - `Verify (Node 24, PostgreSQL 18)` is intended to be a required branch check
+  - `Verify (Node 24, PostgreSQL 18)` is the stable required fan-in for fast verification and all 16 exhaustive mutation shards
   - `Minimum Support (Node 18, PostgreSQL 13)` is intended to be a required branch check
 - `Compatibility Matrix`
   - scheduled and manually runnable compatibility smoke coverage across multiple Node.js and PostgreSQL versions
+- `Package Platform Compatibility`
+  - verifies the installed package, CLI binaries, runtime imports, and TypeScript exports on macOS and Windows
 - `Prepare Release PR`
   - manually creates a version-bump PR against `main`
 - `Publish npm Release`
-  - manually publishes the version already merged to `main`
+  - manually publishes the version already merged to `main` after proving the exact commit has successful CI
+- `Hosted Provider Evidence`
+  - manually verifies a protected disposable hosted database and uploads redacted evidence
+- `Reusable Package Smoke`
+  - shared implementation used by minimum-support CI and release verification
 
 ## Troubleshooting
 
@@ -155,5 +240,5 @@ If you need a fresh database, remove the Docker volume and restart:
 
 ```bash
 docker compose down -v
-docker compose up -d db
+docker compose up -d --wait db
 ```

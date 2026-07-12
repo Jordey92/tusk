@@ -8,65 +8,104 @@
   },
   "mutation": {
     "minimumScore": 85,
-    "timeoutMs": 15000,
-    "maxMutantsPerFile": 30,
+    "timeoutMs": 30000,
     "reportPath": ".tmp/quality/mutation-report.json",
     "targets": [
       {
         "file": "core/checksum-validation.ts",
-        "testCommand": "bun test core/checksum-validation.test.ts core/plan-migrations.test.ts"
+        "testCommand": [
+          "bun",
+          "test",
+          "core/checksum-validation.test.ts",
+          "core/plan-migrations.test.ts"
+        ]
       },
       {
         "file": "core/plan-migrations.ts",
-        "testCommand": "bun test core/plan-migrations.test.ts"
+        "testCommand": ["bun", "test", "core/plan-migrations.test.ts"]
       },
       {
         "file": "core/migration-records.ts",
-        "testCommand": "bun test core/migration-records.test.ts core/track-migrations.test.ts"
+        "testCommand": [
+          "bun",
+          "test",
+          "core/migration-records.test.ts",
+          "core/track-migrations.test.ts"
+        ]
       },
       {
         "file": "core/migration-resolution.ts",
-        "testCommand": "bun test core/migration-resolution.test.ts core/plan-migrations.test.ts"
+        "testCommand": [
+          "bun",
+          "test",
+          "core/migration-resolution.test.ts",
+          "core/plan-migrations.test.ts"
+        ]
       },
       {
         "file": "core/run-migrations.ts",
-        "testCommand": "bun test core/run-migrations.test.ts"
+        "testCommand": ["bun", "test", "core/run-migrations.test.ts"]
       },
       {
         "file": "core/track-migrations.ts",
-        "testCommand": "bun test core/track-migrations.test.ts core/run-migrations.test.ts"
+        "testCommand": [
+          "bun",
+          "test",
+          "core/track-migrations.test.ts",
+          "core/run-migrations.test.ts"
+        ]
       },
       {
         "file": "core/validate-migrations.ts",
-        "testCommand": "bun test core/validate-migrations.test.ts"
+        "testCommand": ["bun", "test", "core/validate-migrations.test.ts"]
       },
       {
         "file": "core/doctor.ts",
-        "testCommand": "bun run build && bun test core/doctor.test.ts cli.test.ts"
+        "testCommand": ["bun", "test", "core/doctor.test.ts"]
       },
       {
         "file": "core/init-migration.ts",
-        "testCommand": "bun test core/init-migration.test.ts"
+        "testCommand": ["bun", "test", "core/init-migration.test.ts"]
       },
       {
         "file": "utils/cli-output.ts",
-        "testCommand": "bun test utils/cli-output.test.ts cli.test.ts"
+        "testCommand": ["bun", "test", "utils/cli-output.test.ts"]
       },
       {
         "file": "utils/cli-parser.ts",
-        "testCommand": "bun test utils/cli-parser.test.ts cli.test.ts"
+        "testCommand": ["bun", "test", "utils/cli-parser.test.ts"]
       },
       {
         "file": "utils/doctor-output.ts",
-        "testCommand": "bun test utils/doctor-output.test.ts core/doctor.test.ts"
+        "testCommand": [
+          "bun",
+          "test",
+          "utils/doctor-output.test.ts",
+          "core/doctor.test.ts"
+        ]
       },
       {
         "file": "adapters/postgres-client.ts",
-        "testCommand": "bun test adapters/postgres-client.test.ts cli.test.ts"
+        "testCommand": ["bun", "test", "adapters/postgres-client.test.ts"]
+      },
+      {
+        "file": "adapters/pg/locking.ts",
+        "testCommand": [
+          "bun",
+          "test",
+          "adapters/pg/locking.test.ts",
+          "core/doctor.test.ts",
+          "core/migration-lock.test.ts"
+        ]
       },
       {
         "file": "mcp/server.ts",
-        "testCommand": "bun test mcp/server.test.ts"
+        "testCommand": [
+          "bun",
+          "test",
+          "mcp/server.test.ts",
+          "mcp/server-db.test.ts"
+        ]
       }
     ]
   }

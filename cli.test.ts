@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
@@ -11,6 +11,10 @@ import { createTemporaryDatabase } from "./utils/test-helper";
 
 const cliEntrypoint = resolve(process.cwd(), "cli.ts");
 type TestDatabase = Awaited<ReturnType<typeof createTemporaryDatabase>>;
+
+// Database lifecycle tests can exceed Bun's 5-second default on shared CI runners.
+// Keep this comfortably below the mutation runner's and workflow's hard limits.
+setDefaultTimeout(15_000);
 
 const decode = async (stream: ReadableStream<Uint8Array> | null) => {
   if (!stream) {
@@ -169,6 +173,51 @@ describe("cli smoke test", () => {
     expect(payload.migrationsPath).toBe("migrations");
   });
 
+  test("supports command-scoped help without mutating the project", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "tusk-cli-help-"));
+    cleanupPaths.push(workspace);
+    const env = { MIGRATIONS_PATH: "migrations", LOG_LEVEL: "error" };
+
+    const createHelp = await runCli(["create", "--help"], env, workspace);
+    const upHelp = await runCli(["help", "up"], env, workspace);
+
+    expect(createHelp.exitCode).toBe(0);
+    expect(createHelp.stdout).toContain("Usage: tusk create <name>");
+    expect(upHelp.exitCode).toBe(0);
+    expect(upHelp.stdout).toContain("Usage: tusk up");
+    await expect(readdir(join(workspace, "migrations"))).rejects.toThrow();
+  });
+
+  test("rejects traversal migration names without writing outside migrations", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "tusk-cli-name-safety-"));
+    cleanupPaths.push(workspace);
+
+    const result = await runCli(
+      ["create", "../../../escaped", "--json"],
+      { MIGRATIONS_PATH: "migrations", LOG_LEVEL: "error" },
+      workspace
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: false,
+      command: "create",
+      error: { code: "VALIDATION_ERROR" },
+    });
+    expect(await readdir(workspace)).toEqual([]);
+  });
+
+  test("prints human errors once without a duplicate timestamped log", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "tusk-cli-error-"));
+    cleanupPaths.push(workspace);
+
+    const result = await runCli(["unknown"], { LOG_LEVEL: "error" }, workspace);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr.match(/\[VALIDATION_ERROR\]/g)).toHaveLength(1);
+    expect(result.stderr).not.toMatch(/\[\d{4}-\d{2}-\d{2}T/);
+  });
+
   test("doctor --json reports missing database configuration without throwing", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "tusk-cli-doctor-json-"));
     const migrationsPath = join(workspace, "migrations");
@@ -269,6 +318,38 @@ describe("cli smoke test", () => {
     }
   });
 
+  test("status is read-only when migration metadata does not exist", async () => {
+    const database = await createTemporaryDatabase("cli_status_readonly");
+    const workspace = await mkdtemp(join(tmpdir(), "tusk-cli-status-readonly-"));
+    const migrationsPath = join(workspace, "migrations");
+    cleanupPaths.push(workspace);
+
+    try {
+      await mkdir(migrationsPath);
+      await writeMigrationPair(migrationsPath, "1728123456789", "widgets");
+      const result = await runCli(
+        ["status", "--json"],
+        {
+          DATABASE_URL: database.connectionString,
+          MIGRATIONS_PATH: "migrations",
+          LOG_LEVEL: "error",
+        },
+        workspace
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        summary: { executed: 0, pending: 1 },
+      });
+      const metadata = await database.pool.query(
+        "SELECT to_regclass('_migrations') AS table_name"
+      );
+      expect(metadata.rows[0]?.table_name).toBeNull();
+    } finally {
+      await database.cleanup();
+    }
+  });
+
   test("init --from-db --json records the generated baseline as executed", async () => {
     const database = await createTemporaryDatabase("cli_init_baseline");
     const workspace = await mkdtemp(join(tmpdir(), "tusk-cli-init-"));
@@ -341,17 +422,51 @@ describe("cli smoke test", () => {
       });
 
       const rollback = await runCli(["down", "1", "--json"], env, workspace);
-      expect(rollback.exitCode).toBe(0);
+      expect(rollback.exitCode).toBe(1);
 
       const rollbackPayload = JSON.parse(rollback.stdout) as {
-        executed: number;
-        pending: number;
+        ok: boolean;
+        error: { code: string; message: string };
       };
-      const accountsTable = await database.pool.query<{ regclass: string | null }>(
+      let accountsTable = await database.pool.query<{ regclass: string | null }>(
         `SELECT to_regclass('public.accounts') AS regclass`
       );
 
-      expect(rollbackPayload).toMatchObject({ executed: 1, pending: 0 });
+      expect(rollbackPayload).toMatchObject({
+        ok: false,
+        error: {
+          code: "VALIDATION_ERROR",
+          message: expect.stringMatching(
+            /Refusing to roll back the adopted baseline.*--allow-baseline-rollback/
+          ),
+        },
+      });
+      expect(accountsTable.rows[0]?.regclass).toBe("accounts");
+
+      const destructivePlan = await runCli(
+        ["down", "1", "--dry-run", "--allow-baseline-rollback", "--json"],
+        env,
+        workspace
+      );
+      expect(destructivePlan.exitCode).toBe(0);
+      expect(JSON.parse(destructivePlan.stdout)).toMatchObject({
+        dryRun: true,
+        summary: { planned: 1 },
+      });
+
+      const destructiveRollback = await runCli(
+        ["down", "1", "--allow-baseline-rollback", "--json"],
+        env,
+        workspace
+      );
+      expect(destructiveRollback.exitCode).toBe(0);
+      expect(JSON.parse(destructiveRollback.stdout)).toMatchObject({
+        executed: 1,
+        pending: 0,
+      });
+      accountsTable = await database.pool.query<{ regclass: string | null }>(
+        `SELECT to_regclass('public.accounts') AS regclass`
+      );
       expect(accountsTable.rows[0]?.regclass).toBeNull();
     } finally {
       await database.cleanup();
@@ -711,18 +826,14 @@ describe("cli smoke test", () => {
     try {
       await mkdir(migrationsPath);
       await writeMigrationPair(migrationsPath, "0000000000001", "widgets");
-      await writeFile(
-        join(migrationsPath, "0000000000002_create_gadgets.up.sql"),
-        `
-        CREATE TABLE gadgets (
-          id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-          name TEXT NOT NULL
-        );
-        `
-      );
+      await writeMigrationPair(migrationsPath, "0000000000002", "gadgets");
 
       const upResult = await runCli(["up"], env, workspace);
       expect(upResult.exitCode).toBe(0);
+
+      await rm(
+        join(migrationsPath, "0000000000002_create_gadgets.down.sql")
+      );
 
       const downResult = await runCli(["down", "--all"], env, workspace);
       expect(downResult.exitCode).toBe(1);

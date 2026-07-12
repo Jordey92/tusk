@@ -1,5 +1,5 @@
 import type {
-  DatabaseAdapter,
+  MigrationAdapter,
   Migration,
   RollbackTargetPayload,
 } from "../types/migrations.js";
@@ -11,6 +11,10 @@ import {
   toRollbackTargetPayload,
 } from "./migration-resolution.js";
 import type { RollbackTarget } from "./rollback-target.js";
+import {
+  assertMigrationBatchExecutable,
+  assertMigrationDirectoryExecutable,
+} from "./validate-migrations.js";
 
 export type MigrationPlanDirection = "up" | "down";
 
@@ -73,10 +77,12 @@ const toDownPlanEntry = (migration: Migration): DownMigrationPlanEntry => ({
 });
 
 export const createUpPlan = async (
-  adapter: DatabaseAdapter,
+  adapter: MigrationAdapter,
   migrationsPath: string
 ): Promise<UpMigrationPlan> => {
+  await assertMigrationDirectoryExecutable(migrationsPath);
   const migrationState = await resolveUpMigrationState(adapter, migrationsPath);
+  assertMigrationBatchExecutable(migrationState.pendingMigrations);
 
   return {
     direction: "up",
@@ -90,7 +96,7 @@ export const createUpPlan = async (
 };
 
 export const createDownPlan = async (
-  adapter: DatabaseAdapter,
+  adapter: MigrationAdapter,
   migrationsPath: string,
   target?: RollbackTarget
 ): Promise<DownMigrationPlan> => {
@@ -99,6 +105,7 @@ export const createDownPlan = async (
     migrationsPath,
     target
   );
+  assertMigrationBatchExecutable(migrationState.rollbackMigrations);
 
   return {
     direction: "down",

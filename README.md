@@ -5,10 +5,12 @@
 Tusk is a SQL-first PostgreSQL migration tool for Node.js and Bun.
 
 It is explicit and low abstraction:
+
 - write plain SQL, not a migration DSL
 - define `up` and `down` steps directly
 
 It handles execution for you:
+
 - transactional migrations with advisory locking
 - one migration contract across `pg`, `postgres.js`, and the CLI
 
@@ -16,8 +18,9 @@ Tusk favors control and embeddability over schema builders and generated migrati
 
 ## Requirements
 
-- Node.js `18+` or Bun `1+`
+- Node.js `18+` or Bun `1.3.8+`
 - PostgreSQL `13+`
+- ESM projects for programmatic use; the CLI works from any project type
 
 Recommended for new projects:
 
@@ -26,7 +29,7 @@ Recommended for new projects:
 
 ## Install
 
-With `pg`:
+Install Tusk with one PostgreSQL driver. With `pg`:
 
 ```bash
 npm install @bydey/tusk pg
@@ -41,6 +44,24 @@ npm install @bydey/tusk postgres
 # or
 bun add @bydey/tusk postgres
 ```
+
+The package root contains the driver-neutral migration API. Import driver and
+framework integrations from their explicit subpaths:
+
+```ts
+import { runUp } from "@bydey/tusk";
+import { createPgAdapter } from "@bydey/tusk/pg";
+// or: import { createPostgresJsAdapter } from "@bydey/tusk/postgres";
+```
+
+The Elysia integration requires both `elysia` and `pg`:
+
+```bash
+bun add @bydey/tusk elysia pg
+```
+
+The CLI and MCP server discover the installed driver. If both are installed,
+`pg` is the default; set `TUSK_DRIVER=postgres` to select postgres.js.
 
 ## Migration Model
 
@@ -63,7 +84,7 @@ Tusk does not provide a migration DSL or schema abstraction layer.
 
 The `_migrations` table name and shape are part of Tusk's v1 compatibility
 contract. See [Metadata table contract](docs/metadata-table.md) for the exact
-schema and safety behavior.
+schema, `search_path` scope, and safety behavior.
 
 Example:
 
@@ -82,68 +103,86 @@ DROP TABLE IF EXISTS users;
 
 ## Quick Start
 
-Set your database connection with either `DATABASE_URL` or individual variables:
+This is the recommended first migration flow.
 
-```bash
+1. Create a `.env` file. Tusk loads it automatically. Set either
+   `DATABASE_URL`:
+
+```dotenv
 DATABASE_URL=postgresql://user:password@localhost:5432/app
+```
 
-# or
+or individual settings:
+
+```dotenv
 DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=app
 DB_USER=postgres
 DB_PASSWORD=secret
-
-MIGRATIONS_PATH=./migrations
-LOG_LEVEL=warn
 ```
 
-Set `MIGRATIONS_PATH` to use a different migration directory.
+Optional settings:
 
-Create your first migration:
+```dotenv
+MIGRATIONS_PATH=./migrations
+LOG_LEVEL=warn
+TUSK_DRIVER=pg
+TUSK_STATEMENT_TIMEOUT_MS=300000
+```
+
+`TUSK_STATEMENT_TIMEOUT_MS` applies to each migration transaction. Use `0` to
+leave PostgreSQL's statement timeout unchanged. See [Transactions and
+timeouts](./docs/transactions.md).
+
+2. Initialise the project and create a migration pair:
 
 ```bash
+npx tusk init
 npx tusk create create_users
-# or
+```
+
+With Bun:
+
+```bash
+bunx tusk init
 bunx tusk create create_users
 ```
 
-Run pending migrations:
+3. Edit both generated files under `migrations/`:
 
-```bash
-npx tusk up
+```text
+<timestamp>_create_users.up.sql
+<timestamp>_create_users.down.sql
 ```
 
-Check status:
-
-```bash
-npx tusk status
-npx tusk status --exit-code
-npx tusk status --json
-npx tusk status --quiet
-```
-
-Validate migration files before applying them:
+4. Validate the files before connecting to the database:
 
 ```bash
 npx tusk validate
-npx tusk validate --json
-npx tusk validate --db --json
 ```
 
-Check whether the project and database are ready for Tusk:
+5. Run the read-only project and database preflight:
 
 ```bash
 npx tusk doctor
-npx tusk doctor --json
 ```
 
-Preview exactly what would run:
+6. Review the ordered SQL without applying it:
 
 ```bash
 npx tusk up --dry-run
-npx tusk up --dry-run --json
 ```
+
+7. Apply the migration, then confirm status:
+
+```bash
+npx tusk up
+npx tusk status
+```
+
+For CI and agents, add `--json`. Use `tusk status --exit-code` to exit `1` when
+migrations are pending, or `tusk status --quiet` for a single summary line.
 
 Roll back migrations. `down` defaults to one rollback so an omitted
 argument cannot accidentally undo the full migration history:
@@ -161,6 +200,9 @@ Rollback contract:
 - `tusk down` and `tusk down 1` roll back exactly the latest applied migration.
 - `tusk down n` rolls back the latest `n` applied migrations, newest first.
 - `tusk down --all` rolls back every applied migration, newest first.
+- An adopted `0000000000000_initial.up.sql` baseline is protected from ordinary
+  rollback. Tusk refuses before executing the batch unless the destructive
+  `--allow-baseline-rollback` override is present.
 - If `n` is greater than the number of applied migrations, Tusk rolls back all
   available applied migrations and says how many were available.
 - If no migrations are applied, Tusk exits successfully with
@@ -179,16 +221,29 @@ npx tusk init
 This creates `./migrations` when it is missing. Add matching `.up.sql` and
 `.down.sql` files there, then run `tusk doctor` and `tusk up`.
 
-If your schema already exists, Tusk can derive a baseline migration from the
-live database with the explicit adoption flag:
+If your schema already exists, Tusk can create and record a starting baseline
+with the explicit adoption flag:
 
 ```bash
 npx tusk init --from-db
 ```
 
-This creates `0000000000000_initial.up.sql` and `0000000000000_initial.down.sql` so future schema changes can be managed through normal migrations.
+This creates `0000000000000_initial.up.sql` and
+`0000000000000_initial.down.sql` so future schema changes can be managed through
+normal migrations.
 
-The generated initial migration is also recorded in `_migrations` as already applied. That makes takeover explicit: `tusk up` will skip the baseline, new migrations can run normally, and `tusk down 1` can roll back the baseline if it is the latest applied migration.
+The generated initial migration is recorded in `_migrations` as already
+applied, so `tusk up` skips it and new migrations run normally. Ordinary
+rollback will not remove this baseline. The explicit
+`--allow-baseline-rollback` override can drop every table represented by the
+baseline and should be treated as destructive.
+
+Adoption is not a complete PostgreSQL backup or schema-dump replacement. Tusk
+fails before writing or recording a baseline when it detects schema features it
+cannot reproduce safely, including custom types, arrays, views, routines,
+triggers, policies, generated columns, check/exclusion constraints, partitions,
+inheritance, and unowned sequences. See [Existing database
+adoption](./docs/existing-databases.md) for the exact boundary.
 
 ## Programmatic Use
 
@@ -196,55 +251,79 @@ With `pg`:
 
 ```ts
 import { Pool } from "pg";
-import { createPgAdapter, runUp } from "@bydey/tusk";
+import { runUp } from "@bydey/tusk";
+import { createPgAdapter } from "@bydey/tusk/pg";
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = createPgAdapter(pool);
 
-await runUp(adapter, "./migrations");
+try {
+  await runUp(adapter, "./migrations");
+} finally {
+  await pool.end();
+}
 ```
 
 With `postgres.js`:
 
 ```ts
 import postgres from "postgres";
-import { createPostgresJsAdapter, runUp } from "@bydey/tusk";
+import { runUp } from "@bydey/tusk";
+import { createPostgresJsAdapter } from "@bydey/tusk/postgres";
 
 const sql = postgres(process.env.DATABASE_URL!);
 const adapter = createPostgresJsAdapter(sql);
 
-await runUp(adapter, "./migrations");
+try {
+  await runUp(adapter, "./migrations");
+} finally {
+  await sql.end();
+}
 ```
 
 Generate an initial migration programmatically:
 
 ```ts
 import { Pool } from "pg";
-import { createInitialMigration, createPgAdapter } from "@bydey/tusk";
+import { createInitialMigration } from "@bydey/tusk";
+import { createPgAdapter } from "@bydey/tusk/pg";
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = createPgAdapter(pool);
 
-await createInitialMigration(adapter, "./migrations");
+try {
+  await createInitialMigration(adapter, "./migrations");
+} finally {
+  await pool.end();
+}
 ```
+
+Custom database clients only need to implement the exported
+`MigrationAdapter` contract (`query`, `transaction`, and migration lock
+methods) to use planning and execution APIs. `DatabaseAdapter` extends that
+contract with introspection and SQL generation used only by
+`createInitialMigration`. See the [custom adapter contract](docs/custom-adapters.md)
+before implementing one.
 
 ## Elysia
 
 ```ts
 import { Elysia } from "elysia";
-import { migrate } from "@bydey/tusk";
+import { migrate } from "@bydey/tusk/elysia";
 
 new Elysia()
   .use(
     migrate({
       connectionString: process.env.DATABASE_URL,
       migrationsPath: "./migrations",
-    })
+    }),
   )
   .listen(3000);
 ```
 
 By default the plugin runs `up` on startup.
+The Elysia integration requires Bun 1.3.8+ or Node.js 20+; the rest of Tusk
+supports Node.js 18+.
 
 ## CLI Commands
 
@@ -255,6 +334,7 @@ tusk init --from-db
 tusk up
 tusk down [count]
 tusk down --all
+tusk down --allow-baseline-rollback
 tusk status
 tusk validate
 tusk doctor
@@ -268,6 +348,12 @@ several migrations, or `tusk down --all` to roll back every applied migration.
 Rollback batches run newest first and use only matching `.down.sql` files. If a
 requested count is larger than the applied migration count, Tusk rolls back all
 available applied migrations and reports the smaller available count.
+
+Adopted baselines are protected. If a selected rollback would include
+`0000000000000_initial.up.sql`, Tusk refuses the whole batch unless
+`--allow-baseline-rollback` is supplied. Programmatic callers must opt in with
+a rollback target such as
+`{ count: 1, allowBaselineRollback: true }`.
 
 `tusk up --dry-run`, `tusk down --dry-run`,
 `tusk down <count> --dry-run`, and `tusk down --all --dry-run` print the
@@ -301,11 +387,12 @@ It exposes tools for validation, status, dry-run planning, and migration file cr
 
 Tusk keeps a wide support floor for teams working on older projects while still treating the current stack as the primary development lane.
 
-- Supported floor: Node.js `18+`, Bun `1+`, PostgreSQL `13+`
+- Supported floor: Node.js `18+`, Bun `1.3.8+`, PostgreSQL `13+`
 - Recommended stack: Node.js `24`, PostgreSQL `18`
 - Required PR CI checks:
-  - `Verify (Node 24, PostgreSQL 18)` runs the full build and test suite
+  - `Verify (Node 24, PostgreSQL 18)` requires the full build/test/quality lane and the globally aggregated exhaustive mutation suite
   - `Minimum Support (Node 18, PostgreSQL 13)` runs the packaged smoke test against the oldest supported runtime/database pair
+  - `Package smoke (macos-latest)` and `Package smoke (windows-latest)` verify the installed artifact on both desktop platforms
 - Scheduled compatibility coverage:
   - the `Compatibility Matrix` workflow exercises packaged smoke tests across multiple supported Node.js and PostgreSQL versions
 
@@ -313,13 +400,18 @@ If a supported floor version stops passing CI, it is a regression and should be 
 
 ## More
 
+- [Runnable basic example](./examples/basic)
 - [Framework integrations](./docs/integrations.md)
+- [Transactions and timeouts](./docs/transactions.md)
+- [Existing database adoption](./docs/existing-databases.md)
+- [Compatibility policy](./docs/compatibility.md)
 - [Doctor command](./docs/doctor.md)
 - [JSON output contracts](./docs/json-contracts.md)
 - [Testing guide](./docs/testing.md)
 - [Agent workflow](./docs/agents.md)
 - [Release guide](./docs/releasing.md)
 - [v1.0.0 readiness](./docs/v1-readiness.md)
+- [v1 release checklist](./docs/v1-release-checklist.md)
 - [v0.5.0 release notes](./docs/releases/v0.5.0.md)
 - [v0.3.0 release notes](./docs/releases/v0.3.0.md)
 

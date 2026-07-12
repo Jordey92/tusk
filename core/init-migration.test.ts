@@ -3,6 +3,7 @@ import { existsSync } from "fs";
 import { readFile, rm } from "fs/promises";
 import { resolve } from "path";
 import { Pool } from "pg";
+import type { DatabaseAdapter } from "../types/migrations";
 import { createPgAdapter } from "../adapters/pg";
 import { cleanupMigrations, createTestPool } from "../utils/test-helper";
 import { getCurrentDir } from "../utils/runtime";
@@ -12,6 +13,13 @@ import { ensureMigrationsTable } from "./track-migrations";
 const pool = createTestPool();
 const adapter = createPgAdapter(pool);
 const testMigrationsPath = resolve(getCurrentDir(), "../fixtures/test-migrations");
+
+const failBaselineTransaction = (): DatabaseAdapter => ({
+  ...adapter,
+  transaction: async <T>(): Promise<T> => {
+    throw new Error("baseline record transaction failed");
+  },
+});
 
 const readGeneratedMigration = async (
   setupSchema: () => Promise<void>,
@@ -109,6 +117,38 @@ describe("init migration", () => {
 
     expect(migrationRecord.rows).toHaveLength(1);
     expect(migrationRecord.rows[0].checksum).toBe(result.checksum);
+  });
+
+  test("removes only newly created baseline files when recording fails", async () => {
+    await createBasicTables(pool);
+
+    await expect(
+      createInitialMigration(failBaselineTransaction(), testMigrationsPath)
+    ).rejects.toThrow("baseline record transaction failed");
+
+    expect(existsSync(resolve(
+      testMigrationsPath,
+      "0000000000000_initial.up.sql"
+    ))).toBe(false);
+    expect(existsSync(resolve(
+      testMigrationsPath,
+      "0000000000000_initial.down.sql"
+    ))).toBe(false);
+  });
+
+  test("preserves matching pre-existing baseline files when recording fails", async () => {
+    const { result, upContent, downContent } = await readGeneratedMigration(() =>
+      createBasicTables(pool)
+    );
+
+    await expect(
+      createInitialMigration(failBaselineTransaction(), testMigrationsPath)
+    ).rejects.toThrow("baseline record transaction failed");
+
+    expect(await readFile(resolve(testMigrationsPath, result.upFile), "utf8"))
+      .toBe(upContent);
+    expect(await readFile(resolve(testMigrationsPath, result.downFile), "utf8"))
+      .toBe(downContent);
   });
 
   test("rejects rerunning init when the recorded baseline would change", async () => {
@@ -244,5 +284,25 @@ describe("init migration", () => {
     expect(upContent).toContain("lower(name)");
     expect(upContent).toContain("CREATE INDEX idx_users_active_name");
     expect(upContent).toContain("WHERE (deleted_at IS NULL)");
+  });
+
+  test("fails before writing files or metadata for unsupported schema features", async () => {
+    await pool.query(`
+      CREATE TYPE order_state AS ENUM ('draft', 'paid');
+      CREATE TABLE orders (
+        id SERIAL PRIMARY KEY,
+        state order_state NOT NULL,
+        tags TEXT[] NOT NULL,
+        total INTEGER CHECK (total >= 0)
+      );
+    `);
+
+    await expect(
+      createInitialMigration(adapter, testMigrationsPath)
+    ).rejects.toMatchObject({ code: "BASELINE_UNSUPPORTED" });
+
+    expect(existsSync(testMigrationsPath)).toBe(false);
+    const metadata = await pool.query("SELECT to_regclass('_migrations') AS table_name");
+    expect(metadata.rows[0]?.table_name).toBeNull();
   });
 });

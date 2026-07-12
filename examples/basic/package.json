@@ -1,0 +1,20 @@
+{
+  "name": "tusk-basic-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "db:init": "tusk init",
+    "db:create": "tusk create",
+    "db:validate": "tusk validate",
+    "db:doctor": "tusk doctor",
+    "db:plan": "tusk up --dry-run",
+    "db:up": "tusk up",
+    "db:status": "tusk status",
+    "db:down:plan": "tusk down --dry-run",
+    "db:down": "tusk down"
+  },
+  "dependencies": {
+    "@bydey/tusk": "^0.5.0",
+    "pg": "^8.16.3"
+  }
+}

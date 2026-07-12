@@ -5,6 +5,11 @@ type DoctorCheck = DoctorReport["checks"][number];
 const DRIVER_CHECK_ID = "database.driver";
 const MIGRATIONS_PATH_CHECK_ID = "migrations.path";
 const MIGRATIONS_VALID_CHECK_ID = "migrations.valid";
+const DATABASE_CONFIG_CHECK_ID = "database.config";
+const DATABASE_CONNECTION_CHECK_ID = "database.connection";
+const DATABASE_MIGRATION_TABLE_CHECK_ID = "database.migrationTable";
+const DATABASE_DRIFT_CHECK_ID = "database.drift";
+const DATABASE_ADVISORY_LOCK_CHECK_ID = "database.advisoryLock";
 
 const doctorStatusSymbol = (status: DoctorCheck["status"]) => {
   if (status === "pass") return "✓";
@@ -20,6 +25,15 @@ const hasNoMigrationFiles = (check: DoctorCheck | undefined) =>
   check?.status === "warn" &&
   typeof check.context?.files === "number" &&
   check.context.files === 0;
+
+const needsAttention = (check: DoctorCheck | undefined) =>
+  check?.status === "fail" || check?.status === "warn";
+
+const addStep = (steps: string[], step: string) => {
+  if (!steps.includes(step)) {
+    steps.push(step);
+  }
+};
 
 const orderDoctorChecksForHuman = (report: DoctorReport): DoctorCheck[] => {
   const driverCheck = getDoctorCheck(report, DRIVER_CHECK_ID);
@@ -45,22 +59,70 @@ export const collectDoctorNextSteps = (report: DoctorReport): string[] => {
   const migrationsEmpty = hasNoMigrationFiles(
     getDoctorCheck(report, MIGRATIONS_VALID_CHECK_ID)
   );
+  const migrationsInvalid =
+    getDoctorCheck(report, MIGRATIONS_VALID_CHECK_ID)?.status === "fail";
+  const databaseConfigMissing =
+    getDoctorCheck(report, DATABASE_CONFIG_CHECK_ID)?.status === "fail";
+  const databaseConnectionFailed =
+    getDoctorCheck(report, DATABASE_CONNECTION_CHECK_ID)?.status === "fail";
+  const migrationTableInvalid =
+    getDoctorCheck(report, DATABASE_MIGRATION_TABLE_CHECK_ID)?.status === "fail";
+  const databaseDrift = needsAttention(
+    getDoctorCheck(report, DATABASE_DRIFT_CHECK_ID)
+  );
+  const advisoryLockUnavailable = needsAttention(
+    getDoctorCheck(report, DATABASE_ADVISORY_LOCK_CHECK_ID)
+  );
 
   if (driverMissing) {
-    steps.push("Install a Postgres client, for example: bun add pg");
+    addStep(steps, "Install a Postgres client, for example: bun add pg");
   }
 
   if (migrationsPathMissing) {
-    steps.push("Run tusk init to create a migrations directory");
+    addStep(steps, "Run tusk init to create a migrations directory");
   } else if (!driverMissing && migrationsEmpty) {
-    steps.push("Add an .up.sql and .down.sql migration pair");
+    addStep(steps, "Add an .up.sql and .down.sql migration pair");
   }
 
-  if (driverMissing || migrationsPathMissing) {
-    steps.push("Run tusk doctor");
-  } else if (migrationsEmpty) {
-    steps.push("Run tusk doctor");
-    steps.push("Run tusk up");
+  if (migrationsInvalid) {
+    addStep(steps, "Run tusk validate and fix every reported migration error");
+  }
+
+  if (databaseConfigMissing) {
+    addStep(
+      steps,
+      "Set DATABASE_URL, or set DB_NAME, DB_USER, and DB_PASSWORD"
+    );
+  }
+
+  if (databaseConnectionFailed) {
+    addStep(
+      steps,
+      "Check the database URL, credentials, network access, and server availability"
+    );
+  }
+
+  if (migrationTableInvalid) {
+    addStep(
+      steps,
+      "Compare _migrations with docs/metadata-table.md before repairing it"
+    );
+  }
+
+  if (databaseDrift) {
+    addStep(steps, "Run tusk validate --db and resolve migration drift");
+  }
+
+  if (advisoryLockUnavailable) {
+    addStep(
+      steps,
+      "Confirm no other migration runner is active, then retry"
+    );
+  }
+
+  const hasRemediation = steps.length > 0;
+  if (hasRemediation) {
+    addStep(steps, "Run tusk doctor again");
   }
 
   return steps;
@@ -72,6 +134,10 @@ export const formatDoctorReport = (report: DoctorReport) => {
   const orderedChecks = orderDoctorChecksForHuman(report);
   orderedChecks.forEach((check, index) => {
     lines.push(`${doctorStatusSymbol(check.status)} ${check.message}`);
+    const cause = check.context?.cause;
+    if (typeof cause === "string" && cause.trim().length > 0) {
+      lines.push(`  Cause: ${cause}`);
+    }
     if (check.message.includes("\n") && index < orderedChecks.length - 1) {
       lines.push("");
     }

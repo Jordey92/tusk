@@ -1,5 +1,5 @@
 import type {
-  DatabaseAdapter,
+  QueryClient,
   TransactionClient,
 } from "../types/migrations.js";
 import { logger } from "../utils/logger.js";
@@ -10,7 +10,7 @@ import {
   MIGRATION_METADATA_TABLE_NAME,
 } from "./migration-records.js";
 
-export const ensureMigrationsTable = async (adapter: DatabaseAdapter) => {
+export const ensureMigrationsTable = async (adapter: QueryClient) => {
   await adapter.query(`
     CREATE TABLE IF NOT EXISTS ${MIGRATION_METADATA_TABLE_NAME} (
       id SERIAL PRIMARY KEY,
@@ -34,7 +34,7 @@ export const ensureMigrationsTable = async (adapter: DatabaseAdapter) => {
 };
 
 export const getExecutedMigrations = async (
-  adapter: DatabaseAdapter
+  adapter: QueryClient
 ): Promise<Set<string>> => {
   const records = await getExecutedMigrationRecordsReadOnly(adapter);
   return new Set(records.map((row) => row.filename));
@@ -44,7 +44,7 @@ export const getLastExecutedMigrations =
   getLastExecutedMigrationFilenamesReadOnly;
 
 export const markAsExecuted = async (
-  adapterOrClient: DatabaseAdapter | TransactionClient,
+  adapterOrClient: QueryClient | TransactionClient,
   filename: string,
   checksum?: string
 ) => {
@@ -62,7 +62,7 @@ export const markAsExecuted = async (
 };
 
 export const markAsRolledBack = async (
-  adapterOrClient: DatabaseAdapter | TransactionClient,
+  adapterOrClient: QueryClient | TransactionClient,
   filename: string
 ) => {
   await adapterOrClient.query(

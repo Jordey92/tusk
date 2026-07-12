@@ -7,7 +7,7 @@ import {
   toError,
 } from "../utils/errors.js";
 
-const UP_DOWN_REGEX = /\.(up|down)\.sql$/;
+const UP_DOWN_REGEX = /^(\d+)(?:_.+)?\.(up|down)\.sql$/;
 
 export const getFilesFromDirectory = async (path: string) => {
   const absolutePath = resolve(path);
@@ -31,14 +31,16 @@ export const getSqlFilesFromList = (
 };
 
 export const extractTimestampFromFilename = (filename: string): string => {
-  if (!filename.match(UP_DOWN_REGEX)) {
-    const tuskError = createMigrationFileError(filename, "Filename must end with .up.sql or .down.sql");
+  const match = filename.match(UP_DOWN_REGEX);
+  if (!match) {
+    const tuskError = createMigrationFileError(
+      filename,
+      "Filename must start with a numeric timestamp and end with .up.sql or .down.sql"
+    );
     throw tuskError;
   }
 
-  const [timestamp, ..._] = filename
-    .replace(UP_DOWN_REGEX, "")
-    .split("_");
+  const timestamp = match[1];
 
   if (!timestamp) {
     const tuskError = createMigrationFileError(filename, "No timestamp found in filename");
@@ -56,9 +58,9 @@ export const readSqlFile = async (path: string, filename: string) => {
 
 export const sortMigrationsByTimestamp = (migrations: string[]) => {
   return migrations.sort((a, b) => {
-    const aTimestamp = extractTimestampFromFilename(a);
-    const bTimestamp = extractTimestampFromFilename(b);
-    return Number(aTimestamp) - Number(bTimestamp);
+    const aTimestamp = BigInt(extractTimestampFromFilename(a));
+    const bTimestamp = BigInt(extractTimestampFromFilename(b));
+    return aTimestamp < bTimestamp ? -1 : aTimestamp > bTimestamp ? 1 : 0;
   });
 };
 

@@ -124,7 +124,7 @@ describe("extractTimestampFromFilename", () => {
   test("should throw error for invalid filename format", () => {
     expect(() =>
       extractTimestampFromFilename("1759531351_test_file_1.sql")
-    ).toThrow("Filename must end with .up.sql or .down.sql");
+    ).toThrow("Filename must start with a numeric timestamp");
   });
 
   test("should return timestamp from .up.sql filename", () => {
@@ -146,9 +146,10 @@ describe("extractTimestampFromFilename", () => {
     expect(timestamp).toBe("1759531351");
   });
 
-  test("should handle filename with only timestamp (no name)", () => {
-    const timestamp = extractTimestampFromFilename("1759531351_.up.sql");
-    expect(timestamp).toBe("1759531351");
+  test("rejects an underscore without a migration name", () => {
+    expect(() => extractTimestampFromFilename("1759531351_.up.sql")).toThrow(
+      "Filename must start with a numeric timestamp"
+    );
   });
 
   test("should handle very long timestamps", () => {
@@ -164,14 +165,15 @@ describe("extractTimestampFromFilename", () => {
     expect(timestamp).toBe("0001234567");
   });
 
-  test("should handle non-numeric timestamp", () => {
-    const timestamp = extractTimestampFromFilename("abc123_test.up.sql");
-    expect(timestamp).toBe("abc123");
+  test("rejects non-numeric timestamps", () => {
+    expect(() => extractTimestampFromFilename("abc123_test.up.sql")).toThrow(
+      "Filename must start with a numeric timestamp"
+    );
   });
 
   test("should throw error for empty filename", () => {
     expect(() => extractTimestampFromFilename("")).toThrow(
-      "Filename must end with .up.sql or .down.sql"
+      "Filename must start with a numeric timestamp"
     );
   });
 });
@@ -316,7 +318,7 @@ describe("sortMigrationsByTimestamp", () => {
     const migrations = ["1_valid.up.sql", "invalid_filename.sql"];
 
     expect(() => sortMigrationsByTimestamp(migrations)).toThrow(
-      "Filename must end with .up.sql or .down.sql"
+      "Filename must start with a numeric timestamp"
     );
   });
 });

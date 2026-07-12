@@ -84,6 +84,35 @@ describe("Postgres client resolver", () => {
     }
   });
 
+  test("does not hide non-resolution import failures behind driver fallback", async () => {
+    const importFailure = Object.assign(
+      new Error("failed to load package pg"),
+      { code: "ERR_UNKNOWN_FILE_EXTENSION" }
+    );
+    const attemptedImports: string[] = [];
+
+    try {
+      await resolvePostgresClientDriver({
+        importModule: async (specifier) => {
+          attemptedImports.push(specifier);
+          if (specifier === "pg") {
+            throw importFailure;
+          }
+          return { default: () => createFakePostgresSql() };
+        },
+      });
+      throw new Error("Expected import failure");
+    } catch (error) {
+      expect(error).toHaveProperty("code", "DATABASE_CONNECTION_FAILED");
+      expect(error).toHaveProperty(
+        "message",
+        "Installed pg package could not be loaded"
+      );
+      expect(error).toHaveProperty("cause", importFailure);
+      expect(attemptedImports).toEqual(["pg"]);
+    }
+  });
+
   test("uses pg when the Pool constructor is available", async () => {
     const pools: FakePool[] = [];
     const FakePoolConstructor = class extends FakePool {
@@ -94,7 +123,11 @@ describe("Postgres client resolver", () => {
     };
 
     const managed = await createManagedPostgresAdapter(
-      { connectionString: "postgres://localhost/tusk" },
+      {
+        connectionString: "postgres://localhost/tusk",
+        driver: "pg",
+        statementTimeoutMs: 0,
+      },
       {
         importModule: async (specifier) => {
           if (specifier === "pg") {
@@ -159,5 +192,25 @@ describe("Postgres client resolver", () => {
 
     await managed.cleanup();
     expect(clients[0]?.ended()).toBe(true);
+  });
+
+  test("honors an explicit postgres.js driver when both clients are installed", async () => {
+    const sql = createFakePostgresSql();
+    const managed = await createManagedPostgresAdapter(
+      {
+        connectionString: "postgres://localhost/tusk",
+        driver: "postgres",
+      },
+      {
+        importModule: async (specifier) => {
+          if (specifier === "pg") return { Pool: FakePool };
+          if (specifier === "postgres") return { default: () => sql };
+          throw missingModule(specifier);
+        },
+      }
+    );
+
+    expect(managed.driver).toBe("postgres");
+    await managed.cleanup();
   });
 });

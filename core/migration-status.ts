@@ -1,14 +1,11 @@
-import type { DatabaseAdapter } from "../types/migrations.js";
+import type { MigrationAdapter } from "../types/migrations.js";
 import type { MigrationStatusPayload } from "../types/cli.js";
 import { readUpMigrationState } from "./migration-resolution.js";
-import { ensureMigrationsTable } from "./track-migrations.js";
 
 export const getMigrationStatus = async (
-  adapter: DatabaseAdapter,
+  adapter: MigrationAdapter,
   migrationsPath: string
 ): Promise<MigrationStatusPayload> => {
-  await ensureMigrationsTable(adapter);
-
   const migrationState = await readUpMigrationState(adapter, migrationsPath);
 
   return {

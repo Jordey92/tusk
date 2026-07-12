@@ -306,6 +306,70 @@ describe("sql-generator", () => {
     );
   });
 
+  test("creates schemas first and defers composite foreign keys until all tables exist", () => {
+    const parent: TableInfo = {
+      schema: "tenant",
+      name: "parents",
+      columns: [
+        baseColumn({ name: "account_id", type: "integer", isNullable: false }),
+        baseColumn({ name: "id", type: "integer", isNullable: false }),
+      ],
+      primaryKeys: [
+        { columnName: "account_id", position: 1 },
+        { columnName: "id", position: 2 },
+      ],
+      foreignKeys: [],
+      uniqueConstraints: [],
+      indexes: [],
+    };
+    const child: TableInfo = {
+      schema: "tenant",
+      name: "children",
+      columns: [
+        baseColumn({ name: "account_id", type: "integer", isNullable: false }),
+        baseColumn({ name: "parent_id", type: "integer", isNullable: false }),
+      ],
+      primaryKeys: [],
+      foreignKeys: [
+        {
+          columnName: "account_id",
+          foreignSchema: "tenant",
+          foreignTableName: "parents",
+          foreignColumnName: "account_id",
+          updateRule: "CASCADE",
+          deleteRule: "CASCADE",
+          constraintName: "children_parent_fkey",
+        },
+        {
+          columnName: "parent_id",
+          foreignSchema: "tenant",
+          foreignTableName: "parents",
+          foreignColumnName: "id",
+          updateRule: "CASCADE",
+          deleteRule: "CASCADE",
+          constraintName: "children_parent_fkey",
+        },
+      ],
+      uniqueConstraints: [],
+      indexes: [],
+    };
+
+    const sql = generateUpMigration({ tables: [child, parent] });
+    const schemaIndex = sql.indexOf('CREATE SCHEMA IF NOT EXISTS "tenant"');
+    const parentIndex = sql.indexOf('CREATE TABLE "tenant"."parents"');
+    const childIndex = sql.indexOf('CREATE TABLE "tenant"."children"');
+    const foreignKeyIndex = sql.indexOf(
+      'ALTER TABLE "tenant"."children" ADD CONSTRAINT "children_parent_fkey"'
+    );
+
+    expect(schemaIndex).toBeLessThan(parentIndex);
+    expect(parentIndex).toBeLessThan(foreignKeyIndex);
+    expect(childIndex).toBeLessThan(foreignKeyIndex);
+    expect(sql).toContain(
+      'FOREIGN KEY ("account_id", "parent_id") REFERENCES "tenant"."parents"("account_id", "id") ON UPDATE CASCADE ON DELETE CASCADE'
+    );
+  });
+
   test("quotes and schema-qualifies drop table SQL", () => {
     expect(generateDropTable("order", "tenant-data")).toBe(
       "DROP TABLE IF EXISTS \"tenant-data\".\"order\" CASCADE;"
