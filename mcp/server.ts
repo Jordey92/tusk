@@ -275,6 +275,20 @@ const statementTimeout = (): number | undefined => {
   return timeout;
 };
 
+const databasePort = (): number => {
+  const rawPort = process.env.DB_PORT;
+  if (!rawPort) {
+    return 5432;
+  }
+
+  const port = Number(rawPort);
+  if (!Number.isSafeInteger(port) || port < 1 || port > 65535) {
+    throw new Error("DB_PORT must be an integer between 1 and 65535");
+  }
+
+  return port;
+};
+
 const createDatabaseConfig = (
   args: Record<string, JsonValue> = {}
 ): PostgresClientConfig => {
@@ -291,7 +305,7 @@ const createDatabaseConfig = (
 
   return {
     host: process.env.DB_HOST || "localhost",
-    port: parseInt(process.env.DB_PORT || "5432"),
+    port: databasePort(),
     database: process.env.DB_NAME,
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,

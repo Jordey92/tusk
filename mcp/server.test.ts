@@ -160,6 +160,46 @@ describe("MCP server", () => {
     );
   });
 
+  test("rejects invalid database ports before loading a driver", async () => {
+    const migrationsPath = await mkdtemp(join(tmpdir(), "tusk-mcp-port-"));
+
+    try {
+      for (const port of ["not-a-port", "0", "65536", "1.5"]) {
+        const response = await callTool(
+          "tusk_status",
+          { migrationsPath },
+          {
+            DATABASE_URL: "",
+            DB_PORT: port,
+          },
+        );
+
+        expect(response.result.isError).toBe(true);
+        expect(response.result.content[0]?.text).toContain(
+          "DB_PORT must be an integer between 1 and 65535",
+        );
+      }
+
+      for (const port of ["1", "65535"]) {
+        const response = await callTool(
+          "tusk_status",
+          { migrationsPath },
+          {
+            DATABASE_URL: "",
+            DB_HOST: "127.0.0.1",
+            DB_PORT: port,
+          },
+        );
+
+        expect(response.result.content[0]?.text).not.toContain(
+          "DB_PORT must be an integer between 1 and 65535",
+        );
+      }
+    } finally {
+      await rm(migrationsPath, { recursive: true, force: true });
+    }
+  });
+
   test("treats an empty databaseUrl argument as an omitted override", async () => {
     const migrationsPath = await mkdtemp(
       join(tmpdir(), "tusk-mcp-empty-database-url-"),
