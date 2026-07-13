@@ -92,6 +92,45 @@ describe("GitHub Actions runtime policy", () => {
     expect(ci).toContain("merge-mutation-reports.ts .tmp/quality/shards 16");
   });
 
+  test("bounds mutation dependency installation and retries without cache", async () => {
+    const ci = await readFile(join(workflowsDirectory, "ci.yml"), "utf8");
+    const mutationJob = ci.slice(
+      ci.indexOf("  mutation-shard:"),
+      ci.indexOf("  mutation-aggregate:"),
+    );
+    const installBounds = Array.from(
+      mutationJob.matchAll(
+        /timeout --signal=TERM --kill-after=(\d+)s (\d+)s bun install/g,
+      ),
+      (match) => ({
+        killSeconds: Number(match[1]),
+        timeoutSeconds: Number(match[2]),
+      }),
+    );
+    const mutationBudgetMs = Number(
+      mutationJob.match(/TUSK_MUTATION_BUDGET_MS: (\d+)/)?.[1],
+    );
+    const setupAndPostStepReserveSeconds = 60;
+
+    expect(mutationJob).toContain(
+      "timeout --signal=TERM --kill-after=5s 30s bun install --frozen-lockfile",
+    );
+    expect(mutationJob).toContain(
+      'rm -rf node_modules "${HOME}/.bun/install/cache"',
+    );
+    expect(mutationJob).toContain(
+      "timeout --signal=TERM --kill-after=5s 60s bun install --frozen-lockfile --no-cache",
+    );
+    expect(installBounds).toHaveLength(2);
+    expect(
+      installBounds.reduce(
+        (total, bound) =>
+          total + bound.timeoutSeconds + bound.killSeconds,
+        mutationBudgetMs / 1_000 + setupAndPostStepReserveSeconds,
+      ),
+    ).toBeLessThanOrEqual(300);
+  });
+
   test("does not rerun monolithic mutation during publication", async () => {
     const publish = await readFile(
       join(workflowsDirectory, "publish-npm-package.yml"),
