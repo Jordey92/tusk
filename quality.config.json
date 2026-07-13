@@ -2,7 +2,7 @@
   "crap": {
     "lcovPath": "coverage/lcov.info",
     "sourceRoots": ["cli.ts", "core", "utils", "adapters", "mcp", "plugins"],
-    "exclude": ["**/*.test.ts"],
+    "exclude": ["**/*.test.ts", "mcp/test-utils/server.ts"],
     "threshold": 30,
     "reportPath": ".tmp/quality/crap-report.json"
   },

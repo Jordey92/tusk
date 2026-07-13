@@ -16,6 +16,8 @@ import {
   exerciseMigrationLifecycle,
   type CliCommandResult,
 } from "./utils/cli-smoke";
+import { sendMcpRequestToCommand } from "./mcp/test-utils/server";
+import { runTestSubprocess } from "./test-utils/subprocess";
 
 const repoRoot = process.cwd();
 const packageSmokeDatabaseUrl = process.env.TUSK_SMOKE_DATABASE_URL;
@@ -95,44 +97,29 @@ const createPackageSmokeDatabase = async (
   };
 };
 
-const decode = async (stream: ReadableStream<Uint8Array> | null) => {
-  if (!stream) {
-    return "";
-  }
-
-  return await new Response(stream).text();
-};
-
 const platformCommand = (
   cmd: string[],
   platform = process.platform
 ): string[] =>
-  platform === "win32" && cmd[0] === "npm"
+  platform === "win32" &&
+    (cmd[0] === "npm" || /\.(?:cmd|bat)$/i.test(cmd[0] ?? ""))
     ? ["cmd.exe", "/d", "/s", "/c", ...cmd]
     : cmd;
 
 const runCommand = async (
   cmd: string[],
   cwd: string,
-  envOverrides: Record<string, string> = {}
+  envOverrides: Record<string, string> = {},
+  timeoutMs = 60_000,
 ): Promise<CliCommandResult> => {
-  const child = Bun.spawn(platformCommand(cmd), {
+  return runTestSubprocess(platformCommand(cmd), {
     cwd,
     env: {
       ...process.env,
       ...envOverrides,
     },
-    stdout: "pipe",
-    stderr: "pipe",
+    timeoutMs,
   });
-
-  const [stdout, stderr, exitCode] = await Promise.all([
-    decode(child.stdout),
-    decode(child.stderr),
-    child.exited,
-  ]);
-
-  return { exitCode, stdout, stderr };
 };
 
 const expectSuccess = (result: CliCommandResult) => {
@@ -207,35 +194,15 @@ const runMcpRequest = async (
   project: ConsumerProject,
   request: Record<string, unknown>,
   envOverrides: Record<string, string> = {}
-) => {
-  const child = Bun.spawn([project.bin("tusk-mcp")], {
-    cwd: project.directory,
-    env: {
-      ...process.env,
-      LOG_LEVEL: "error",
-      ...envOverrides,
-    },
-    stdin: "pipe",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  child.stdin.write(`${JSON.stringify(request)}\n`);
-  child.stdin.end();
-
-  const [stdout, stderr, exitCode] = await Promise.all([
-    decode(child.stdout),
-    decode(child.stderr),
-    child.exited,
-  ]);
-
-  expect(exitCode, stderr || stdout).toBe(0);
-  expect(stderr).toBe("");
-  return JSON.parse(stdout.trim()) as Record<string, unknown>;
-};
+) => sendMcpRequestToCommand(
+  platformCommand([project.bin("tusk-mcp")]),
+  request,
+  envOverrides,
+  { cwd: project.directory },
+);
 
 describe("package smoke command portability", () => {
-  test("routes npm through the Windows command shim", () => {
+  test("routes npm and Windows command shims through cmd.exe", () => {
     expect(platformCommand(["npm", "pack"], "win32")).toEqual([
       "cmd.exe",
       "/d",
@@ -243,6 +210,23 @@ describe("package smoke command portability", () => {
       "/c",
       "npm",
       "pack",
+    ]);
+    expect(
+      platformCommand(["C:\\consumer\\node_modules\\.bin\\tsc.cmd", "--version"], "win32")
+    ).toEqual([
+      "cmd.exe",
+      "/d",
+      "/s",
+      "/c",
+      "C:\\consumer\\node_modules\\.bin\\tsc.cmd",
+      "--version",
+    ]);
+    expect(platformCommand(["tool.BAT"], "win32")).toEqual([
+      "cmd.exe",
+      "/d",
+      "/s",
+      "/c",
+      "tool.BAT",
     ]);
   });
 
@@ -255,6 +239,28 @@ describe("package smoke command portability", () => {
       "npm",
       "pack",
     ]);
+  });
+
+  test("executes a Windows command shim with a spaced argument", async () => {
+    if (process.platform !== "win32") {
+      return;
+    }
+
+    const workspace = await mkdtemp(join(tmpdir(), "tusk shim "));
+    const shimPath = join(workspace, "echo-argument.cmd");
+    try {
+      await writeFile(shimPath, "@echo off\r\necho %~1\r\n");
+      const result = await runCommand(
+        [shimPath, "value with spaces"],
+        workspace,
+        {},
+        2_000,
+      );
+      expectSuccess(result);
+      expect(result.stdout.trim()).toBe("value with spaces");
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+    }
   });
 });
 
