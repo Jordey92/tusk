@@ -14,7 +14,7 @@
     "db:down": "tusk down"
   },
   "dependencies": {
-    "@bydey/tusk": "^0.5.0",
+    "@bydey/tusk": "^1.0.0",
     "pg": "^8.16.3"
   }
 }
