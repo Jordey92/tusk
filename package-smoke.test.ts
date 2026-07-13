@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
@@ -16,6 +17,8 @@ import {
   exerciseMigrationLifecycle,
   type CliCommandResult,
 } from "./utils/cli-smoke";
+import { sendMcpRequestToCommand } from "./mcp/test-utils/server";
+import { runTestSubprocess } from "./test-utils/subprocess";
 
 const repoRoot = process.cwd();
 const packageSmokeDatabaseUrl = process.env.TUSK_SMOKE_DATABASE_URL;
@@ -95,44 +98,82 @@ const createPackageSmokeDatabase = async (
   };
 };
 
-const decode = async (stream: ReadableStream<Uint8Array> | null) => {
-  if (!stream) {
-    return "";
-  }
+interface PlatformCommand {
+  command: string[];
+  windowsVerbatimArguments: boolean;
+}
 
-  return await new Response(stream).text();
+const windowsMetaCharacters = /([()\][%!^"`<>&|;, *?])/g;
+const windowsCmdShim = /node_modules[\\/]+\.bin[\\/]+[^\\/]+\.cmd$/i;
+const unsafeCommandCharacters = /[\0\r\n]/;
+
+const assertSafeCommandValue = (value: string) => {
+  if (unsafeCommandCharacters.test(value)) {
+    throw new Error("Windows command values cannot contain NUL, CR, or LF");
+  }
+};
+
+const escapeWindowsCommand = (value: string) =>
+  value.replace(windowsMetaCharacters, "^$1");
+
+const escapeWindowsArgument = (value: string, doubleEscapeMeta: boolean) => {
+  let escaped = value
+    .replace(/(?=(\\+?)?)\1"/g, "$1$1\\\"")
+    .replace(/(?=(\\+?)?)\1$/, "$1$1");
+  escaped = `"${escaped}"`.replace(windowsMetaCharacters, "^$1");
+  if (doubleEscapeMeta) {
+    escaped = escaped.replace(windowsMetaCharacters, "^$1");
+  }
+  return escaped;
 };
 
 const platformCommand = (
   cmd: string[],
-  platform = process.platform
-): string[] =>
-  platform === "win32" && cmd[0] === "npm"
-    ? ["cmd.exe", "/d", "/s", "/c", ...cmd]
-    : cmd;
+  platform = process.platform,
+  commandShell = process.env.ComSpec ?? "cmd.exe",
+): PlatformCommand => {
+  for (const value of cmd) {
+    assertSafeCommandValue(value);
+  }
+
+  const requiresCommandShell =
+    platform === "win32" &&
+    (cmd[0] === "npm" || /\.(?:cmd|bat)$/i.test(cmd[0] ?? ""));
+  if (!requiresCommandShell) {
+    return { command: cmd, windowsVerbatimArguments: false };
+  }
+
+  assertSafeCommandValue(commandShell);
+  const executable = cmd[0] ?? "";
+  const doubleEscapeMeta = executable === "npm" || windowsCmdShim.test(executable);
+  const commandLine = [
+    escapeWindowsCommand(executable),
+    ...cmd.slice(1).map((value) =>
+      escapeWindowsArgument(value, doubleEscapeMeta)
+    ),
+  ].join(" ");
+  return {
+    command: [commandShell, "/d", "/s", "/c", `\"${commandLine}\"`],
+    windowsVerbatimArguments: true,
+  };
+};
 
 const runCommand = async (
   cmd: string[],
   cwd: string,
-  envOverrides: Record<string, string> = {}
+  envOverrides: Record<string, string> = {},
+  timeoutMs = 60_000,
 ): Promise<CliCommandResult> => {
-  const child = Bun.spawn(platformCommand(cmd), {
+  const prepared = platformCommand(cmd);
+  return runTestSubprocess(prepared.command, {
     cwd,
     env: {
       ...process.env,
       ...envOverrides,
     },
-    stdout: "pipe",
-    stderr: "pipe",
+    timeoutMs,
+    windowsVerbatimArguments: prepared.windowsVerbatimArguments,
   });
-
-  const [stdout, stderr, exitCode] = await Promise.all([
-    decode(child.stdout),
-    decode(child.stderr),
-    child.exited,
-  ]);
-
-  return { exitCode, stdout, stderr };
 };
 
 const expectSuccess = (result: CliCommandResult) => {
@@ -208,53 +249,143 @@ const runMcpRequest = async (
   request: Record<string, unknown>,
   envOverrides: Record<string, string> = {}
 ) => {
-  const child = Bun.spawn([project.bin("tusk-mcp")], {
-    cwd: project.directory,
-    env: {
-      ...process.env,
-      LOG_LEVEL: "error",
-      ...envOverrides,
+  const prepared = platformCommand([project.bin("tusk-mcp")]);
+  return sendMcpRequestToCommand(
+    prepared.command,
+    request,
+    envOverrides,
+    {
+      cwd: project.directory,
+      windowsVerbatimArguments: prepared.windowsVerbatimArguments,
     },
-    stdin: "pipe",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  child.stdin.write(`${JSON.stringify(request)}\n`);
-  child.stdin.end();
-
-  const [stdout, stderr, exitCode] = await Promise.all([
-    decode(child.stdout),
-    decode(child.stderr),
-    child.exited,
-  ]);
-
-  expect(exitCode, stderr || stdout).toBe(0);
-  expect(stderr).toBe("");
-  return JSON.parse(stdout.trim()) as Record<string, unknown>;
+  );
 };
 
 describe("package smoke command portability", () => {
-  test("routes npm through the Windows command shim", () => {
-    expect(platformCommand(["npm", "pack"], "win32")).toEqual([
-      "cmd.exe",
-      "/d",
-      "/s",
-      "/c",
-      "npm",
-      "pack",
-    ]);
+  test("routes npm and Windows command shims through cmd.exe", () => {
+    const commandShell = "cmd.exe";
+
+    expect(platformCommand(["npm", "pack"], "win32", commandShell)).toEqual({
+      command: ["cmd.exe", "/d", "/s", "/c", "\"npm ^^^\"pack^^^\"\""],
+      windowsVerbatimArguments: true,
+    });
+    expect(
+      platformCommand(
+        ["C:\\consumer\\node_modules\\.bin\\tsc.cmd", "--version"],
+        "win32",
+        commandShell,
+      )
+    ).toEqual({
+      command: [
+        "cmd.exe",
+        "/d",
+        "/s",
+        "/c",
+        "\"C:\\consumer\\node_modules\\.bin\\tsc.cmd ^^^\"--version^^^\"\"",
+      ],
+      windowsVerbatimArguments: true,
+    });
+    expect(platformCommand(["tool.BAT"], "win32", commandShell)).toEqual({
+      command: ["cmd.exe", "/d", "/s", "/c", "\"tool.BAT\""],
+      windowsVerbatimArguments: true,
+    });
+    expect(
+      platformCommand(
+        ["C:\\path with space\\tool.cmd", "value with spaces"],
+        "win32",
+        commandShell,
+      ),
+    ).toEqual({
+      command: [
+        "cmd.exe",
+        "/d",
+        "/s",
+        "/c",
+        "\"C:\\path^ with^ space\\tool.cmd ^\"value^ with^ spaces^\"\"",
+      ],
+      windowsVerbatimArguments: true,
+    });
+    expect(
+      platformCommand(
+        ["tool.cmd"],
+        "win32",
+        "C:\\Windows\\System32\\cmd.exe",
+      ).command[0],
+    ).toBe("C:\\Windows\\System32\\cmd.exe");
+  });
+
+  test("rejects command values that can break cmd framing", () => {
+    for (const unsafe of ["nul\0value", "line\rreturn", "line\nfeed"]) {
+      expect(() =>
+        platformCommand(["tool.cmd", unsafe], "win32")
+      ).toThrow("cannot contain NUL, CR, or LF");
+    }
   });
 
   test("leaves native executables and non-Windows commands unchanged", () => {
-    expect(platformCommand(["node", "consumer.mjs"], "win32")).toEqual([
-      "node",
-      "consumer.mjs",
-    ]);
-    expect(platformCommand(["npm", "pack"], "darwin")).toEqual([
-      "npm",
-      "pack",
-    ]);
+    expect(platformCommand(["node", "consumer.mjs"], "win32")).toEqual({
+      command: ["node", "consumer.mjs"],
+      windowsVerbatimArguments: false,
+    });
+    expect(platformCommand(["npm", "pack"], "darwin")).toEqual({
+      command: ["npm", "pack"],
+      windowsVerbatimArguments: false,
+    });
+  });
+
+  test("round-trips Windows shim arguments without command injection", async () => {
+    if (process.platform !== "win32") {
+      return;
+    }
+
+    const workspace = await mkdtemp(join(tmpdir(), "tusk shim "));
+    const shimDirectory = join(workspace, "node_modules", ".bin");
+    const shimPath = join(shimDirectory, "capture.cmd");
+    const captureScriptPath = join(workspace, "capture.cjs");
+    const capturePath = join(workspace, "captured-arguments.json");
+    const sentinelPath = join(workspace, "injection-sentinel");
+    const expectedArguments = [
+      "",
+      "value with spaces",
+      "&",
+      "|",
+      "<",
+      ">",
+      "^",
+      "(",
+      ")",
+      "%PATH%",
+      "!delayed!",
+      "embedded\"quote",
+      "trailing\\",
+      `& type nul > "${sentinelPath}" &`,
+    ];
+    try {
+      await mkdir(shimDirectory, { recursive: true });
+      await writeFile(
+        captureScriptPath,
+        `const fs = require("node:fs");\n` +
+          `const [output, ...args] = process.argv.slice(2);\n` +
+          `fs.writeFileSync(output, JSON.stringify(args));\n`,
+      );
+      await writeFile(
+        shimPath,
+        `@echo off\r\n"${process.execPath}" "${captureScriptPath}" "${capturePath}" %*\r\n`,
+      );
+      const result = await runCommand(
+        [shimPath, ...expectedArguments],
+        workspace,
+        {},
+        2_000,
+      );
+      expectSuccess(result);
+      expect(JSON.parse(await readFile(capturePath, "utf8"))).toEqual(
+        expectedArguments,
+      );
+      expect(existsSync(sentinelPath)).toBe(false);
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+    }
   });
 });
 
@@ -272,7 +403,7 @@ describe("package smoke test", () => {
       await readFile(resolve(repoRoot, "package.json"), "utf-8")
     ) as PackageJson;
     const packageName = packageJson.name;
-    const tempRoot = await mkdtemp(join(tmpdir(), "tusk-package-smoke-"));
+    const tempRoot = await mkdtemp(join(tmpdir(), "tusk package smoke-"));
     cleanupPaths.push(tempRoot);
 
     let tarball: string;

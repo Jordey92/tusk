@@ -1,51 +1,81 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "fs/promises";
-import { tmpdir } from "os";
-import { join, resolve } from "path";
+import { existsSync } from "node:fs";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import type { ValidationIssue } from "./core/validate-migrations";
 import {
   exerciseMigrationLifecycle,
   type CliCommandResult,
 } from "./utils/cli-smoke";
 import { createTemporaryDatabase } from "./utils/test-helper";
+import {
+  runTestSubprocess,
+  TestSubprocessTimeoutError,
+} from "./test-utils/subprocess";
 
 const cliEntrypoint = resolve(process.cwd(), "cli.ts");
 type TestDatabase = Awaited<ReturnType<typeof createTemporaryDatabase>>;
+
+interface RunCliOptions {
+  entrypoint?: string;
+  retryOnTimeout?: boolean;
+  timeoutMs?: number;
+}
 
 // Database lifecycle tests can exceed Bun's 5-second default on shared CI runners.
 // Keep this comfortably below the mutation runner's and workflow's hard limits.
 setDefaultTimeout(15_000);
 
-const decode = async (stream: ReadableStream<Uint8Array> | null) => {
-  if (!stream) {
-    return "";
-  }
-
-  return await new Response(stream).text();
-};
+const cliAttemptTimeoutMs = 5_000;
+const cliRetryBackoffMs = 200;
 
 const runCli = async (
   args: string[],
   env: Record<string, string>,
-  cwd: string
+  cwd: string,
+  options: RunCliOptions = {}
 ): Promise<CliCommandResult> => {
-  const child = Bun.spawn([process.execPath, cliEntrypoint, ...args], {
-    cwd,
-    env: {
-      ...process.env,
-      ...env,
-    },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const command = [
+    process.execPath,
+    options.entrypoint ?? cliEntrypoint,
+    ...args,
+  ];
+  const attempts = options.retryOnTimeout ? 2 : 1;
 
-  const [stdout, stderr, exitCode] = await Promise.all([
-    decode(child.stdout),
-    decode(child.stderr),
-    child.exited,
-  ]);
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await runTestSubprocess(command, {
+        cwd,
+        env: {
+          ...process.env,
+          ...env,
+        },
+        timeoutMs: options.timeoutMs ?? cliAttemptTimeoutMs,
+      });
+    } catch (error) {
+      if (
+        !(error instanceof TestSubprocessTimeoutError) ||
+        attempt === attempts
+      ) {
+        throw error;
+      }
+      console.warn(
+        `CLI process timed out; retrying attempt ${attempt + 1}/${attempts}: ` +
+          command.join(" ")
+      );
+      await new Promise((resolve) => setTimeout(resolve, cliRetryBackoffMs));
+    }
+  }
 
-  return { exitCode, stdout, stderr };
+  throw new Error("CLI process attempt loop completed unexpectedly");
 };
 
 const writeMigrationPair = async (
@@ -211,11 +241,120 @@ describe("cli smoke test", () => {
     const workspace = await mkdtemp(join(tmpdir(), "tusk-cli-error-"));
     cleanupPaths.push(workspace);
 
-    const result = await runCli(["unknown"], { LOG_LEVEL: "error" }, workspace);
+    const result = await runCli(
+      ["unknown"],
+      { LOG_LEVEL: "error" },
+      workspace,
+      { retryOnTimeout: true }
+    );
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr.match(/\[VALIDATION_ERROR\]/g)).toHaveLength(1);
     expect(result.stderr).not.toMatch(/\[\d{4}-\d{2}-\d{2}T/);
+  });
+
+  test("retries a timed-out CLI process only when explicitly requested", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "tusk-cli-retry-"));
+    const fixtureEntrypoint = join(workspace, "fixture.ts");
+    const attemptsPath = join(workspace, "attempts");
+    cleanupPaths.push(workspace);
+
+    await writeFile(
+      fixtureEntrypoint,
+      `
+        import { appendFile, readFile } from "node:fs/promises";
+        await appendFile(${JSON.stringify(attemptsPath)}, "attempt\\n");
+        const attempts = (await readFile(${JSON.stringify(attemptsPath)}, "utf8"))
+          .trim()
+          .split("\\n").length;
+        if (attempts === 1) await new Promise(() => undefined);
+        console.log("completed");
+      `
+    );
+
+    const result = await runCli([], {}, workspace, {
+      entrypoint: fixtureEntrypoint,
+      retryOnTimeout: true,
+      timeoutMs: 500,
+    });
+
+    expect(result).toEqual({
+      exitCode: 0,
+      stdout: "completed\n",
+      stderr: "",
+    });
+    expect((await readFile(attemptsPath, "utf8")).trim().split("\n"))
+      .toHaveLength(2);
+  });
+
+  test("does not retry an ordinary CLI failure", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "tusk-cli-failure-"));
+    const fixtureEntrypoint = join(workspace, "fixture.ts");
+    const attemptsPath = join(workspace, "attempts");
+    cleanupPaths.push(workspace);
+
+    await writeFile(
+      fixtureEntrypoint,
+      `
+        import { appendFile } from "node:fs/promises";
+        await appendFile(${JSON.stringify(attemptsPath)}, "attempt\\n");
+        process.exit(1);
+      `
+    );
+
+    const result = await runCli([], {}, workspace, {
+      entrypoint: fixtureEntrypoint,
+      retryOnTimeout: true,
+      timeoutMs: 500,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect((await readFile(attemptsPath, "utf8")).trim().split("\n"))
+      .toHaveLength(1);
+  });
+
+  test("does not retry or orphan descendants after a default CLI timeout", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "tusk-cli-no-retry-"));
+    const fixtureEntrypoint = join(workspace, "fixture.ts");
+    const attemptsPath = join(workspace, "attempts");
+    const descendantReadyPath = join(workspace, "descendant-ready");
+    const lateForkPath = join(workspace, "late-fork");
+    const orphanMarkerPath = join(workspace, "orphan-marker");
+    cleanupPaths.push(workspace);
+
+    await writeFile(
+      fixtureEntrypoint,
+      `
+        import { spawn } from "node:child_process";
+        import { appendFile } from "node:fs/promises";
+        await appendFile(${JSON.stringify(attemptsPath)}, "attempt\\n");
+        spawn(process.execPath, ["-e", ${JSON.stringify(
+          `const { spawn } = require("node:child_process"); const fs = require("node:fs"); process.on("SIGTERM", () => { fs.writeFileSync(${JSON.stringify(lateForkPath)}, "forked"); spawn(process.execPath, ["-e", ${JSON.stringify(
+            `setTimeout(() => require("node:fs").writeFileSync(${JSON.stringify(orphanMarkerPath)}, "orphan"), 1000)`,
+          )}], { stdio: "ignore" }); }); fs.writeFileSync(${JSON.stringify(descendantReadyPath)}, "ready"); setInterval(() => {}, 1000)`,
+        )}], { stdio: "ignore" });
+        while (!require("node:fs").existsSync(${JSON.stringify(descendantReadyPath)})) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        await new Promise(() => undefined);
+      `
+    );
+
+    await expect(
+      runCli([], {}, workspace, {
+        entrypoint: fixtureEntrypoint,
+        timeoutMs: 500,
+      })
+    ).rejects.toThrow("Test subprocess timed out after 500ms");
+
+    expect((await readFile(attemptsPath, "utf8")).trim().split("\n"))
+      .toHaveLength(1);
+    expect(existsSync(descendantReadyPath)).toBe(true);
+    if (process.platform !== "win32") {
+      expect(existsSync(lateForkPath)).toBe(true);
+    }
+    await Bun.sleep(1_200);
+    expect(existsSync(orphanMarkerPath)).toBe(false);
   });
 
   test("doctor --json reports missing database configuration without throwing", async () => {
