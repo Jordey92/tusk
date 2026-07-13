@@ -74,6 +74,11 @@ let activeMutation: ActiveMutation | undefined;
 let activeCommand: ActiveCommand | undefined;
 let restoringBeforeExit = false;
 
+const cleanBaselineTimeoutMs = 10_000;
+const cleanBaselineAttempts = 2;
+const cleanBaselineRetryDelayMs = 250;
+const bunTestTimeoutPattern = /\bthis test timed out after \d+ms\b/i;
+
 const binaryMutations = new Map<
   ts.SyntaxKind,
   { replacement: string; label: string }
@@ -415,6 +420,9 @@ const runCommand = async (
     if (timedOut) {
       await terminationComplete;
     }
+    if (restoringBeforeExit) {
+      throw new Error("Mutation testing was interrupted");
+    }
     return {
       ...result,
       timedOut,
@@ -432,17 +440,89 @@ const runCommand = async (
   }
 };
 
+const resolveMutationDeadline = (
+  environment: Record<string, string | undefined> = process.env,
+) => {
+  const rawBudget = environment.TUSK_MUTATION_BUDGET_MS;
+  if (rawBudget === undefined) {
+    return undefined;
+  }
+
+  const budgetMs = Number(rawBudget);
+  if (!Number.isSafeInteger(budgetMs) || budgetMs < 1) {
+    throw new Error("TUSK_MUTATION_BUDGET_MS must be a positive integer");
+  }
+
+  return Date.now() + budgetMs;
+};
+
+const commandTimeoutWithinBudget = (
+  timeoutMs: number,
+  deadline: number | undefined,
+) => {
+  if (deadline === undefined) {
+    return timeoutMs;
+  }
+
+  const remainingMs = deadline - Date.now();
+  if (remainingMs < 1) {
+    throw new Error("Mutation shard exhausted its configured time budget");
+  }
+
+  return Math.min(timeoutMs, remainingMs);
+};
+
+const commandOutput = (result: CommandResult) =>
+  [result.stdout, result.stderr].filter(Boolean).join("\n");
+
+const isRetryableBaselineTimeout = (result: CommandResult) =>
+  result.timedOut || bunTestTimeoutPattern.test(commandOutput(result));
+
 const verifyBaseline = async (
   file: string,
   command: string[],
   timeoutMs: number,
+  deadline?: number,
 ) => {
-  const result = await runCommand(command, timeoutMs, true);
+  const attempts: CommandResult[] = [];
+
+  for (let attempt = 1; attempt <= cleanBaselineAttempts; attempt += 1) {
+    const attemptTimeout = commandTimeoutWithinBudget(
+      Math.min(timeoutMs, cleanBaselineTimeoutMs),
+      deadline,
+    );
+    const result = await runCommand(command, attemptTimeout, true);
+    attempts.push(result);
+
+    if (!result.timedOut && result.exitCode === 0) {
+      return;
+    }
+
+    if (!isRetryableBaselineTimeout(result) || attempt === cleanBaselineAttempts) {
+      break;
+    }
+
+    console.warn(
+      `Mutation baseline timed out for ${file} (${command.join(" ")}); ` +
+        `retrying attempt ${attempt + 1}/${cleanBaselineAttempts}`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, cleanBaselineRetryDelayMs));
+  }
+
+  const result = attempts.at(-1)!;
   if (result.timedOut || result.exitCode !== 0) {
-    const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
+    const output = attempts
+      .map((attempt, index) => {
+        const attemptOutput = commandOutput(attempt);
+        return attemptOutput ? `Attempt ${index + 1}:\n${attemptOutput}` : "";
+      })
+      .filter(Boolean)
+      .join("\n");
+    const exhaustedRetries = attempts.length === cleanBaselineAttempts &&
+      attempts.every(isRetryableBaselineTimeout);
     throw new Error(
       `Mutation baseline failed for ${file} (${command.join(" ")})` +
-        `${result.timedOut ? " after timing out" : ""}` +
+        `${exhaustedRetries ? " after timing out in 2 attempts" : ""}` +
         `${output ? `\n${output}` : ""}`,
     );
   }
@@ -451,6 +531,7 @@ const verifyBaseline = async (
 const testMutant = async (
   mutant: PlannedMutant,
   timeoutMs: number,
+  deadline?: number,
 ): Promise<MutantResult> => {
   activeMutation = {
     file: mutant.file,
@@ -459,7 +540,10 @@ const testMutant = async (
   await writeFile(mutant.file, applyMutant(mutant.originalSource, mutant));
 
   try {
-    const commandResult = await runCommand(mutant.testCommand, timeoutMs);
+    const commandResult = await runCommand(
+      mutant.testCommand,
+      commandTimeoutWithinBudget(timeoutMs, deadline),
+    );
     const {
       originalSource: _originalSource,
       testCommand: _testCommand,
@@ -528,6 +612,7 @@ const writeJsonAtomically = async (path: string, value: unknown) => {
 
 const run = async () => {
   const config = await loadQualityConfig(process.env.TUSK_QUALITY_CONFIG_PATH);
+  const deadline = resolveMutationDeadline();
   const requestedFiles = new Set(process.argv.slice(2));
   const shard = resolveMutationShard();
   const plan = await buildMutationPlan(config, requestedFiles);
@@ -547,12 +632,17 @@ const run = async () => {
       mutant.file,
       mutant.testCommand,
       config.mutation.timeoutMs,
+      deadline,
     );
   }
 
   const results: MutantResult[] = [];
   for (const mutant of selectedMutants) {
-    const result = await testMutant(mutant, config.mutation.timeoutMs);
+    const result = await testMutant(
+      mutant,
+      config.mutation.timeoutMs,
+      deadline,
+    );
     results.push(result);
     console.log(
       `  ${result.status.padEnd(9)} ${result.file}:${result.line} ` +
@@ -564,6 +654,7 @@ const run = async () => {
         mutant.file,
         mutant.testCommand,
         config.mutation.timeoutMs,
+        deadline,
       );
     }
   }
@@ -574,6 +665,7 @@ const run = async () => {
       mutant.file,
       mutant.testCommand,
       config.mutation.timeoutMs,
+      deadline,
     );
   }
 

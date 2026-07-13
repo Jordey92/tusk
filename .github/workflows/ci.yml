@@ -127,6 +127,7 @@ jobs:
       TUSK_MUTATION_SHARD_INDEX: ${{ matrix.shard }}
       TUSK_MUTATION_SHARD_TOTAL: 16
       TUSK_MUTATION_REPORT_PATH: .tmp/quality/mutation-shard-${{ matrix.shard }}.json
+      TUSK_MUTATION_BUDGET_MS: 240000
 
     steps:
       - name: Check out repository

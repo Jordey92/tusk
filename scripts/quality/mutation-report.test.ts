@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -61,22 +62,162 @@ const runMutationFixture = async (
   workspace: string,
   configPath: string,
   reportPath: string,
+  env: Record<string, string> = {},
+  fixtureTimeoutMs = 3_000,
 ) => {
-  const child = Bun.spawn([process.execPath, mutationScript], {
+  const child = spawn(process.execPath, [mutationScript], {
     cwd: workspace,
     env: {
       ...process.env,
       TUSK_QUALITY_CONFIG_PATH: configPath,
       TUSK_MUTATION_REPORT_PATH: reportPath,
+      ...env,
     },
-    stdout: "pipe",
-    stderr: "pipe",
+    detached: process.platform !== "win32",
+    stdio: ["ignore", "pipe", "pipe"],
   });
-  const [exitCode, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ]);
+  const stdoutChunks: Buffer[] = [];
+  const stderrChunks: Buffer[] = [];
+  child.stdout?.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
+  child.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
+
+  const descendants = () => {
+    if (process.platform === "win32" || !child.pid) {
+      return [];
+    }
+
+    const result = spawnSync("ps", ["-eo", "pid=,ppid="], {
+      encoding: "utf8",
+      timeout: 250,
+    });
+    if (result.status !== 0) {
+      return [];
+    }
+
+    const childrenByParent = new Map<number, number[]>();
+    for (const line of result.stdout.split("\n")) {
+      const [rawPid, rawParentPid] = line.trim().split(/\s+/);
+      const pid = Number(rawPid);
+      const parentPid = Number(rawParentPid);
+      if (!Number.isSafeInteger(pid) || !Number.isSafeInteger(parentPid)) {
+        continue;
+      }
+      const children = childrenByParent.get(parentPid) ?? [];
+      children.push(pid);
+      childrenByParent.set(parentPid, children);
+    }
+
+    const discovered: number[] = [];
+    const visit = (parentPid: number) => {
+      for (const pid of childrenByParent.get(parentPid) ?? []) {
+        visit(pid);
+        discovered.push(pid);
+      }
+    };
+    visit(child.pid);
+    return discovered;
+  };
+
+  const forceKillTree = (descendantPids: number[]) => {
+    if (!child.pid) {
+      return;
+    }
+
+    if (process.platform === "win32") {
+      spawnSync("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
+        stdio: "ignore",
+        timeout: 250,
+      });
+      return;
+    }
+
+    for (const pid of descendantPids) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // The process may have exited during the graceful shutdown window.
+      }
+    }
+    try {
+      process.kill(-child.pid, "SIGKILL");
+    } catch {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill("SIGKILL");
+      }
+    }
+  };
+
+  let closed = false;
+  const closedPromise = new Promise<number>((resolve) => {
+    child.once("close", (code) => {
+      closed = true;
+      resolve(code ?? 1);
+    });
+  });
+  const errorPromise = new Promise<never>((_resolve, reject) => {
+    child.once("error", reject);
+  });
+  type FixtureOutcome =
+    | { kind: "closed"; exitCode: number }
+    | { kind: "timeout" };
+  const closedOutcome = closedPromise.then<FixtureOutcome>((exitCode) => ({
+    kind: "closed",
+    exitCode,
+  }));
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutOutcome = new Promise<FixtureOutcome>((resolve) => {
+    timeout = setTimeout(
+      () => resolve({ kind: "timeout" }),
+      fixtureTimeoutMs,
+    );
+  });
+
+  let timedOut = false;
+  let exitCode = -1;
+  try {
+    const outcome = await Promise.race([
+      closedOutcome,
+      errorPromise,
+      timeoutOutcome,
+    ]);
+    if (outcome.kind === "timeout") {
+      timedOut = true;
+    } else {
+      exitCode = outcome.exitCode;
+    }
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+
+    if (!closed && child.pid) {
+      const remainingDescendants = descendants();
+      child.kill("SIGTERM");
+      await Promise.race([
+        closedPromise,
+        new Promise((resolve) => setTimeout(resolve, 500)),
+      ]);
+      if (!closed) {
+        forceKillTree(remainingDescendants);
+        await Promise.race([
+          closedPromise,
+          new Promise((resolve) => setTimeout(resolve, 250)),
+        ]);
+      }
+    }
+    child.stdout?.destroy();
+    child.stderr?.destroy();
+  }
+
+  const stdout = Buffer.concat(stdoutChunks).toString("utf8");
+  const stderr = Buffer.concat(stderrChunks).toString("utf8");
+  if (timedOut) {
+    throw new Error(
+      `Mutation fixture timed out after ${fixtureTimeoutMs}ms` +
+        `${stderr ? `\n${stderr}` : ""}`,
+    );
+  }
+
   return { exitCode, stdout, stderr };
 };
 
@@ -289,22 +430,8 @@ test("timed-out mutants terminate descendants and restore the source", async () 
       }),
     );
 
-    const child = Bun.spawn([process.execPath, mutationScript], {
-      cwd: workspace,
-      env: {
-        ...process.env,
-        TUSK_QUALITY_CONFIG_PATH: configPath,
-        TUSK_MUTATION_REPORT_PATH: reportPath,
-      },
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const [exitCode, stderr] = await Promise.all([
-      child.exited,
-      new Response(child.stderr).text(),
-      new Response(child.stdout).text(),
-    ]);
-    expect(exitCode, stderr).toBe(0);
+    const result = await runMutationFixture(workspace, configPath, reportPath);
+    expect(result.exitCode, result.stderr).toBe(0);
     expect(await readFile(targetPath, "utf8")).toBe(originalSource);
     const report = JSON.parse(
       await readFile(reportPath, "utf8"),
@@ -320,11 +447,11 @@ test("timed-out mutants terminate descendants and restore the source", async () 
   }
 });
 
-test("rejects a report when the clean harness becomes unhealthy", async () => {
-  const workspace = await mkdtemp(join(tmpdir(), "tusk-mutation-poisoned-"));
+test("retries one transiently timed-out clean baseline", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "tusk-mutation-retry-"));
   const targetPath = join(workspace, "target.ts");
   const testPath = join(workspace, "test-runner.ts");
-  const poisonPath = join(workspace, "poison");
+  const firstAttemptPath = join(workspace, "first-attempt");
   const reportPath = join(workspace, "report.json");
   const configPath = join(workspace, "quality.config.json");
   const originalSource = "export const enabled = true;\n";
@@ -337,10 +464,190 @@ test("rejects a report when the clean harness becomes unhealthy", async () => {
         import { existsSync } from "node:fs";
         import { readFile, writeFile } from "node:fs/promises";
         const source = await readFile(${JSON.stringify(targetPath)}, "utf8");
+        if (source.includes("false")) process.exit(1);
+        if (!existsSync(${JSON.stringify(firstAttemptPath)})) {
+          await writeFile(${JSON.stringify(firstAttemptPath)}, "timed-out");
+          await new Promise(() => undefined);
+        }
+      `,
+    );
+    await writeMutationFixtureConfig({
+      configPath,
+      reportPath,
+      targetPath,
+      testPath,
+      timeoutMs: 100,
+    });
+
+    const result = await runMutationFixture(workspace, configPath, reportPath);
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(result.stderr).toContain("retrying attempt 2/2");
+    expect(await readFile(targetPath, "utf8")).toBe(originalSource);
+    expect(existsSync(reportPath)).toBe(true);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("retries one Bun test timeout without changing mutation scoring", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "tusk-mutation-bun-timeout-"));
+  const targetPath = join(workspace, "target.ts");
+  const testPath = join(workspace, "test-runner.ts");
+  const firstAttemptPath = join(workspace, "first-attempt");
+  const reportPath = join(workspace, "report.json");
+  const configPath = join(workspace, "quality.config.json");
+  const originalSource = "export const enabled = true;\n";
+
+  try {
+    await writeFile(targetPath, originalSource);
+    await writeFile(
+      testPath,
+      `
+        import { existsSync } from "node:fs";
+        import { readFile, writeFile } from "node:fs/promises";
+        const source = await readFile(${JSON.stringify(targetPath)}, "utf8");
+        if (source.includes("false")) process.exit(1);
+        if (!existsSync(${JSON.stringify(firstAttemptPath)})) {
+          await writeFile(${JSON.stringify(firstAttemptPath)}, "timed-out");
+          console.error("this test timed out after 5000ms");
+          process.exit(1);
+        }
+      `,
+    );
+    await writeMutationFixtureConfig({
+      configPath,
+      reportPath,
+      targetPath,
+      testPath,
+      timeoutMs: 1_000,
+    });
+
+    const result = await runMutationFixture(workspace, configPath, reportPath);
+    const report = JSON.parse(
+      await readFile(reportPath, "utf8"),
+    ) as MutationReport;
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(result.stderr).toContain("retrying attempt 2/2");
+    expect(report).toMatchObject({
+      killed: 1,
+      timedOut: 0,
+      survived: 0,
+    });
+    expect(await readFile(targetPath, "utf8")).toBe(originalSource);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("stops retrying when the mutation shard budget is exhausted", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "tusk-mutation-budget-"));
+  const targetPath = join(workspace, "target.ts");
+  const testPath = join(workspace, "test-runner.ts");
+  const reportPath = join(workspace, "report.json");
+  const configPath = join(workspace, "quality.config.json");
+  const originalSource = "export const enabled = true;\n";
+
+  try {
+    await writeFile(targetPath, originalSource);
+    await writeFile(
+      testPath,
+      "await new Promise(() => undefined);\n",
+    );
+    await writeMutationFixtureConfig({
+      configPath,
+      reportPath,
+      targetPath,
+      testPath,
+      timeoutMs: 1_000,
+    });
+
+    const result = await runMutationFixture(workspace, configPath, reportPath, {
+      TUSK_MUTATION_BUDGET_MS: "50",
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("exhausted its configured time budget");
+    expect(await readFile(targetPath, "utf8")).toBe(originalSource);
+    expect(existsSync(reportPath)).toBe(false);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("terminates a mutation fixture that does not exit", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "tusk-mutation-fixture-timeout-"));
+  const targetPath = join(workspace, "target.ts");
+  const testPath = join(workspace, "test-runner.ts");
+  const mutantStartedPath = join(workspace, "mutant-started");
+  const orphanMarkerPath = join(workspace, "orphan-marker");
+  const reportPath = join(workspace, "report.json");
+  const configPath = join(workspace, "quality.config.json");
+  const originalSource = "export const enabled = true;\n";
+
+  try {
+    await writeFile(targetPath, originalSource);
+    await writeFile(
+      testPath,
+      `
+        import { spawn } from "node:child_process";
+        import { readFile, writeFile } from "node:fs/promises";
+        const source = await readFile(${JSON.stringify(targetPath)}, "utf8");
+        if (source.includes("false")) {
+          process.on("SIGTERM", () => {});
+          await writeFile(${JSON.stringify(mutantStartedPath)}, "started");
+          spawn(process.execPath, ["-e", ${JSON.stringify(
+            `setTimeout(() => require("node:fs").writeFileSync(${JSON.stringify(orphanMarkerPath)}, "orphan"), 2000)`,
+          )}], { stdio: "ignore" });
+          await new Promise(() => undefined);
+        }
+      `,
+    );
+    await writeMutationFixtureConfig({
+      configPath,
+      reportPath,
+      targetPath,
+      testPath,
+      timeoutMs: 60_000,
+    });
+
+    await expect(
+      runMutationFixture(workspace, configPath, reportPath, {}, 1_000),
+    ).rejects.toThrow("Mutation fixture timed out after 1000ms");
+    expect(existsSync(mutantStartedPath)).toBe(true);
+    expect(await readFile(targetPath, "utf8")).toBe(originalSource);
+    expect(existsSync(reportPath)).toBe(false);
+    await Bun.sleep(1_500);
+    expect(existsSync(orphanMarkerPath)).toBe(false);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("rejects a report when the clean harness becomes unhealthy", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "tusk-mutation-poisoned-"));
+  const targetPath = join(workspace, "target.ts");
+  const testPath = join(workspace, "test-runner.ts");
+  const poisonPath = join(workspace, "poison");
+  const cleanInvocationPath = join(workspace, "clean-invocations");
+  const reportPath = join(workspace, "report.json");
+  const configPath = join(workspace, "quality.config.json");
+  const originalSource = "export const enabled = true;\n";
+
+  try {
+    await writeFile(targetPath, originalSource);
+    await writeFile(
+      testPath,
+      `
+        import { existsSync } from "node:fs";
+        import { appendFile, readFile, writeFile } from "node:fs/promises";
+        const source = await readFile(${JSON.stringify(targetPath)}, "utf8");
         if (source.includes("false")) {
           await writeFile(${JSON.stringify(poisonPath)}, "poisoned");
           process.exit(1);
         }
+        await appendFile(${JSON.stringify(cleanInvocationPath)}, "clean\\n");
         if (existsSync(${JSON.stringify(poisonPath)})) process.exit(1);
       `,
     );
@@ -357,6 +664,8 @@ test("rejects a report when the clean harness becomes unhealthy", async () => {
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("Mutation baseline failed");
     expect(await readFile(targetPath, "utf8")).toBe(originalSource);
+    expect((await readFile(cleanInvocationPath, "utf8")).trim().split("\n"))
+      .toHaveLength(2);
     expect(existsSync(reportPath)).toBe(false);
   } finally {
     await rm(workspace, { recursive: true, force: true });
@@ -401,7 +710,7 @@ test("rejects a timed-out mutant when its clean recovery also times out", async 
 
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("Mutation baseline failed");
-    expect(result.stderr).toContain("after timing out");
+    expect(result.stderr).toContain("after timing out in 2 attempts");
     expect(await readFile(targetPath, "utf8")).toBe(originalSource);
     expect(existsSync(reportPath)).toBe(false);
   } finally {
