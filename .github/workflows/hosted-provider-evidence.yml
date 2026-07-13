@@ -194,9 +194,11 @@ jobs:
             'pg@8.16.3'
           cli_path="$(realpath node_modules/.bin/tusk)"
 
-          echo "tarball=${tarball}" >> "${GITHUB_OUTPUT}"
-          echo "tarball_sha=${tarball_sha}" >> "${GITHUB_OUTPUT}"
-          echo "cli_path=${cli_path}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "tarball=${tarball}"
+            echo "tarball_sha=${tarball_sha}"
+            echo "cli_path=${cli_path}"
+          } >> "${GITHUB_OUTPUT}"
 
       - name: Verify exact candidate against guarded provider
         shell: bash

@@ -92,6 +92,45 @@ describe("GitHub Actions runtime policy", () => {
     expect(ci).toContain("merge-mutation-reports.ts .tmp/quality/shards 16");
   });
 
+  test("bounds mutation dependency installation and retries without cache", async () => {
+    const ci = await readFile(join(workflowsDirectory, "ci.yml"), "utf8");
+    const mutationJob = ci.slice(
+      ci.indexOf("  mutation-shard:"),
+      ci.indexOf("  mutation-aggregate:"),
+    );
+    const installBounds = Array.from(
+      mutationJob.matchAll(
+        /timeout --signal=TERM --kill-after=(\d+)s (\d+)s bun install/g,
+      ),
+      (match) => ({
+        killSeconds: Number(match[1]),
+        timeoutSeconds: Number(match[2]),
+      }),
+    );
+    const mutationBudgetMs = Number(
+      mutationJob.match(/TUSK_MUTATION_BUDGET_MS: (\d+)/)?.[1],
+    );
+    const setupAndPostStepReserveSeconds = 60;
+
+    expect(mutationJob).toContain(
+      "timeout --signal=TERM --kill-after=5s 30s bun install --frozen-lockfile",
+    );
+    expect(mutationJob).toContain(
+      'rm -rf node_modules "${HOME}/.bun/install/cache"',
+    );
+    expect(mutationJob).toContain(
+      "timeout --signal=TERM --kill-after=5s 60s bun install --frozen-lockfile --no-cache",
+    );
+    expect(installBounds).toHaveLength(2);
+    expect(
+      installBounds.reduce(
+        (total, bound) =>
+          total + bound.timeoutSeconds + bound.killSeconds,
+        mutationBudgetMs / 1_000 + setupAndPostStepReserveSeconds,
+      ),
+    ).toBeLessThanOrEqual(300);
+  });
+
   test("does not rerun monolithic mutation during publication", async () => {
     const publish = await readFile(
       join(workflowsDirectory, "publish-npm-package.yml"),
@@ -103,6 +142,80 @@ describe("GitHub Actions runtime policy", () => {
       "Require successful CI for the exact release commit",
     );
     expect(publish).toContain('head_sha="${GITHUB_SHA}"');
+  });
+
+  test("uses immutable registry identity for release recovery", async () => {
+    const publish = await readFile(
+      join(workflowsDirectory, "publish-npm-package.yml"),
+      "utf8",
+    );
+    const artifactIndex = publish.indexOf(
+      "- name: Verify immutable hosted-tested release artifact",
+    );
+    const publishIndex = publish.indexOf("- name: Publish to npm");
+    const registryIndex = publish.indexOf(
+      "- name: Verify published registry artifact",
+    );
+    const tagIndex = publish.indexOf("- name: Create and push tag");
+    const registryStep = publish.slice(registryIndex, tagIndex);
+
+    expect(publish).not.toContain("gitHead");
+    expect(publish).toContain(
+      "already exists on npm; verifying its artifact identity before release finalization",
+    );
+    expect(artifactIndex).toBeGreaterThan(-1);
+    expect(publishIndex).toBeGreaterThan(artifactIndex);
+    expect(registryIndex).toBeGreaterThan(publishIndex);
+    expect(tagIndex).toBeGreaterThan(registryIndex);
+    expect(registryStep).not.toContain("package_published");
+    expect(registryStep).toContain("dist.integrity");
+    expect(registryStep).toContain('crypto.createHash("sha512")');
+    expect(registryStep).toContain(
+      'if [ "${published_integrity}" != "${candidate_integrity}" ]',
+    );
+    expect(registryStep).toContain(
+      "dist.attestations.provenance.predicateType",
+    );
+    expect(registryStep).toContain("dist.attestations.url");
+    expect(registryStep).toContain(
+      "https://registry.npmjs.org/-/npm/v1/attestations/*",
+    );
+    expect(registryStep).toContain("https://slsa.dev/provenance/v1");
+    expect(registryStep).toContain(".digest.sha512 == $digest");
+    expect(registryStep).toContain(
+      ".externalParameters.workflow.repository",
+    );
+    expect(registryStep).toContain(".externalParameters.workflow.path");
+    expect(registryStep).toContain(".resolvedDependencies[]?");
+    expect(registryStep).toContain(".digest.gitCommit == $commit");
+    expect(registryStep).toContain("for attempt in {1..6}");
+    expect(registryStep).toContain("sleep 5");
+  });
+
+  test("generates and verifies a frozen release SBOM dependency graph", async () => {
+    const publish = await readFile(
+      join(workflowsDirectory, "publish-npm-package.yml"),
+      "utf8",
+    );
+    const generateIndex = publish.indexOf(
+      "- name: Generate deterministic release SBOM",
+    );
+    const verifyIndex = publish.indexOf("- name: Verify release SBOM");
+    const publishIndex = publish.indexOf("- name: Publish to npm");
+    const sbomSteps = publish.slice(generateIndex, publishIndex);
+
+    expect(generateIndex).toBeGreaterThan(-1);
+    expect(verifyIndex).toBeGreaterThan(generateIndex);
+    expect(publishIndex).toBeGreaterThan(verifyIndex);
+    expect(sbomSteps).toContain("scripts/generate-release-sbom.ts");
+    expect(sbomSteps).toContain("bun.lock");
+    expect(sbomSteps).not.toContain("npm install");
+    expect(sbomSteps).toContain(".bomFormat == \"CycloneDX\"");
+    expect(sbomSteps).toContain(".metadata.component");
+    expect(sbomSteps).toContain(".peerDependencies");
+    expect(sbomSteps).toContain(".peerDependenciesMeta");
+    expect(sbomSteps).toContain("tusk:dependency-kind");
+    expect(sbomSteps).toContain(".dependencies[]?");
   });
 
   test("reserves hosted-provider cleanup time inside the five-minute job", async () => {
