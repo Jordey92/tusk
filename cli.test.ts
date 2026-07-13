@@ -1,7 +1,20 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "fs/promises";
-import { tmpdir } from "os";
-import { join, resolve } from "path";
+import {
+  spawn,
+  spawnSync,
+  type ChildProcess,
+} from "node:child_process";
+import { existsSync } from "node:fs";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import type { ValidationIssue } from "./core/validate-migrations";
 import {
   exerciseMigrationLifecycle,
@@ -12,40 +25,255 @@ import { createTemporaryDatabase } from "./utils/test-helper";
 const cliEntrypoint = resolve(process.cwd(), "cli.ts");
 type TestDatabase = Awaited<ReturnType<typeof createTemporaryDatabase>>;
 
+interface RunCliOptions {
+  entrypoint?: string;
+  retryOnTimeout?: boolean;
+  timeoutMs?: number;
+}
+
+class CliProcessTimeoutError extends Error {
+  constructor(
+    readonly command: string[],
+    readonly timeoutMs: number,
+    readonly stdout: string,
+    readonly stderr: string
+  ) {
+    super(
+      `CLI process timed out after ${timeoutMs}ms: ${command.join(" ")}` +
+        `${stdout ? `\nstdout:\n${stdout}` : ""}` +
+        `${stderr ? `\nstderr:\n${stderr}` : ""}`
+    );
+    this.name = "CliProcessTimeoutError";
+  }
+}
+
 // Database lifecycle tests can exceed Bun's 5-second default on shared CI runners.
 // Keep this comfortably below the mutation runner's and workflow's hard limits.
 setDefaultTimeout(15_000);
 
-const decode = async (stream: ReadableStream<Uint8Array> | null) => {
-  if (!stream) {
-    return "";
-  }
+const cliAttemptTimeoutMs = 5_000;
+const cliCleanupGraceMs = 250;
+const cliRetryBackoffMs = 200;
 
-  return await new Response(stream).text();
+const waitForProcessClose = async (
+  closedPromise: Promise<number>,
+  timeoutMs: number
+) => {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      closedPromise,
+      new Promise((resolve) => {
+        timeout = setTimeout(resolve, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
 };
 
-const runCli = async (
-  args: string[],
+const descendantProcessIds = (rootPid: number): number[] => {
+  if (process.platform === "win32") {
+    return [];
+  }
+
+  const result = spawnSync("ps", ["-eo", "pid=,ppid="], {
+    encoding: "utf8",
+    timeout: cliCleanupGraceMs,
+  });
+  if (result.status !== 0) {
+    return [];
+  }
+
+  const childrenByParent = new Map<number, number[]>();
+  for (const line of result.stdout.split("\n")) {
+    const [rawPid, rawParentPid] = line.trim().split(/\s+/);
+    const pid = Number(rawPid);
+    const parentPid = Number(rawParentPid);
+    if (!Number.isSafeInteger(pid) || !Number.isSafeInteger(parentPid)) {
+      continue;
+    }
+
+    const children = childrenByParent.get(parentPid) ?? [];
+    children.push(pid);
+    childrenByParent.set(parentPid, children);
+  }
+
+  const descendants: number[] = [];
+  const visit = (parentPid: number) => {
+    for (const pid of childrenByParent.get(parentPid) ?? []) {
+      visit(pid);
+      descendants.push(pid);
+    }
+  };
+  visit(rootPid);
+  return descendants;
+};
+
+const signalDescendants = (
+  descendantPids: number[],
+  signal: NodeJS.Signals
+) => {
+  for (const pid of descendantPids) {
+    try {
+      process.kill(pid, signal);
+    } catch {
+      // The process may have exited while the tree was being terminated.
+    }
+  }
+};
+
+const signalRootProcessTree = (
+  child: ChildProcess,
+  signal: NodeJS.Signals
+) => {
+  if (!child.pid) {
+    return;
+  }
+
+  if (process.platform === "win32") {
+    spawnSync("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
+      stdio: "ignore",
+      timeout: cliCleanupGraceMs,
+    });
+    return;
+  }
+
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill(signal);
+    }
+  }
+};
+
+const runCliAttempt = async (
+  command: string[],
   env: Record<string, string>,
-  cwd: string
+  cwd: string,
+  timeoutMs: number
 ): Promise<CliCommandResult> => {
-  const child = Bun.spawn([process.execPath, cliEntrypoint, ...args], {
+  const child = spawn(command[0], command.slice(1), {
     cwd,
     env: {
       ...process.env,
       ...env,
     },
-    stdout: "pipe",
-    stderr: "pipe",
+    detached: process.platform !== "win32",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const stdoutChunks: Buffer[] = [];
+  const stderrChunks: Buffer[] = [];
+  child.stdout?.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
+  child.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
+
+  let closed = false;
+  const closedPromise = new Promise<number>((resolve) => {
+    child.once("close", (code) => {
+      closed = true;
+      resolve(code ?? 1);
+    });
+  });
+  const errorPromise = new Promise<never>((_resolve, reject) => {
+    child.once("error", reject);
+  });
+  type AttemptOutcome =
+    | { kind: "closed"; exitCode: number }
+    | { kind: "timeout" };
+  const closedOutcome = closedPromise.then<AttemptOutcome>((exitCode) => ({
+    kind: "closed",
+    exitCode,
+  }));
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutOutcome = new Promise<AttemptOutcome>((resolve) => {
+    timeout = setTimeout(() => resolve({ kind: "timeout" }), timeoutMs);
   });
 
-  const [stdout, stderr, exitCode] = await Promise.all([
-    decode(child.stdout),
-    decode(child.stderr),
-    child.exited,
-  ]);
+  let timedOut = false;
+  let exitCode = -1;
+  try {
+    const outcome = await Promise.race([
+      closedOutcome,
+      errorPromise,
+      timeoutOutcome,
+    ]);
+    if (outcome.kind === "timeout") {
+      timedOut = true;
+    } else {
+      exitCode = outcome.exitCode;
+    }
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+
+    if (timedOut && child.pid) {
+      const descendants = descendantProcessIds(child.pid);
+      signalDescendants(descendants, "SIGTERM");
+      signalRootProcessTree(child, "SIGTERM");
+      await new Promise((resolve) => setTimeout(resolve, cliCleanupGraceMs));
+      signalDescendants(descendants, "SIGKILL");
+      signalRootProcessTree(child, "SIGKILL");
+      if (!closed) {
+        await waitForProcessClose(closedPromise, cliCleanupGraceMs);
+      }
+    } else if (!closed && child.pid) {
+      const descendants = descendantProcessIds(child.pid);
+      signalDescendants(descendants, "SIGKILL");
+      signalRootProcessTree(child, "SIGKILL");
+      await waitForProcessClose(closedPromise, cliCleanupGraceMs);
+    }
+
+    child.stdout?.destroy();
+    child.stderr?.destroy();
+  }
+
+  const stdout = Buffer.concat(stdoutChunks).toString("utf8");
+  const stderr = Buffer.concat(stderrChunks).toString("utf8");
+  if (timedOut) {
+    throw new CliProcessTimeoutError(command, timeoutMs, stdout, stderr);
+  }
 
   return { exitCode, stdout, stderr };
+};
+
+const runCli = async (
+  args: string[],
+  env: Record<string, string>,
+  cwd: string,
+  options: RunCliOptions = {}
+): Promise<CliCommandResult> => {
+  const command = [
+    process.execPath,
+    options.entrypoint ?? cliEntrypoint,
+    ...args,
+  ];
+  const attempts = options.retryOnTimeout ? 2 : 1;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await runCliAttempt(
+        command,
+        env,
+        cwd,
+        options.timeoutMs ?? cliAttemptTimeoutMs
+      );
+    } catch (error) {
+      if (!(error instanceof CliProcessTimeoutError) || attempt === attempts) {
+        throw error;
+      }
+      console.warn(
+        `CLI process timed out; retrying attempt ${attempt + 1}/${attempts}: ` +
+          command.join(" ")
+      );
+      await new Promise((resolve) => setTimeout(resolve, cliRetryBackoffMs));
+    }
+  }
+
+  throw new Error("CLI process attempt loop completed unexpectedly");
 };
 
 const writeMigrationPair = async (
@@ -211,11 +439,120 @@ describe("cli smoke test", () => {
     const workspace = await mkdtemp(join(tmpdir(), "tusk-cli-error-"));
     cleanupPaths.push(workspace);
 
-    const result = await runCli(["unknown"], { LOG_LEVEL: "error" }, workspace);
+    const result = await runCli(
+      ["unknown"],
+      { LOG_LEVEL: "error" },
+      workspace,
+      { retryOnTimeout: true }
+    );
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr.match(/\[VALIDATION_ERROR\]/g)).toHaveLength(1);
     expect(result.stderr).not.toMatch(/\[\d{4}-\d{2}-\d{2}T/);
+  });
+
+  test("retries a timed-out CLI process only when explicitly requested", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "tusk-cli-retry-"));
+    const fixtureEntrypoint = join(workspace, "fixture.ts");
+    const attemptsPath = join(workspace, "attempts");
+    cleanupPaths.push(workspace);
+
+    await writeFile(
+      fixtureEntrypoint,
+      `
+        import { appendFile, readFile } from "node:fs/promises";
+        await appendFile(${JSON.stringify(attemptsPath)}, "attempt\\n");
+        const attempts = (await readFile(${JSON.stringify(attemptsPath)}, "utf8"))
+          .trim()
+          .split("\\n").length;
+        if (attempts === 1) await new Promise(() => undefined);
+        console.log("completed");
+      `
+    );
+
+    const result = await runCli([], {}, workspace, {
+      entrypoint: fixtureEntrypoint,
+      retryOnTimeout: true,
+      timeoutMs: 500,
+    });
+
+    expect(result).toEqual({
+      exitCode: 0,
+      stdout: "completed\n",
+      stderr: "",
+    });
+    expect((await readFile(attemptsPath, "utf8")).trim().split("\n"))
+      .toHaveLength(2);
+  });
+
+  test("does not retry an ordinary CLI failure", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "tusk-cli-failure-"));
+    const fixtureEntrypoint = join(workspace, "fixture.ts");
+    const attemptsPath = join(workspace, "attempts");
+    cleanupPaths.push(workspace);
+
+    await writeFile(
+      fixtureEntrypoint,
+      `
+        import { appendFile } from "node:fs/promises";
+        await appendFile(${JSON.stringify(attemptsPath)}, "attempt\\n");
+        process.exit(1);
+      `
+    );
+
+    const result = await runCli([], {}, workspace, {
+      entrypoint: fixtureEntrypoint,
+      retryOnTimeout: true,
+      timeoutMs: 500,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect((await readFile(attemptsPath, "utf8")).trim().split("\n"))
+      .toHaveLength(1);
+  });
+
+  test("does not retry or orphan descendants after a default CLI timeout", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "tusk-cli-no-retry-"));
+    const fixtureEntrypoint = join(workspace, "fixture.ts");
+    const attemptsPath = join(workspace, "attempts");
+    const descendantReadyPath = join(workspace, "descendant-ready");
+    const lateForkPath = join(workspace, "late-fork");
+    const orphanMarkerPath = join(workspace, "orphan-marker");
+    cleanupPaths.push(workspace);
+
+    await writeFile(
+      fixtureEntrypoint,
+      `
+        import { spawn } from "node:child_process";
+        import { appendFile } from "node:fs/promises";
+        await appendFile(${JSON.stringify(attemptsPath)}, "attempt\\n");
+        spawn(process.execPath, ["-e", ${JSON.stringify(
+          `const { spawn } = require("node:child_process"); const fs = require("node:fs"); process.on("SIGTERM", () => { fs.writeFileSync(${JSON.stringify(lateForkPath)}, "forked"); spawn(process.execPath, ["-e", ${JSON.stringify(
+            `setTimeout(() => require("node:fs").writeFileSync(${JSON.stringify(orphanMarkerPath)}, "orphan"), 1000)`,
+          )}], { stdio: "ignore" }); }); fs.writeFileSync(${JSON.stringify(descendantReadyPath)}, "ready"); setInterval(() => {}, 1000)`,
+        )}], { stdio: "ignore" });
+        while (!require("node:fs").existsSync(${JSON.stringify(descendantReadyPath)})) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        await new Promise(() => undefined);
+      `
+    );
+
+    await expect(
+      runCli([], {}, workspace, {
+        entrypoint: fixtureEntrypoint,
+        timeoutMs: 500,
+      })
+    ).rejects.toThrow("CLI process timed out after 500ms");
+
+    expect((await readFile(attemptsPath, "utf8")).trim().split("\n"))
+      .toHaveLength(1);
+    expect(existsSync(descendantReadyPath)).toBe(true);
+    if (process.platform !== "win32") {
+      expect(existsSync(lateForkPath)).toBe(true);
+    }
+    await Bun.sleep(1_200);
+    expect(existsSync(orphanMarkerPath)).toBe(false);
   });
 
   test("doctor --json reports missing database configuration without throwing", async () => {
