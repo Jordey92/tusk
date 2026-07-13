@@ -9,7 +9,8 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { Pool } from "pg";
+import { checkServerIdentity, type PeerCertificate } from "node:tls";
+import { Pool, type Connection, type PoolClient } from "pg";
 
 export const supportedHostedProviders = ["neon", "supabase", "rds", "aurora"] as const;
 export type HostedProvider = typeof supportedHostedProviders[number];
@@ -233,7 +234,7 @@ export const loadConfiguration = (provider: HostedProvider): HostedConfiguration
   };
 };
 
-const publicObjects = async (pool: Pool) => {
+export const publicObjects = async (pool: Pool) => {
   const result = await pool.query<{ object_identity: string }>(`
     SELECT
       d.classid::regclass::text || ':' ||
@@ -241,12 +242,71 @@ const publicObjects = async (pool: Pool) => {
     FROM pg_depend d
     WHERE d.refclassid = 'pg_namespace'::regclass
       AND d.refobjid = 'public'::regnamespace
+      AND d.classid <> 'pg_default_acl'::regclass
   `);
   return result.rows.map((row) => row.object_identity);
 };
 
+interface PgTlsStream {
+  authorized?: boolean;
+  authorizationError?: Error | string | null;
+  destroyed?: boolean;
+  encrypted?: boolean;
+  getCipher?: () => {
+    name?: string;
+    standardName?: string;
+    version?: string;
+  } | null;
+  getPeerCertificate?: () => PeerCertificate;
+  getProtocol?: () => string | null;
+}
+
+export const inspectClientTls = (
+  client: Pick<PoolClient, "query"> & { connection?: Pick<Connection, "stream"> },
+  expectedHostname: string,
+  localTestOverride: boolean
+) => {
+  const stream = client.connection?.stream as PgTlsStream | undefined;
+  const tls = stream?.encrypted === true;
+  if (localTestOverride && !tls) {
+    return { tls: false, tlsCipher: null, tlsVersion: null };
+  }
+  if (!tls) {
+    throw new Error("Hosted-provider evidence requires a client-side TLS connection");
+  }
+  if (stream.destroyed !== false) {
+    throw new Error("Hosted-provider evidence requires a live TLS connection");
+  }
+  if (stream.authorized !== true || stream.authorizationError) {
+    throw new Error("Hosted-provider evidence requires an authorized TLS peer certificate");
+  }
+  const certificate = stream.getPeerCertificate?.();
+  if (!certificate || Object.keys(certificate).length === 0) {
+    throw new Error("Hosted-provider evidence requires a live TLS peer certificate");
+  }
+  const hostnameError = checkServerIdentity(expectedHostname, certificate);
+  if (hostnameError) {
+    throw new Error("Hosted-provider TLS certificate does not match the expected hostname");
+  }
+  const cipher = stream.getCipher?.();
+  const tlsCipher = cipher?.standardName ?? cipher?.name;
+  const tlsVersion = stream.getProtocol?.();
+  if (!tlsCipher || !tlsVersion || !/^TLSv1\.[23]$/.test(tlsVersion)) {
+    throw new Error("Hosted-provider evidence requires negotiated TLS protocol and cipher details");
+  }
+  return {
+    tls: true,
+    tlsCipher,
+    tlsVersion,
+  };
+};
+
 const assertGuard = async (pool: Pool, config: HostedConfiguration) => {
-  const identity = await pool.query<{
+  const client = await pool.connect() as PoolClient & { connection: Connection };
+  try {
+    const expectedHostname = new URL(config.connectionString).hostname;
+    const tls = inspectClientTls(client, expectedHostname, config.localTestOverride);
+    const identity = await client.query<{
     can_mutate_guard: boolean;
     can_select_guard: boolean;
     database_name: string;
@@ -255,9 +315,6 @@ const assertGuard = async (pool: Pool, config: HostedConfiguration) => {
     rolcreaterole: boolean;
     rolreplication: boolean;
     rolsuper: boolean;
-    ssl: boolean;
-    ssl_cipher: string | null;
-    ssl_version: string | null;
     server_version: string;
   }>(`
     SELECT
@@ -274,42 +331,36 @@ const assertGuard = async (pool: Pool, config: HostedConfiguration) => {
         has_table_privilege(current_user, 'tusk_evidence_guard.target', 'DELETE') OR
         has_table_privilege(current_user, 'tusk_evidence_guard.target', 'TRUNCATE')
       ) AS can_mutate_guard,
-      current_setting('server_version') AS server_version,
-      COALESCE(ssl.ssl, false) AS ssl,
-      ssl.cipher AS ssl_cipher,
-      ssl.version AS ssl_version
+      current_setting('server_version') AS server_version
     FROM pg_roles role
-    LEFT JOIN pg_stat_ssl ssl ON ssl.pid = pg_backend_pid()
     WHERE role.rolname = current_user
   `);
-  const row = identity.rows[0];
-  if (!row || row.database_name !== config.expectedDatabase) {
-    throw new Error("Guard preflight resolved an unexpected database");
-  }
-  if (row.in_recovery) throw new Error("Hosted evidence requires a writable primary endpoint");
-  if (!config.localTestOverride && (row.rolsuper || row.rolcreatedb || row.rolcreaterole || row.rolreplication)) {
-    throw new Error("Hosted evidence role has unsafe cluster-level privileges");
-  }
-  if (!row.can_select_guard) throw new Error("Hosted evidence role cannot read the guard marker");
-  if (!config.localTestOverride && row.can_mutate_guard) {
-    throw new Error("Hosted evidence role must not be able to modify the guard marker");
-  }
-  if (!row.ssl && !config.localTestOverride) {
-    throw new Error("Hosted-provider evidence requires TLS");
-  }
+    const row = identity.rows[0];
+    if (!row || row.database_name !== config.expectedDatabase) {
+      throw new Error("Guard preflight resolved an unexpected database");
+    }
+    if (row.in_recovery) throw new Error("Hosted evidence requires a writable primary endpoint");
+    if (!config.localTestOverride && (row.rolsuper || row.rolcreatedb || row.rolcreaterole || row.rolreplication)) {
+      throw new Error("Hosted evidence role has unsafe cluster-level privileges");
+    }
+    if (!row.can_select_guard) throw new Error("Hosted evidence role cannot read the guard marker");
+    if (!config.localTestOverride && row.can_mutate_guard) {
+      throw new Error("Hosted evidence role must not be able to modify the guard marker");
+    }
 
-  const guard = await pool.query(
-    "SELECT 1 FROM tusk_evidence_guard.target WHERE guard_token = $1",
-    [config.guardToken]
-  );
-  if (guard.rowCount !== 1) throw new Error("Hosted evidence guard token did not match");
+    const guard = await client.query(
+      "SELECT 1 FROM tusk_evidence_guard.target WHERE guard_token = $1",
+      [config.guardToken]
+    );
+    if (guard.rowCount !== 1) throw new Error("Hosted evidence guard token did not match");
 
-  return {
-    serverVersion: row.server_version,
-    tls: row.ssl,
-    tlsCipher: row.ssl_cipher,
-    tlsVersion: row.ssl_version,
-  };
+    return {
+      serverVersion: row.server_version,
+      ...tls,
+    };
+  } finally {
+    client.release();
+  }
 };
 
 const assertSessionLocks = async (pool: Pool, lockId: number) => {
