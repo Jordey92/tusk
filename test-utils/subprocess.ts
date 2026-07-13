@@ -15,6 +15,7 @@ interface TestSubprocessOptions {
   env?: NodeJS.ProcessEnv;
   stdin?: string;
   timeoutMs: number;
+  windowsVerbatimArguments?: boolean;
 }
 
 export class TestSubprocessTimeoutError extends Error {
@@ -177,6 +178,7 @@ export const runTestSubprocess = async (
     env: options.env,
     detached: process.platform !== "win32",
     stdio: ["pipe", "pipe", "pipe"],
+    windowsVerbatimArguments: options.windowsVerbatimArguments,
   });
   const stdoutChunks: Buffer[] = [];
   const stderrChunks: Buffer[] = [];

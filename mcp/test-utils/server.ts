@@ -12,6 +12,7 @@ const mcpRetryBackoffMs = 100;
 interface McpCommandOptions {
   cwd?: string;
   timeoutMs?: number;
+  windowsVerbatimArguments?: boolean;
 }
 
 const readOnlyTools = new Set([
@@ -124,6 +125,7 @@ export const sendMcpRequestToCommand = async (
         },
         stdin: `${JSON.stringify(request)}\n`,
         timeoutMs: options.timeoutMs ?? mcpAttemptTimeoutMs,
+        windowsVerbatimArguments: options.windowsVerbatimArguments,
       });
 
       expect(result.exitCode, result.stderr || result.stdout).toBe(0);
