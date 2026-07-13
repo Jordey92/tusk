@@ -263,12 +263,18 @@ const runMcpRequest = async (
 
 describe("package smoke command portability", () => {
   test("routes npm and Windows command shims through cmd.exe", () => {
-    expect(platformCommand(["npm", "pack"], "win32")).toEqual({
+    const commandShell = "cmd.exe";
+
+    expect(platformCommand(["npm", "pack"], "win32", commandShell)).toEqual({
       command: ["cmd.exe", "/d", "/s", "/c", "\"npm ^^^\"pack^^^\"\""],
       windowsVerbatimArguments: true,
     });
     expect(
-      platformCommand(["C:\\consumer\\node_modules\\.bin\\tsc.cmd", "--version"], "win32")
+      platformCommand(
+        ["C:\\consumer\\node_modules\\.bin\\tsc.cmd", "--version"],
+        "win32",
+        commandShell,
+      )
     ).toEqual({
       command: [
         "cmd.exe",
@@ -279,7 +285,7 @@ describe("package smoke command portability", () => {
       ],
       windowsVerbatimArguments: true,
     });
-    expect(platformCommand(["tool.BAT"], "win32")).toEqual({
+    expect(platformCommand(["tool.BAT"], "win32", commandShell)).toEqual({
       command: ["cmd.exe", "/d", "/s", "/c", "\"tool.BAT\""],
       windowsVerbatimArguments: true,
     });
@@ -287,6 +293,7 @@ describe("package smoke command portability", () => {
       platformCommand(
         ["C:\\path with space\\tool.cmd", "value with spaces"],
         "win32",
+        commandShell,
       ),
     ).toEqual({
       command: [
