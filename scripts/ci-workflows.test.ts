@@ -131,4 +131,15 @@ describe("GitHub Actions runtime policy", () => {
         postStepReserveSeconds,
     ).toBeLessThanOrEqual(300);
   });
+
+  test("does not reuse a Bun cache across hosted runner homes", async () => {
+    const hosted = await readFile(
+      join(workflowsDirectory, "hosted-provider-evidence.yml"),
+      "utf8",
+    );
+
+    expect(hosted).toMatch(
+      /uses: oven-sh\/setup-bun@[a-f0-9]+[\s\S]{0,160}no-cache: true/,
+    );
+  });
 });
