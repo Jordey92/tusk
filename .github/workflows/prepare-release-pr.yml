@@ -110,9 +110,11 @@ jobs:
             exit 1
           fi
 
-          echo "version=${next_version}" >> "$GITHUB_OUTPUT"
-          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
-          echo "branch=${branch}" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=${next_version}"
+            echo "tag=${tag}"
+            echo "branch=${branch}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Commit release branch
         env:

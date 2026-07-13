@@ -331,13 +331,7 @@ jobs:
           package_published=false
           published_version="$(npm_view_optional "@bydey/tusk@${version}" version)"
           if [ -n "${published_version}" ]; then
-            published_git_head="$(npm_view_optional "@bydey/tusk@${version}" gitHead)"
-            if [ -z "${published_git_head}" ] || [ "${published_git_head}" != "${GITHUB_SHA}" ]; then
-              echo "Version ${version} already exists on npm from ${published_git_head:-an unknown commit}"
-              exit 1
-            fi
-
-            echo "Version ${version} is already published from this commit; continuing release finalization"
+            echo "Version ${version} already exists on npm; verifying its artifact identity before release finalization"
             package_published=true
           fi
 
@@ -361,11 +355,13 @@ jobs:
             fi
           fi
 
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
-          echo "npm_tag=${npm_tag}" >> "$GITHUB_OUTPUT"
-          echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
-          echo "package_published=${package_published}" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=${version}"
+            echo "tag=${tag}"
+            echo "npm_tag=${npm_tag}"
+            echo "prerelease=${prerelease}"
+            echo "package_published=${package_published}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Run CI verification
         shell: bash
@@ -419,36 +415,6 @@ jobs:
           echo "path=${tarball_path}" >> "$GITHUB_OUTPUT"
           echo "checksum_path=${checksum_path}" >> "$GITHUB_OUTPUT"
 
-      - name: Verify registry artifact during recovery
-        if: ${{ steps.version.outputs.package_published == 'true' }}
-        shell: bash
-        env:
-          TARBALL_PATH: ${{ steps.package.outputs.path }}
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          set -euo pipefail
-          published_integrity="$(npm view "@bydey/tusk@${VERSION}" dist.integrity)"
-          if [ -z "${published_integrity}" ]; then
-            echo "Published package ${VERSION} does not expose dist.integrity"
-            exit 1
-          fi
-          published_provenance="$(npm view "@bydey/tusk@${VERSION}" dist.attestations.provenance.predicateType)"
-          if [ "${published_provenance}" != "https://slsa.dev/provenance/v1" ]; then
-            echo "Published package ${VERSION} does not expose npm provenance"
-            exit 1
-          fi
-          candidate_integrity="$(node -e '
-            const crypto = require("node:crypto");
-            const fs = require("node:fs");
-            const bytes = fs.readFileSync(process.argv[1]);
-            const digest = crypto.createHash("sha512").update(bytes).digest("base64");
-            process.stdout.write(`sha512-${digest}`);
-          ' "${TARBALL_PATH}")"
-          if [ "${published_integrity}" != "${candidate_integrity}" ]; then
-            echo "Published package ${VERSION} does not match the hosted-tested tarball"
-            exit 1
-          fi
-
       - name: Smoke-test immutable release artifact
         env:
           TUSK_PACKAGE_SMOKE_SKIP_BUILD: "1"
@@ -456,14 +422,80 @@ jobs:
           TUSK_SMOKE_DATABASE_URL: postgresql://user:password@127.0.0.1:5433/migrate_tool_test
         run: bun run test:smoke:package
 
-      - name: Generate release SBOM
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
-        with:
-          path: artifacts/release/artifact-root/package
-          format: cyclonedx-json
-          artifact-name: tusk-${{ steps.version.outputs.version }}-sbom.cdx.json
-          output-file: artifacts/release/tusk-${{ steps.version.outputs.version }}-sbom.cdx.json
-          upload-release-assets: false
+      - name: Generate deterministic release SBOM
+        shell: bash
+        env:
+          SBOM_PATH: artifacts/release/tusk-${{ steps.version.outputs.version }}-sbom.cdx.json
+        run: |
+          set -euo pipefail
+          bun scripts/generate-release-sbom.ts \
+            artifacts/release/artifact-root/package/package.json \
+            bun.lock \
+            "${SBOM_PATH}"
+
+      - name: Verify release SBOM
+        shell: bash
+        env:
+          SBOM_PATH: artifacts/release/tusk-${{ steps.version.outputs.version }}-sbom.cdx.json
+          TARBALL_PATH: ${{ steps.package.outputs.path }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          package_name="$(tar -xOf "${TARBALL_PATH}" package/package.json | jq -r .name)"
+          jq -e \
+            --arg name "${package_name}" \
+            --arg version "${VERSION}" \
+            '.bomFormat == "CycloneDX" and
+             .specVersion == "1.6" and
+             .metadata.component.name == $name and
+             .metadata.component.version == $version and
+             .metadata.component."bom-ref" != null' \
+            "${SBOM_PATH}" >/dev/null
+
+          mapfile -t release_dependencies < <(
+            tar -xOf "${TARBALL_PATH}" package/package.json |
+              jq -r '((.dependencies // {}) +
+                      (.optionalDependencies // {}) +
+                      (.peerDependencies // {})) | keys[]'
+          )
+          for dependency in "${release_dependencies[@]}"; do
+            dependency_metadata="$(
+              tar -xOf "${TARBALL_PATH}" package/package.json |
+                jq -r --arg dependency "${dependency}" '
+                  if ((.peerDependencies // {}) | has($dependency)) then
+                    "peerDependency|" +
+                      (if .peerDependenciesMeta[$dependency].optional == true
+                       then "optional" else "required" end)
+                  elif ((.optionalDependencies // {}) | has($dependency)) then
+                    "optionalDependency|optional"
+                  else
+                    "dependency|required"
+                  end
+                '
+            )"
+            dependency_kind="${dependency_metadata%%|*}"
+            dependency_scope="${dependency_metadata#*|}"
+            jq -e \
+              --arg name "${package_name}" \
+              --arg version "${VERSION}" \
+              --arg dependency "${dependency}" \
+              --arg kind "${dependency_kind}" \
+              --arg scope "${dependency_scope}" \
+              '(.metadata.component |
+                 select(.name == $name and .version == $version) |
+                 ."bom-ref") as $root |
+               ([.components[]? |
+                 select(.name == $dependency and
+                        .scope == $scope and
+                        any(.properties[]?;
+                          .name == "tusk:dependency-kind" and
+                          .value == $kind)) |
+                 ."bom-ref"] | first) as $child |
+               $root != null and $child != null and
+               any(.dependencies[]?;
+                 .ref == $root and (.dependsOn | index($child) != null))' \
+              "${SBOM_PATH}" >/dev/null
+          done
 
       - name: Upload immutable release evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -473,6 +505,7 @@ jobs:
             ${{ steps.package.outputs.path }}
             ${{ steps.package.outputs.checksum_path }}
             artifacts/hosted-candidate/*.json
+            artifacts/release/tusk-${{ steps.version.outputs.version }}-sbom.cdx.json
           retention-days: 30
 
       - name: Upload failure artifacts
@@ -494,6 +527,117 @@ jobs:
           --access public
           --provenance
           --tag "${{ steps.version.outputs.npm_tag }}"
+
+      - name: Verify published registry artifact
+        shell: bash
+        env:
+          TARBALL_PATH: ${{ steps.package.outputs.path }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          published_integrity=""
+          published_provenance=""
+          published_attestations_url=""
+          for attempt in {1..6}; do
+            published_integrity="$(npm view "@bydey/tusk@${VERSION}" dist.integrity 2>/dev/null || true)"
+            published_provenance="$(npm view "@bydey/tusk@${VERSION}" dist.attestations.provenance.predicateType 2>/dev/null || true)"
+            published_attestations_url="$(npm view "@bydey/tusk@${VERSION}" dist.attestations.url 2>/dev/null || true)"
+            if [ -n "${published_integrity}" ] && \
+               [ -n "${published_provenance}" ] && \
+               [ -n "${published_attestations_url}" ]; then
+              break
+            fi
+            if [ "${attempt}" -lt 6 ]; then
+              sleep 5
+            fi
+          done
+          if [ -z "${published_integrity}" ]; then
+            echo "Published package ${VERSION} does not expose dist.integrity"
+            exit 1
+          fi
+          if [ "${published_provenance}" != "https://slsa.dev/provenance/v1" ]; then
+            echo "Published package ${VERSION} does not expose npm provenance"
+            exit 1
+          fi
+          if [ -z "${published_attestations_url}" ]; then
+            echo "Published package ${VERSION} does not expose npm attestations"
+            exit 1
+          fi
+          if [[ "${published_attestations_url}" != \
+                https://registry.npmjs.org/-/npm/v1/attestations/* ]]; then
+            echo "Published package ${VERSION} exposes an unexpected attestation URL"
+            exit 1
+          fi
+          candidate_integrity="$(node -e '
+            const crypto = require("node:crypto");
+            const fs = require("node:fs");
+            const bytes = fs.readFileSync(process.argv[1]);
+            const digest = crypto.createHash("sha512").update(bytes).digest("base64");
+            process.stdout.write("sha512-" + digest);
+          ' "${TARBALL_PATH}")"
+          if [ "${published_integrity}" != "${candidate_integrity}" ]; then
+            echo "Published package ${VERSION} does not match the hosted-tested tarball"
+            exit 1
+          fi
+
+          candidate_sha512="$(node -e '
+            const crypto = require("node:crypto");
+            const fs = require("node:fs");
+            const bytes = fs.readFileSync(process.argv[1]);
+            process.stdout.write(crypto.createHash("sha512").update(bytes).digest("hex"));
+          ' "${TARBALL_PATH}")"
+          mkdir -p .tmp/registry-verification
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 2 \
+            --retry-delay 2 \
+            "${published_attestations_url}" \
+            --output .tmp/registry-verification/attestations.json
+          mapfile -t provenance_payloads < <(
+            jq -r '
+              .attestations[]? |
+              select(.predicateType == "https://slsa.dev/provenance/v1") |
+              .bundle.dsseEnvelope.payload // empty
+            ' .tmp/registry-verification/attestations.json
+          )
+          if [ "${#provenance_payloads[@]}" -ne 1 ]; then
+            echo "Published package ${VERSION} must expose exactly one SLSA v1 attestation"
+            exit 1
+          fi
+          printf '%s' "${provenance_payloads[0]}" |
+            jq -Rr '@base64d' > .tmp/registry-verification/provenance.json
+
+          repository="https://github.com/${GITHUB_REPOSITORY}"
+          workflow_ref="refs/heads/${GITHUB_REF_NAME}"
+          workflow_path=".github/workflows/publish-npm-package.yml"
+          source_uri="git+${repository}@${workflow_ref}"
+          subject="pkg:npm/%40bydey/tusk@${VERSION}"
+          jq -e \
+            --arg commit "${GITHUB_SHA}" \
+            --arg digest "${candidate_sha512}" \
+            --arg ref "${workflow_ref}" \
+            --arg repository "${repository}" \
+            --arg source_uri "${source_uri}" \
+            --arg subject "${subject}" \
+            --arg workflow_path "${workflow_path}" \
+            '._type == "https://in-toto.io/Statement/v1" and
+             .predicateType == "https://slsa.dev/provenance/v1" and
+             any(.subject[]?;
+               .name == $subject and .digest.sha512 == $digest) and
+             .predicate.buildDefinition.buildType ==
+               "https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1" and
+             .predicate.buildDefinition.externalParameters.workflow.repository ==
+               $repository and
+             .predicate.buildDefinition.externalParameters.workflow.ref == $ref and
+             .predicate.buildDefinition.externalParameters.workflow.path ==
+               $workflow_path and
+             .predicate.buildDefinition.internalParameters.github.event_name ==
+               "workflow_dispatch" and
+             any(.predicate.buildDefinition.resolvedDependencies[]?;
+               .uri == $source_uri and .digest.gitCommit == $commit)' \
+            .tmp/registry-verification/provenance.json >/dev/null
 
       - name: Create and push tag
         run: |

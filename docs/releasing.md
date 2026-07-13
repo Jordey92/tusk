@@ -35,12 +35,14 @@ See [v0.5.0](./releases/v0.5.0.md) for the current release-note style.
 
 ## Release Recovery
 
-Do not publish v1 from a developer machine. Local publication bypasses the
+Do not publish releases from a developer machine. Local publication bypasses the
 protected environment, hosted-provider evidence, immutable-candidate identity,
 provenance, and durable release artifacts. If a publish job is interrupted,
 rerun `Publish npm Release` with the same evidence run IDs. Recovery proceeds
-only when an existing npm version has both the expected `gitHead` and the exact
-SHA-512 integrity of the hosted-tested tarball, plus npm SLSA v1 provenance.
+only when the existing npm version has the exact SHA-512 integrity of the
+hosted-tested tarball plus npm SLSA v1 provenance. The registry check also runs
+after a first publication, before the workflow creates the tag and release. It
+validates the attested package digest, repository, workflow, branch, and commit.
 
 ## Prepare Release PR
 
@@ -99,18 +101,19 @@ The workflow:
 2. runs the `Minimum Support Verification (Node 18, PostgreSQL 13)` job
 3. runs the packed-package smoke suite on current macOS and Windows runners
 4. reads the version directly from `package.json` on `main`
-5. verifies that an existing matching tag or npm version came from this exact commit, so interrupted releases can resume safely
+5. verifies that an existing matching tag points to this exact commit and detects an existing npm version for recovery
 6. runs `bun run test:ci` on the modern verification lane (`Node 24`, `PostgreSQL 18`)
 7. runs the dead-code, coverage/CRAP, mutation, and production dependency audit gates
 8. downloads and verifies the exact tarball already exercised by every hosted provider
-9. smoke-tests that artifact and generates a CycloneDX SBOM from its extracted contents
+9. smoke-tests that artifact and verifies a deterministic CycloneDX SBOM generated from its manifest and the exact commit's frozen `bun.lock`, including optional peer integrations
 10. publishes that exact tarball with npm trusted provenance; prereleases use the `next` tag and stable releases use `latest`
-11. creates and pushes the git tag
-12. creates a stable or prerelease GitHub release and attaches the SBOM, checksum, and hosted evidence
+11. verifies the npm registry artifact has the exact tarball integrity and SLSA v1 provenance for this repository, workflow, branch, and commit, whether newly published or recovered
+12. creates and pushes the git tag
+13. creates a stable or prerelease GitHub release and attaches the SBOM, checksum, and hosted evidence
 
 The publish job authenticates through npm trusted publishing and does not use a
-long-lived npm token. Configure the npm package to trust
-`publish-npm-package.yml` before running the first v1 release.
+long-lived npm token. Keep the npm package configured to trust
+`publish-npm-package.yml` before running any release.
 
 With Node.js 24 and npm 12, the terminal command is:
 
