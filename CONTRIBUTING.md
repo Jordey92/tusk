@@ -1,8 +1,6 @@
-# Contributing
+# Contributing to Tusk
 
-Tusk is a SQL-first PostgreSQL migration tool for Node.js and Bun. The project favors small, explicit changes with tests close to the affected behavior.
-
-## Setup
+Use Bun for repository development:
 
 ```bash
 bun install
@@ -10,42 +8,80 @@ bun run build
 bun run test
 ```
 
-For database-backed tests:
+## Database Tests
+
+Start the disposable PostgreSQL 18 service:
 
 ```bash
 docker compose up -d --wait db
+```
+
+It listens on `127.0.0.1:5433` using the credentials in `.env.example`.
+
+Run database-backed checks:
+
+```bash
 bun run test:smoke
 bun run test:db
 ```
 
-The local database connection string is:
+Stop it when finished:
 
 ```bash
-postgresql://user:password@127.0.0.1:5433/migrate_tool_test
+docker compose down
 ```
 
-## Development Workflow
+## Verification
 
-1. Make the smallest change that solves the problem.
-2. Add focused tests for the changed behavior.
-3. Run `bun run build` and `bun run test`.
-4. Run the Docker-backed test scripts when the change touches database execution, adapters, CLI database behavior, package smoke behavior, or migrations.
+Use the narrowest meaningful checks while developing. Before merging a runtime
+or release change, run:
 
-## Test Tiers
+```bash
+docker compose up -d --wait db
+bun run test:ci
+bun run test:smoke
+bun run test:db
+bun run quality:release
+git diff --check
+```
 
-- `bun run test`: fast unit checks without PostgreSQL.
-- `bun run test:smoke`: package, CLI, and Elysia smoke checks against local PostgreSQL.
-- `bun run test:db`: deeper adapter and migration engine integration checks.
-- `bun run test:ci`: build plus the full Bun test suite. Use this with local PostgreSQL running when mirroring CI.
+`quality:release` includes dead-code analysis, coverage and CRAP checks,
+exhaustive mutation testing, and the production dependency audit.
 
-## Code Style
+For documentation-only changes, run `bun test scripts/documentation.test.ts`
+and `bun run test:smoke:package`, then inspect the affected examples.
 
-- Keep public API exports in `index.ts`.
-- Put reusable migration behavior in `core/`, not directly in `cli.ts`.
-- Put shared CLI serialization and parsing helpers outside command branches.
-- Prefer structured outputs for agent and CI integrations.
-- Avoid new dependencies unless they are explicitly requested.
+## Code Boundaries
 
-## Pull Request Notes
+- Export public APIs from `index.ts`.
+- Put reusable migration behavior in `core/`, not CLI command branches.
+- Keep shared parsing and serialization outside individual commands.
+- Avoid new dependencies unless the change requires one.
 
-Describe the behavior change, the tests run, and any compatibility risks. If a command output contract changes, call that out directly.
+## Pull Requests
+
+- Keep changes small and behavior-focused.
+- Add tests for public API, CLI, migration, adapter, or JSON changes.
+- Describe the behavior, tests, and compatibility impact in the pull request.
+- Do not commit generated `dist`, package tarballs, `.tmp`, or local environment files.
+- Required CI and platform package-smoke checks must pass.
+- Resolve every review conversation before merging.
+
+## Releases
+
+Releases are created only through GitHub Actions. Do not publish from a
+developer machine.
+
+1. Run `Prepare Release PR` and merge the version change after CI passes.
+2. Run guarded Neon evidence against that exact commit.
+3. Run guarded RDS evidence using the same candidate tarball.
+4. Run `Publish npm Release` with both evidence run IDs.
+
+The publish workflow verifies the candidate, npm provenance, deterministic
+SBOM, supported runtimes, package consumers, quality gates, and hosted evidence
+before creating the tag and GitHub release. Interrupted releases are recovered
+by rerunning the same workflow with the same evidence IDs.
+
+The protected `release-preparation` and `npm-release` environments must remain
+restricted to `main`. npm trusted publishing is bound to
+`.github/workflows/publish-npm-package.yml` and the `npm-release` environment.

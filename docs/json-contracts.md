@@ -1,32 +1,15 @@
-# JSON output contracts
+# JSON Output Contracts
 
-Tusk treats `--json` output as a public automation contract. Scripts, CI jobs,
-MCP clients, and AI agents should be able to parse these payloads without
-depending on human output.
+`--json` provides stable output for scripts, CI, MCP clients, and agents.
+Human-readable output is not part of this contract.
 
-Human-readable CLI output is not covered by this contract.
+Supported commands are `create`, `init`, `up`, `down`, `status`, `validate`, and
+`doctor`, including their documented dry-run, database-check, count, and
+`--all` variants.
 
-## Supported commands
+## Common Envelope
 
-`--json` is supported for:
-
-- `tusk create`
-- `tusk init`
-- `tusk init --from-db`
-- `tusk up`
-- `tusk up --dry-run`
-- `tusk down`
-- `tusk down <count>`
-- `tusk down --all`
-- `tusk down --dry-run`
-- `tusk status`
-- `tusk validate`
-- `tusk validate --db`
-- `tusk doctor`
-
-## Common envelope
-
-Every JSON payload includes:
+Every payload includes:
 
 ```json
 {
@@ -35,97 +18,56 @@ Every JSON payload includes:
 }
 ```
 
-For recognized commands, `command` is one of:
+The exported command discriminator is one of:
 
 ```text
 create | init | up | down | status | validate | doctor | version | help
 ```
 
-For mutating commands and status commands, `ok: true` means the command
-completed successfully.
+`version` and `help` are part of the CLI envelope type but do not return JSON
+data payloads.
 
-For check commands, `ok` describes the check result:
+For mutating and status commands, `ok: true` means the command completed. For
+checks, `ok: false` can be an expected result: validation found errors or doctor
+found a failing check. Expected check results do not include an `error` object,
+and the process exits with status 1.
 
-- `validate --json` returns `ok: false` when validation issues include errors.
-- `doctor --json` returns `ok: false` when doctor reports a failing check.
-
-Those are expected command results, not runtime errors. They do not include an
-`error` object.
-
-## Error envelope
-
-Unexpected failures and command setup errors use the structured error envelope:
+Unexpected failures and setup errors use:
 
 ```json
 {
   "ok": false,
-  "command": "up",
+  "command": "down",
   "error": {
     "code": "VALIDATION_ERROR",
     "message": "Rollback count must be a positive integer",
-    "context": {
-      "count": 0
-    }
+    "context": { "count": 0 }
   }
 }
 ```
 
-Stable fields:
+Stable error fields are `ok`, `command`, `error.code`, and `error.message`, plus
+`error.cause` and `error.context` when present. Context keys are stable only
+when documented for a specific command or error code.
 
-- `ok`
-- `command`
-- `error.code`
-- `error.message`
-- `error.cause`
-- `error.context`
-
-`error.context` is structured diagnostic data. Individual context keys are
-stable only when a command or error code documents them explicitly.
-
-## Command payloads
+## Command Payloads
 
 ### `create`
 
-Stable fields:
-
-- `ok`
-- `command`
-- `upFile`
-- `downFile`
-- `migrationsPath`
+Stable fields: `ok`, `command`, `upFile`, `downFile`, and `migrationsPath`.
 
 ### `init`
 
-Plain `tusk init --json` returns:
+Plain `init` returns `ok`, `command`, `migrationsPath`, `absolutePath`, and
+`created`.
 
-- `ok`
-- `command`
-- `migrationsPath`
-- `absolutePath`
-- `created`
+`init --from-db` returns `ok`, `command`, `upFile`, `downFile`, `tableCount`,
+`checksum`, `markedAsExecuted`, `migrationsPath`, and `fromDb`.
 
-`tusk init --from-db --json` returns:
+### Applied `up` and `down`
 
-- `ok`
-- `command`
-- `upFile`
-- `downFile`
-- `tableCount`
-- `checksum`
-- `markedAsExecuted`
-- `migrationsPath`
-- `fromDb`
-
-### `up` and `down`
-
-Applied migration commands return:
-
-- `ok`
-- `command`
-- `executed`
-- `pending`
-
-`down` also returns `rollbackTarget`:
+Both return `ok`, `command`, `executed`, and `pending`. `down` also returns a
+`rollbackTarget` whose `mode` is the stable discriminator:
 
 ```json
 {
@@ -137,103 +79,42 @@ Applied migration commands return:
 }
 ```
 
-or:
-
-```json
-{
-  "rollbackTarget": {
-    "mode": "all",
-    "availableRollbackCount": 3
-  }
-}
-```
-
-`rollbackTarget.mode` is the stable discriminator. Consumers should branch on
-`mode`, not on the presence of individual fields.
+For `--all`, `mode` is `"all"` and `requestedCount` is omitted.
 
 ### Dry-run plans
 
-`up --dry-run --json` and `down --dry-run --json` return:
+Up and down dry runs return `ok`, `command`, `dryRun`, `direction`,
+`migrations`, and `summary`.
 
-- `ok`
-- `command`
-- `dryRun`
-- `direction`
-- `migrations`
-- `summary`
-
-Each migration entry includes:
-
-- `filename`
-- `timestamp`
-- `direction`
-- `sql`
-- `checksum`, for up migrations
-- `rollbackOf`, for down migrations
-
-Down dry-run summaries include the same `rollbackTarget` shape used by
-`tusk down --json`.
+Each migration includes `filename`, `timestamp`, `direction`, and `sql`. Up
+entries include `checksum`; down entries include `rollbackOf`. Down summaries
+include the same `rollbackTarget` used by applied rollback commands.
 
 ### `status`
 
-Stable fields:
-
-- `ok`
-- `command`
-- `executed`
-- `pending`
-- `summary.executed`
-- `summary.pending`
-
-Executed migration entries include:
-
-- `filename`
-- `executedAt`
-
-Pending migration entries include:
-
-- `filename`
+Stable fields are `ok`, `command`, `executed`, `pending`, `summary.executed`,
+and `summary.pending`. Executed entries include `filename` and `executedAt`;
+pending entries include `filename`.
 
 ### `validate`
 
-Stable fields:
+Stable fields are `ok`, `command`, `issues`, `summary.errors`,
+`summary.warnings`, `summary.files`, `summary.up`, and `summary.down`.
 
-- `ok`
-- `command`
-- `issues`
-- `summary.errors`
-- `summary.warnings`
-- `summary.files`
-- `summary.up`
-- `summary.down`
-
-Issue entries include:
-
-- `severity`
-- `code`
-- `message`
-- `filename`
-- `context`
+Each issue includes `severity`, `code`, `message`, `filename`, and `context`.
 
 ### `doctor`
 
-Stable fields:
+Stable fields are `ok`, `command`, `result`, `summary`, `environment`,
+`database`, and `checks`.
 
-- `ok`
-- `command`
-- `result`
-- `summary`
-- `environment`
-- `database`
-- `checks`
-
-Stable doctor check statuses:
+Check statuses are:
 
 ```text
 pass | warn | fail | skip
 ```
 
-Stable doctor check IDs:
+Stable check IDs are:
 
 - `tusk.version`
 - `migrations.path`
@@ -249,25 +130,12 @@ Stable doctor check IDs:
 - `database.status`
 - `database.advisoryLock`
 
-## Compatibility rules
+## Compatibility Rules
 
-After v1, these changes are breaking:
+Removing or renaming a documented field, enum value, or check ID; changing the
+meaning of `ok`; changing the error envelope; or changing documented JSON exit
+semantics requires a new major version.
 
-- removing a documented field
-- renaming a documented field
-- changing a documented enum string
-- changing the meaning of `ok`
-- changing a documented doctor check ID
-- changing the structured error envelope
-- changing exit-code semantics for documented JSON commands
-
-These changes are non-breaking:
-
-- adding a new field
-- adding a new doctor check ID
-- adding extra `error.context` keys
-- adding extra `issue.context` keys
-
-Consumers should ignore unknown fields and branch only on documented
-discriminators such as `command`, `ok`, `result`, `status`, `state`, and
-`rollbackTarget.mode`.
+Adding fields, check IDs, or context keys is non-breaking. Consumers must ignore
+unknown fields and branch only on documented discriminators such as `command`,
+`ok`, `result`, `status`, `state`, and `rollbackTarget.mode`.
