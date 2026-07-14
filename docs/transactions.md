@@ -1,74 +1,47 @@
 # Transactions and Timeouts
 
-Tusk runs migrations under a PostgreSQL advisory lock and records migration
-state in `_migrations`.
+Tusk holds a PostgreSQL session advisory lock while it plans and runs a
+migration command. This prevents separate runners from interleaving one
+migration history.
 
 ## Transaction Boundary
 
-Each migration file gets its own database transaction:
+Each migration file gets its own transaction:
 
-1. Tusk begins a transaction.
-2. It applies one `.up.sql` or `.down.sql` file.
-3. It writes or removes the matching `_migrations` row in the same transaction.
-4. It commits that migration before starting the next one.
+1. Begin a transaction.
+2. Execute one up or down file.
+3. Add or remove its `_migrations` row.
+4. Commit before starting the next file.
 
-If a migration fails, its SQL and metadata change are rolled back together.
-Earlier migrations in the same command remain committed. A batch of five files
-is therefore five transactions, not one all-or-nothing transaction.
-
-Tusk holds one advisory migration lock while it plans and executes the batch so
-separate runners do not interleave migration histories. Rollback planning also
-resolves every required `.down.sql` file before the first rollback transaction
-starts.
+The SQL and metadata for a failed file roll back together. Files committed
+earlier in the command remain applied.
 
 Do not put `BEGIN`, `COMMIT`, `ROLLBACK`, or `START TRANSACTION` in migration
-files. Tusk owns the transaction boundary, and `tusk validate` reports these
-statements as errors.
+files; `tusk validate` rejects them because Tusk owns the transaction.
 
-Tusk also rejects PostgreSQL operations that cannot run inside a transaction,
-including concurrent index creation/removal, database or tablespace creation,
-`ALTER SYSTEM`, and `VACUUM`. Use ordinary transactional DDL in Tusk migrations
-and perform exceptional cluster-level maintenance through a separate,
-explicitly operated procedure.
+Tusk also rejects operations PostgreSQL cannot run in a transaction, including
+concurrent index changes, database or tablespace creation, `ALTER SYSTEM`, and
+`VACUUM`. Run cluster-level maintenance through a separate operational process.
 
 ## Statement Timeout
 
-The default statement timeout is 300,000 milliseconds (five minutes) for each
-migration transaction. Configure CLI and MCP runs with:
+By default, Tusk sets PostgreSQL `statement_timeout` to five minutes inside each
+migration transaction:
 
 ```dotenv
 TUSK_STATEMENT_TIMEOUT_MS=60000
 ```
 
-The value must be a non-negative integer:
+A positive integer changes that per-statement limit. `0` leaves the database
+setting unchanged. It does not limit the complete migration batch, planning,
+connection setup, or advisory-lock acquisition.
 
-- a positive value sets PostgreSQL `statement_timeout` locally for each
-  migration transaction
-- `0` leaves PostgreSQL's existing/default statement timeout unchanged
-
-The timeout applies per SQL statement, not to the entire `tusk up` or
-`tusk down` batch. Planning, validation, connection setup, and advisory lock
-acquisition are outside this statement timeout.
-
-Programmatic adapters accept the equivalent option:
+Programmatic adapters use the equivalent option:
 
 ```ts
 const adapter = createPgAdapter(pool, { statementTimeoutMs: 60_000 });
-// or: createPostgresJsAdapter(sql, { statementTimeoutMs: 60_000 });
 ```
 
-Keep the same value across CLI, MCP, and application startup paths so behavior
-does not change between environments.
-
-When PostgreSQL cancels a timed-out statement, Tusk rolls back that migration
-transaction and leaves earlier committed migrations in place. Fix the SQL or
-choose a deliberate timeout, then rerun the command.
-
-## Operational Guidance
-
-- Use `tusk up --dry-run` to inspect the complete batch first.
-- Prefer a dedicated deploy/release step instead of running migrations during
-  an image or application build.
-- Do not run multiple migration commands through the same adapter concurrently.
-- Treat long lock waits and timeouts as operational signals; do not repeatedly
-  increase the timeout without understanding the blocking query.
+Use `tusk up --dry-run` before applying a batch. If a statement times out, fix
+the SQL or choose a deliberate limit; do not repeatedly raise the timeout
+without understanding the blocked query.
