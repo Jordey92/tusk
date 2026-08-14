@@ -142,24 +142,33 @@ export const createMigrateHandle = (
     );
   }
 
+  const options = adapterOptions(config);
+
   if (config.sql) {
     return {
-      adapter: createPostgresJsAdapter(config.sql, adapterOptions(config)),
+      adapter: createPostgresJsAdapter(config.sql, options),
       sql: config.sql,
       stop: async () => {},
     };
   }
 
   const { pool, ownsPool } = createPoolHandle(config);
-  return {
-    adapter: createPgAdapter(pool, adapterOptions(config)),
-    pool,
-    stop: async () => {
-      if (ownsPool) {
-        await pool.end();
-      }
-    },
-  };
+  try {
+    return {
+      adapter: createPgAdapter(pool, options),
+      pool,
+      stop: async () => {
+        if (ownsPool) {
+          await pool.end();
+        }
+      },
+    };
+  } catch (error) {
+    if (ownsPool) {
+      void pool.end();
+    }
+    throw error;
+  }
 };
 
 export const runElysiaStartupMigrations = async (
@@ -216,16 +225,21 @@ export const migrate = (
       sql: handle.sql,
       adapter: handle.adapter,
     })
-    .onStart(async () => {
-      await runElysiaStartupMigrations(
-        {
-          runOnStartup,
-          implicitStartup,
-          adapter: handle.adapter,
-          migrationsPath,
-        },
-        deps
-      );
+    .onStart(async (app) => {
+      try {
+        await runElysiaStartupMigrations(
+          {
+            runOnStartup,
+            implicitStartup,
+            adapter: handle.adapter,
+            migrationsPath,
+          },
+          deps
+        );
+      } catch (error) {
+        await app.stop();
+        throw error;
+      }
     })
     .onStop(async () => {
       await handle.stop();

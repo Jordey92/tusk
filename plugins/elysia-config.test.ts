@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { mkdir, rm, writeFile } from "fs/promises";
+import { join } from "path";
 import { Pool } from "pg";
 import type { DatabaseAdapter } from "../types/migrations";
 import type { createPostgresJsAdapter } from "../adapters/postgresjs";
@@ -269,6 +271,95 @@ describe("runElysiaStartupMigrations", () => {
       } else {
         process.env.TUSK_STATEMENT_TIMEOUT_MS = previous;
       }
+    }
+  });
+
+  test("rejects invalid timeout env before creating an owned pool", () => {
+    const previous = process.env.TUSK_STATEMENT_TIMEOUT_MS;
+    process.env.TUSK_STATEMENT_TIMEOUT_MS = "nope";
+
+    try {
+      expect(() =>
+        createMigrateHandle({
+          connectionString: "postgresql://user:password@localhost:5432/app",
+        })
+      ).toThrow(/TUSK_STATEMENT_TIMEOUT_MS must be a non-negative integer/);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.TUSK_STATEMENT_TIMEOUT_MS;
+      } else {
+        process.env.TUSK_STATEMENT_TIMEOUT_MS = previous;
+      }
+    }
+  });
+
+  test("does not keep the HTTP server after startup migrations fail", async () => {
+    const workspace = join(process.cwd(), ".tmp", "elysia-startup-failure");
+    await mkdir(workspace, { recursive: true });
+    const scriptPath = join(workspace, "server.ts");
+    const pluginPath = join(import.meta.dir, "elysia.ts");
+
+    await writeFile(
+      scriptPath,
+      `import { Elysia } from "elysia";
+import { migrate } from ${JSON.stringify(pluginPath)};
+
+process.on("unhandledRejection", () => {});
+
+const app = new Elysia()
+  .use(
+    migrate(
+      { pool: {} as never, runOnStartup: true },
+      {
+        runUp: async () => {
+          throw new Error("startup migration failed");
+        },
+        logger: { info() {}, warn() {}, error() {} },
+      }
+    )
+  )
+  .get("/", () => "ok")
+  .listen(0);
+
+const url = app.server?.url;
+if (!url) {
+  console.log("STOPPED");
+  process.exit(0);
+}
+
+const deadline = Date.now() + 2000;
+let status = "STOPPED";
+while (Date.now() < deadline) {
+  try {
+    const response = await fetch(url);
+    status = \`SERVING \${response.status}\`;
+    await Bun.sleep(50);
+  } catch {
+    status = "STOPPED";
+    break;
+  }
+}
+
+console.log(status);
+process.exit(0);
+`
+    );
+
+    try {
+      const child = Bun.spawn(["bun", scriptPath], {
+        cwd: process.cwd(),
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [stdout, stderr] = await Promise.all([
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+        child.exited,
+      ]);
+
+      expect(stdout.trim(), stderr).toBe("STOPPED");
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
     }
   });
 });

@@ -79,7 +79,9 @@ Set `runOnStartup: true` only when a dedicated migrate job is unavailable.
 
 Pass an existing `pg` pool or postgres.js `sql` client when the application
 already owns one. The plugin decorates the app with `db.adapter` plus `db.pool`
-or `db.sql`. Startup failures log a formatted `TuskError` and abort listen.
+or `db.sql`. Even a successful startup migration runs after the HTTP port is
+already open. On failure the plugin stops the server, logs a formatted
+`TuskError`, and rethrows.
 
 ```ts
 import postgres from "postgres";
