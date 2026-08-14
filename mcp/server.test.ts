@@ -93,12 +93,12 @@ describe("MCP server", () => {
         upFile: string;
         downFile: string;
       };
-      expect(created.upFile).toContain(migrationsDir);
-      expect(created.downFile).toContain(migrationsDir);
+      expect(created.upFile).toMatch(/_widgets\.up\.sql$/);
+      expect(created.downFile).toMatch(/_widgets\.down\.sql$/);
 
       const files = await readdir(migrationsDir);
-      expect(files.some((name) => name.endsWith("_widgets.up.sql"))).toBe(true);
-      expect(files.some((name) => name.endsWith("_widgets.down.sql"))).toBe(true);
+      expect(files).toContain(created.upFile);
+      expect(files).toContain(created.downFile);
     } finally {
       await rm(workspace, { recursive: true, force: true });
     }
