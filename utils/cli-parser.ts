@@ -207,6 +207,9 @@ const parseInitArgs = (rawArgs: string[]): ParsedCommandArgs => {
 
   for (let index = 0; index < rawArgs.length; index += 1) {
     const rawArg = rawArgs[index];
+    if (rawArg === undefined) {
+      continue;
+    }
 
     if (rawArg === "--json") {
       parsed.json = true;
