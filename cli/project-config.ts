@@ -1,8 +1,9 @@
 import { access, readFile } from "fs/promises";
 import { isAbsolute, resolve } from "path";
 import { pathToFileURL } from "url";
-import type { SupportedPostgresDriver } from "../adapters/postgres-client.js";
 import { createConfigurationError } from "../utils/errors.js";
+
+type SupportedPostgresDriver = "pg" | "postgres";
 
 export type TuskProjectFileConfig = {
   migrationsPath?: string;

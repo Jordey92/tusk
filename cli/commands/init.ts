@@ -41,7 +41,9 @@ export const runInitCommand = async (
 
   const schema = options.schema ?? "public";
   logger.info("Generating initial migration from database", { schema });
-  const database = await createDatabaseConnection(options);
+  const database = await createDatabaseConnection({
+    projectConfig: options.projectConfig,
+  });
   const adapter = database.adapter;
 
   try {
