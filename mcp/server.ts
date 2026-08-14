@@ -21,6 +21,11 @@ import type { MigrationStatusPayload } from "../types/cli.js";
 import type { DatabaseAdapter } from "../types/migrations.js";
 import { resolveConfiguredMigrationLock } from "../utils/migration-lock-id.js";
 import { getPackageVersion } from "../utils/version.js";
+import {
+  loadProjectFileConfig,
+  resolveProjectSettings,
+  type TuskProjectFileConfig,
+} from "../cli/project-config.js";
 import { parseDatabasePort } from "./database-port.js";
 
 type JsonValue =
@@ -114,8 +119,6 @@ interface JsonRpcErrorMessage {
 
 type JsonRpcMessage = JsonRpcSuccessMessage | JsonRpcErrorMessage;
 
-const defaultMigrationsPath = "./migrations";
-
 const tools: ToolDefinition[] = [
   {
     name: "tusk_validate",
@@ -123,7 +126,7 @@ const tools: ToolDefinition[] = [
     inputSchema: {
       type: "object",
       properties: {
-        migrationsPath: { type: "string", default: defaultMigrationsPath },
+        migrationsPath: { type: "string" },
         checkDatabase: { type: "boolean", default: false },
         databaseUrl: { type: "string" },
       },
@@ -135,7 +138,7 @@ const tools: ToolDefinition[] = [
     inputSchema: {
       type: "object",
       properties: {
-        migrationsPath: { type: "string", default: defaultMigrationsPath },
+        migrationsPath: { type: "string" },
         databaseUrl: { type: "string" },
       },
     },
@@ -146,7 +149,7 @@ const tools: ToolDefinition[] = [
     inputSchema: {
       type: "object",
       properties: {
-        migrationsPath: { type: "string", default: defaultMigrationsPath },
+        migrationsPath: { type: "string" },
         databaseUrl: { type: "string" },
       },
     },
@@ -157,7 +160,7 @@ const tools: ToolDefinition[] = [
     inputSchema: {
       type: "object",
       properties: {
-        migrationsPath: { type: "string", default: defaultMigrationsPath },
+        migrationsPath: { type: "string" },
         databaseUrl: { type: "string" },
         count: { type: "number", minimum: 1 },
         allowBaselineRollback: { type: "boolean", default: false },
@@ -170,7 +173,7 @@ const tools: ToolDefinition[] = [
     inputSchema: {
       type: "object",
       properties: {
-        migrationsPath: { type: "string", default: defaultMigrationsPath },
+        migrationsPath: { type: "string" },
         name: { type: "string" },
       },
       required: ["name"],
@@ -280,7 +283,8 @@ const statementTimeout = (): number | undefined => {
 const databasePort = (): number => parseDatabasePort(process.env.DB_PORT);
 
 const createDatabaseConfig = (
-  args: Record<string, JsonValue> = {}
+  args: Record<string, JsonValue> = {},
+  projectConfig: TuskProjectFileConfig = {}
 ): PostgresClientConfig => {
   const lockOptions = resolveConfiguredMigrationLock({
     lockIdEnv: process.env.TUSK_MIGRATION_LOCK_ID,
@@ -292,31 +296,34 @@ const createDatabaseConfig = (
   if (databaseUrl) {
     return {
       connectionString: databaseUrl,
-      driver: driverPreference(),
-      statementTimeoutMs: statementTimeout(),
+      driver: driverPreference() ?? projectConfig.driver,
+      statementTimeoutMs: statementTimeout() ?? projectConfig.statementTimeoutMs,
       ...lockOptions,
     };
   }
 
+  // Validate DB_PORT before driver preference so invalid ports fail first.
+  const port = databasePort();
+
   return {
     host: process.env.DB_HOST || "localhost",
-    port: databasePort(),
+    port,
     database: process.env.DB_NAME,
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
-    driver: driverPreference(),
-    statementTimeoutMs: statementTimeout(),
+    driver: driverPreference() ?? projectConfig.driver,
+    statementTimeoutMs: statementTimeout() ?? projectConfig.statementTimeoutMs,
     ...lockOptions,
   };
 };
 
 const withAdapter = async <T>(
   args: Record<string, JsonValue>,
-  _migrationsPath: string,
+  projectConfig: TuskProjectFileConfig,
   callback: (adapter: DatabaseAdapter) => Promise<T>
 ): Promise<T> => {
   const database = await createManagedPostgresAdapter(
-    createDatabaseConfig(args)
+    createDatabaseConfig(args, projectConfig)
   );
 
   try {
@@ -330,10 +337,13 @@ const callTool = async (
   name: string,
   args: Record<string, JsonValue> = {}
 ): Promise<ToolResult> => {
+  const loadedProjectConfig = await loadProjectFileConfig();
+  const projectSettings = resolveProjectSettings(loadedProjectConfig);
+  const projectConfig = loadedProjectConfig.config;
   const migrationsPath = stringArg(
     args,
     "migrationsPath",
-    defaultMigrationsPath
+    projectSettings.migrationsPath
   );
 
   if (name === "tusk_validate") {
@@ -343,7 +353,7 @@ const callTool = async (
       return await validateMigrations(migrationsPath);
     }
 
-    return await withAdapter(args, migrationsPath, (adapter) =>
+    return await withAdapter(args, projectConfig, (adapter) =>
       validateMigrations(migrationsPath, {
         adapter,
         checkDatabase: true,
@@ -352,13 +362,13 @@ const callTool = async (
   }
 
   if (name === "tusk_status") {
-    return await withAdapter(args, migrationsPath, (adapter) =>
+    return await withAdapter(args, projectConfig, (adapter) =>
       getMigrationStatus(adapter, migrationsPath)
     );
   }
 
   if (name === "tusk_plan_up") {
-    return await withAdapter(args, migrationsPath, (adapter) =>
+    return await withAdapter(args, projectConfig, (adapter) =>
       createUpPlan(adapter, migrationsPath)
     );
   }
@@ -371,7 +381,7 @@ const callTool = async (
       false
     );
 
-    return await withAdapter(args, migrationsPath, (adapter) =>
+    return await withAdapter(args, projectConfig, (adapter) =>
       createDownPlan(adapter, migrationsPath, {
         count,
         allowBaselineRollback,

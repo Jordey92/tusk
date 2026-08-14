@@ -4,15 +4,23 @@ import {
   writeJson,
 } from "../../utils/cli-output.js";
 import type { ParsedCommandArgs } from "../../utils/cli-parser.js";
-import { createDatabaseConnection } from "../database.js";
+import {
+  createDatabaseConnection,
+} from "../database.js";
+import type { TuskProjectFileConfig } from "../project-config.js";
 import { printValidation } from "../print.js";
+
+type ValidateCommandOptions = {
+  projectConfig?: TuskProjectFileConfig;
+};
 
 export const runValidateCommand = async (
   migrationsPath: string,
-  parsedArgs: ParsedCommandArgs
+  parsedArgs: ParsedCommandArgs,
+  options: ValidateCommandOptions = {}
 ): Promise<number> => {
   if (parsedArgs.checkDatabase) {
-    const database = await createDatabaseConnection({ migrationsPath });
+    const database = await createDatabaseConnection(options);
 
     try {
       const result = await validateMigrations(migrationsPath, {

@@ -153,16 +153,19 @@ export const sendMcpRequestToCommand = async (
 export const sendMcpRequest = async (
   request: Record<string, unknown>,
   env: Record<string, string> = {},
+  options: McpCommandOptions = {},
 ) => sendMcpRequestToCommand(
   [process.execPath, serverEntrypoint],
   request,
   env,
+  options,
 );
 
 export const callMcpTool = async (
   name: string,
   args: Record<string, unknown>,
   env: Record<string, string> = {},
+  options: McpCommandOptions = {},
 ) => {
   return sendMcpRequest(
     {
@@ -175,6 +178,7 @@ export const callMcpTool = async (
       },
     },
     env,
+    options,
   ) as Promise<{
     result: {
       isError: boolean;

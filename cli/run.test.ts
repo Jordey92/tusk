@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCli } from "./run";
@@ -179,6 +179,34 @@ describe("runCli", () => {
           command,
           error: { code: "CONFIGURATION_ERROR" },
         });
+      }
+    });
+  });
+
+  test("uses migrationsPath from tusk.config.json when env is unset", async () => {
+    captureOutput();
+    await withWorkspace(async (workspace) => {
+      delete process.env.MIGRATIONS_PATH;
+      const configuredMigrations = join(workspace, "configured-migrations");
+      await writeFile(
+        join(workspace, "tusk.config.json"),
+        JSON.stringify({ migrationsPath: "configured-migrations" })
+      );
+
+      const previousCwd = process.cwd();
+      process.chdir(workspace);
+      try {
+        const code = await runCli(["node", "tusk", "init", "--json"]);
+        expect(code).toBe(0);
+        expect(JSON.parse(logs.join(""))).toMatchObject({
+          ok: true,
+          command: "init",
+          created: true,
+          migrationsPath: configuredMigrations,
+          absolutePath: configuredMigrations,
+        });
+      } finally {
+        process.chdir(previousCwd);
       }
     });
   });

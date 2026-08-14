@@ -30,7 +30,8 @@ describe("createDatabaseConnection", () => {
       seenLoadOptions = options;
       return {
         connectionString: "postgresql://user:password@localhost:5432/app",
-        migrationLockSeed: "/resolved/migrations",
+        driver: "postgres",
+        statementTimeoutMs: 120000,
       };
     };
     deps.createManagedPostgresAdapter = async (config) => {
@@ -43,13 +44,16 @@ describe("createDatabaseConnection", () => {
     };
 
     const managed = await createDatabaseConnection(
-      { migrationsPath: "./migrations" },
+      { projectConfig: { driver: "postgres", statementTimeoutMs: 120000 } },
       deps
     );
-    expect(seenLoadOptions).toEqual({ migrationsPath: "./migrations" });
+    expect(seenLoadOptions).toEqual({
+      projectConfig: { driver: "postgres", statementTimeoutMs: 120000 },
+    });
     expect(seenConfig).toEqual({
       connectionString: "postgresql://user:password@localhost:5432/app",
-      migrationLockSeed: "/resolved/migrations",
+      driver: "postgres",
+      statementTimeoutMs: 120000,
     });
     expect(managed.adapter).toBe(adapter);
   });
@@ -144,11 +148,15 @@ describe("createDoctorDatabaseInput", () => {
 
   test("passes the preferred driver into driver resolution", async () => {
     let preferredDriver: unknown;
+    let seenFileDriver: unknown;
     await createDoctorDatabaseInput(
-      {},
+      { projectConfig: { driver: "postgres" } },
       {
         ...baseDeps(),
-        loadDriverPreference: () => "postgres",
+        loadDriverPreference: (fileDriver) => {
+          seenFileDriver = fileDriver;
+          return "postgres";
+        },
         resolvePostgresClientDriver: async (options) => {
           preferredDriver = options.preferredDriver;
           return "postgres";
@@ -156,6 +164,7 @@ describe("createDoctorDatabaseInput", () => {
       }
     );
 
+    expect(seenFileDriver).toBe("postgres");
     expect(preferredDriver).toBe("postgres");
   });
 

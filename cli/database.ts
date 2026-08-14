@@ -4,6 +4,7 @@ import {
   type ManagedPostgresAdapter,
 } from "../adapters/postgres-client.js";
 import { loadDatabaseConfig, loadDriverPreference } from "./config.js";
+import type { TuskProjectFileConfig } from "./project-config.js";
 
 export interface DatabaseModuleDeps {
   resolvePostgresClientDriver: typeof resolvePostgresClientDriver;
@@ -14,6 +15,7 @@ export interface DatabaseModuleDeps {
 
 type DatabaseConnectionOptions = {
   migrationsPath?: string;
+  projectConfig?: TuskProjectFileConfig;
 };
 
 const defaultDeps: DatabaseModuleDeps = {
@@ -30,19 +32,17 @@ export const createDatabaseConnection = async (
     "createManagedPostgresAdapter" | "loadDatabaseConfig"
   > = defaultDeps
 ): Promise<ManagedPostgresAdapter> => {
-  const config = deps.loadDatabaseConfig({
-    migrationsPath: options.migrationsPath,
-  });
+  const config = deps.loadDatabaseConfig(options);
   return deps.createManagedPostgresAdapter(config);
 };
 
 const createDriverNotFoundDoctorInput = (
   error: unknown,
   loadConfig: DatabaseModuleDeps["loadDatabaseConfig"],
-  migrationsPath?: string
+  options: DatabaseConnectionOptions = {}
 ) => {
   try {
-    loadConfig({ migrationsPath });
+    loadConfig(options);
     return {
       database: {
         state: "driver_missing" as const,
@@ -69,22 +69,20 @@ export const createDoctorDatabaseInput = async (
 ) => {
   try {
     await deps.resolvePostgresClientDriver({
-      preferredDriver: deps.loadDriverPreference(),
+      preferredDriver: deps.loadDriverPreference(options.projectConfig?.driver),
     });
   } catch (error) {
     return createDriverNotFoundDoctorInput(
       error,
       deps.loadDatabaseConfig,
-      options.migrationsPath
+      options
     );
   }
 
   let config;
 
   try {
-    config = deps.loadDatabaseConfig({
-      migrationsPath: options.migrationsPath,
-    });
+    config = deps.loadDatabaseConfig(options);
   } catch (error) {
     return {
       database: {

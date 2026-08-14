@@ -6,12 +6,21 @@ import {
 } from "../../utils/cli-output.js";
 import type { ParsedCommandArgs } from "../../utils/cli-parser.js";
 import { logger } from "../../utils/logger.js";
-import { createDatabaseConnection } from "../database.js";
+import {
+  createDatabaseConnection,
+} from "../database.js";
+import type { TuskProjectFileConfig } from "../project-config.js";
 import { printInitNextSteps } from "../print.js";
+
+type InitCommandOptions = {
+  projectConfig?: TuskProjectFileConfig;
+  schema?: string;
+};
 
 export const runInitCommand = async (
   migrationsPath: string,
-  parsedArgs: ParsedCommandArgs
+  parsedArgs: ParsedCommandArgs,
+  options: InitCommandOptions = {}
 ): Promise<number> => {
   if (!parsedArgs.initFromDb) {
     logger.info("Initialising Tusk project", { migrationsPath });
@@ -30,12 +39,19 @@ export const runInitCommand = async (
     return 0;
   }
 
-  logger.info("Generating initial migration from database");
-  const database = await createDatabaseConnection({ migrationsPath });
+  const schema = options.schema ?? "public";
+  logger.info("Generating initial migration from database", { schema });
+  const database = await createDatabaseConnection({
+    projectConfig: options.projectConfig,
+  });
   const adapter = database.adapter;
 
   try {
-    const initResult = await createInitialMigration(adapter, migrationsPath);
+    const initResult = await createInitialMigration(
+      adapter,
+      migrationsPath,
+      schema
+    );
     if (parsedArgs.json) {
       writeJson(
         createSuccessPayload("init", {
@@ -45,6 +61,7 @@ export const runInitCommand = async (
           checksum: initResult.checksum,
           markedAsExecuted: initResult.markedAsExecuted,
           migrationsPath,
+          schema,
           fromDb: true,
         })
       );
@@ -60,6 +77,7 @@ export const runInitCommand = async (
       tableCount: initResult.tableCount,
       checksum: initResult.checksum,
       markedAsExecuted: initResult.markedAsExecuted,
+      schema,
     });
     return 0;
   } finally {

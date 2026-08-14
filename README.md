@@ -145,10 +145,28 @@ provides a verified Elysia plugin at `@bydey/tusk/elysia`, which requires Node.j
 | `TUSK_STATEMENT_TIMEOUT_MS` | `300000` | Statement timeout inside each migration transaction; `0` keeps the database default |
 | `TUSK_MIGRATION_LOCK_ID` | `123456789` | Explicit PostgreSQL advisory lock key |
 | `TUSK_MIGRATION_LOCK_SEED` | - | Opt-in seed used to derive a lock key when `TUSK_MIGRATION_LOCK_ID` is unset |
+| `TUSK_SCHEMA` | `public` | Schema introspected by `tusk init --from-db` |
 | `LOG_LEVEL` | `warn` | `debug`, `info`, `warn`, or `error` |
 
 Individual `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD`
 variables can be used instead of `DATABASE_URL`.
+
+Optional project defaults can live in `tusk.config.json` in the working
+directory (also `tusk.config.mjs`, or CommonJS `tusk.config.js` /
+`tusk.config.cjs`). TypeScript `tusk.config.ts` loads when the CLI runs under
+Bun; on Node use JSON or `.mjs` instead.
+
+```json
+{
+  "migrationsPath": "db/migrations",
+  "driver": "pg",
+  "statementTimeoutMs": 60000,
+  "schema": "public"
+}
+```
+
+Environment variables override file values. Keep connection secrets in the
+environment, not the config file.
 
 See [Transactions and timeouts](./docs/transactions.md) before changing the
 statement timeout or running unusual PostgreSQL DDL.

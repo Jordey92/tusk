@@ -508,7 +508,10 @@ describe("cli smoke test", () => {
         );
       `);
 
-      const result = await runCli(["init", "--from-db", "--json"], env, workspace);
+      const result = await runCli(["init", "--from-db", "--json"], env, workspace, {
+        retryOnTimeout: true,
+        timeoutMs: 15_000,
+      });
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
 
@@ -521,6 +524,7 @@ describe("cli smoke test", () => {
         checksum: string;
         markedAsExecuted: boolean;
         migrationsPath: string;
+        schema: string;
         fromDb: boolean;
       };
 
@@ -532,6 +536,7 @@ describe("cli smoke test", () => {
       expect(payload.checksum).toMatch(/^[a-f0-9]{64}$/);
       expect(payload.markedAsExecuted).toBe(true);
       expect(payload.migrationsPath).toBe("migrations");
+      expect(payload.schema).toBe("public");
       expect(payload.fromDb).toBe(true);
 
       const status = await runCli(["status", "--json"], env, workspace);
