@@ -56,6 +56,52 @@ describe("MCP test server process", () => {
       .toHaveLength(2);
   });
 
+  test("retries a missing tool name only when no response was produced", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "tusk-mcp-missing-tool-"));
+    const fixture = join(workspace, "fixture.ts");
+    const attemptsPath = join(workspace, "attempts");
+    cleanupPaths.push(workspace);
+
+    await writeFile(
+      fixture,
+      `
+        import { appendFile, readFile } from "node:fs/promises";
+        await appendFile(${JSON.stringify(attemptsPath)}, "attempt\\n");
+        const attempts = (await readFile(${JSON.stringify(attemptsPath)}, "utf8"))
+          .trim()
+          .split("\\n").length;
+        if (attempts === 1) await new Promise(() => undefined);
+        console.log(JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          result: {
+            isError: true,
+            content: [{ type: "text", text: "{\\"error\\":\\"Missing tool name\\"}" }],
+          },
+        }));
+      `,
+    );
+
+    const response = await sendMcpRequestToCommand(
+      [process.execPath, fixture],
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { arguments: {} },
+      },
+      {},
+      { cwd: workspace, timeoutMs: 500 },
+    );
+
+    expect(response.result).toEqual({
+      isError: true,
+      content: [{ type: "text", text: '{"error":"Missing tool name"}' }],
+    });
+    expect((await readFile(attemptsPath, "utf8")).trim().split("\n"))
+      .toHaveLength(2);
+  });
+
   test("does not retry a mutating tool call after a no-response timeout", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "tusk-mcp-mutation-"));
     const fixture = join(workspace, "fixture.ts");
