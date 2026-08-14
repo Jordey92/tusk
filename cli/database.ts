@@ -12,7 +12,7 @@ export interface DatabaseModuleDeps {
   loadDriverPreference: typeof loadDriverPreference;
 }
 
-export type DatabaseConnectionOptions = {
+type DatabaseConnectionOptions = {
   migrationsPath?: string;
 };
 

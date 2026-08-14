@@ -4,7 +4,7 @@ import { resolveConfiguredMigrationLock } from "../utils/migration-lock-id.js";
 
 type DatabaseConfig = PostgresClientConfig;
 
-export type LoadDatabaseConfigOptions = {
+type LoadDatabaseConfigOptions = {
   /** Migrations directory used to derive the advisory lock seed. */
   migrationsPath?: string;
 };

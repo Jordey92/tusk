@@ -17,7 +17,7 @@ interface UnlockRow extends QueryResultRow {
   unlocked: boolean;
 }
 
-export interface LockingMethodsOptions {
+interface LockingMethodsOptions {
   migrationLockId?: number;
   migrationLockSeed?: string;
 }

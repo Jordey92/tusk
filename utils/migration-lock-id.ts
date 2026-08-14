@@ -64,7 +64,7 @@ export function parseMigrationLockId(value: string | number): number {
   return parsed;
 }
 
-export type ResolveMigrationLockIdOptions = {
+type ResolveMigrationLockIdOptions = {
   /** Explicit lock id (wins over seed). */
   lockId?: number | string;
   /** Seed used to derive a lock id when `lockId` is omitted. */
@@ -88,14 +88,14 @@ export function resolveMigrationLockId(
   return DEFAULT_MIGRATION_LOCK_ID;
 }
 
-export type ConfiguredMigrationLockOptions = {
+type ConfiguredMigrationLockOptions = {
   /** Absolute or relative migrations directory used as the default seed. */
   migrationsPath?: string;
   /** Raw `TUSK_MIGRATION_LOCK_ID` value when set. */
   lockIdEnv?: string;
 };
 
-export type ConfiguredMigrationLock = {
+type ConfiguredMigrationLock = {
   migrationLockId?: number;
   migrationLockSeed?: string;
 };
