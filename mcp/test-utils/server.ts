@@ -51,7 +51,11 @@ const isSafeToRetry = (request: Record<string, unknown>) => {
   }
 
   const toolName = toRecord(request.params)?.name;
-  return typeof toolName === "string" && readOnlyTools.has(toolName);
+  if (typeof toolName !== "string") {
+    return true;
+  }
+
+  return readOnlyTools.has(toolName);
 };
 
 const parseResponse = (
