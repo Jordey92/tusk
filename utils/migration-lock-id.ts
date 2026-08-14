@@ -1,5 +1,3 @@
-import { resolve } from "path";
-
 /**
  * PostgreSQL advisory lock keys are signed 64-bit integers.
  * Keep derived IDs in a positive range that fits comfortably in that space.
@@ -9,13 +7,14 @@ const LOCK_ID_MIN = 1;
 
 /**
  * Default lock id used when neither `migrationLockId` nor `migrationLockSeed`
- * is configured. Kept stable for backward compatibility with earlier Tusk releases.
+ * is configured. Shared by CLI, MCP, Elysia, and programmatic adapters so mixed
+ * runners on the same migration history still serialize.
  */
 export const DEFAULT_MIGRATION_LOCK_ID = 123456789;
 
 /**
  * Derive a positive advisory lock id from an arbitrary seed string
- * (for example a migrations directory path or project name).
+ * (for example a project name or an explicit lock seed env value).
  */
 export function deriveMigrationLockId(seed: string): number {
   const normalized = seed.trim();
@@ -89,10 +88,17 @@ export function resolveMigrationLockId(
 }
 
 type ConfiguredMigrationLockOptions = {
-  /** Absolute or relative migrations directory used as the default seed. */
+  /**
+   * Optional migrations path. Ignored for lock identity unless the caller also
+   * opts into a seed (path hashing alone must not diverge from the default).
+   */
   migrationsPath?: string;
   /** Raw `TUSK_MIGRATION_LOCK_ID` value when set. */
   lockIdEnv?: string;
+  /** Raw `TUSK_MIGRATION_LOCK_SEED` value when set (opt-in derivation). */
+  seedEnv?: string;
+  /** Explicit opt-in seed (for example a stable project name). */
+  seed?: string;
 };
 
 type ConfiguredMigrationLock = {
@@ -101,9 +107,10 @@ type ConfiguredMigrationLock = {
 };
 
 /**
- * Resolve adapter lock options from an explicit env override or migrations path.
- * Explicit `TUSK_MIGRATION_LOCK_ID` wins; otherwise the resolved migrations path
- * becomes the seed so apps sharing one database do not share one lock.
+ * Resolve adapter lock options from explicit env/config overrides.
+ * Default (no overrides) leaves options empty so adapters use
+ * `DEFAULT_MIGRATION_LOCK_ID` and stay compatible with mixed CLI + programmatic
+ * runners on the same history.
  */
 export function resolveConfiguredMigrationLock(
   options: ConfiguredMigrationLockOptions = {},
@@ -112,8 +119,12 @@ export function resolveConfiguredMigrationLock(
     return { migrationLockId: parseMigrationLockId(options.lockIdEnv) };
   }
 
-  if (options.migrationsPath !== undefined && options.migrationsPath !== "") {
-    return { migrationLockSeed: resolve(options.migrationsPath) };
+  if (options.seed !== undefined && options.seed !== "") {
+    return { migrationLockSeed: options.seed };
+  }
+
+  if (options.seedEnv !== undefined && options.seedEnv !== "") {
+    return { migrationLockSeed: options.seedEnv };
   }
 
   return {};

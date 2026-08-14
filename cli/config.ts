@@ -5,7 +5,7 @@ import { resolveConfiguredMigrationLock } from "../utils/migration-lock-id.js";
 type DatabaseConfig = PostgresClientConfig;
 
 type LoadDatabaseConfigOptions = {
-  /** Migrations directory used to derive the advisory lock seed. */
+  /** Unused for lock identity; kept for call-site compatibility. */
   migrationsPath?: string;
 };
 
@@ -42,18 +42,19 @@ export const loadDriverPreference = (): SupportedPostgresDriver | undefined => {
   );
 };
 
-const loadMigrationLockOptions = (migrationsPath?: string) => {
+const loadMigrationLockOptions = () => {
   try {
     return resolveConfiguredMigrationLock({
-      migrationsPath,
       lockIdEnv: process.env.TUSK_MIGRATION_LOCK_ID,
+      seedEnv: process.env.TUSK_MIGRATION_LOCK_SEED,
     });
   } catch (error) {
+    const invalidLockId = process.env.TUSK_MIGRATION_LOCK_ID;
     throw createConfigurationError(
       error instanceof Error ? error.message : String(error),
       {
-        name: "TUSK_MIGRATION_LOCK_ID",
-        value: process.env.TUSK_MIGRATION_LOCK_ID,
+        name: invalidLockId ? "TUSK_MIGRATION_LOCK_ID" : "TUSK_MIGRATION_LOCK_SEED",
+        value: invalidLockId || process.env.TUSK_MIGRATION_LOCK_SEED,
       }
     );
   }
@@ -88,7 +89,7 @@ export const loadDatabaseConfig = (
       300000,
       { minimum: 0 }
     ),
-    ...loadMigrationLockOptions(options.migrationsPath),
+    ...loadMigrationLockOptions(),
   };
 
   if (process.env.DATABASE_URL) {

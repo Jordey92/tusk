@@ -1,9 +1,9 @@
 import { Pool } from "pg";
 import { createRequire } from "module";
-import { resolve } from "path";
 import { createPgAdapter } from "../adapters/pg.js";
 import { runUp } from "../core/run-migrations.js";
 import type { ConnectionConfig } from "../types/migrations.js";
+import { resolveConfiguredMigrationLock } from "../utils/migration-lock-id.js";
 
 /**
  * Connection settings accepted by the Elysia migration plugin.
@@ -64,12 +64,14 @@ export const migrate = (config: ElysiaMigrateConfig = {}) => {
   const { Elysia } = requireElysia("elysia") as typeof import("elysia");
   const { pool, ownsPool } = createPoolHandle(config);
   const migrationsPath = config.migrationsPath || "./migrations";
+  const envLock = resolveConfiguredMigrationLock({
+    lockIdEnv: process.env.TUSK_MIGRATION_LOCK_ID,
+    seedEnv: process.env.TUSK_MIGRATION_LOCK_SEED,
+  });
   const adapter = createPgAdapter(pool, {
     statementTimeoutMs: config.statementTimeoutMs,
-    migrationLockId: config.migrationLockId,
-    migrationLockSeed:
-      config.migrationLockSeed ??
-      (config.migrationLockId == null ? resolve(migrationsPath) : undefined),
+    migrationLockId: config.migrationLockId ?? envLock.migrationLockId,
+    migrationLockSeed: config.migrationLockSeed ?? envLock.migrationLockSeed,
   });
   const runOnStartup = config.runOnStartup ?? true;
 

@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { resolve } from "path";
 import {
   DEFAULT_MIGRATION_LOCK_ID,
   deriveMigrationLockId,
@@ -77,19 +76,36 @@ describe("resolveConfiguredMigrationLock", () => {
     expect(
       resolveConfiguredMigrationLock({
         lockIdEnv: "4242",
+        seedEnv: "ignored",
         migrationsPath: "./migrations",
       }),
     ).toEqual({ migrationLockId: 4242 });
   });
 
-  test("seeds from the resolved migrations path when no env id is set", () => {
+  test("CLI-derived lock for ./migrations matches the programmatic default", () => {
+    const configured = resolveConfiguredMigrationLock({
+      migrationsPath: "./migrations",
+    });
+    const cli = resolveMigrationLockId({
+      lockId: configured.migrationLockId,
+      seed: configured.migrationLockSeed,
+    });
+
+    expect(cli).toBe(DEFAULT_MIGRATION_LOCK_ID);
+  });
+
+  test("opts into derivation only when a seed is provided", () => {
     expect(
-      resolveConfiguredMigrationLock({ migrationsPath: "./migrations" }),
-    ).toEqual({ migrationLockSeed: resolve("./migrations") });
+      resolveConfiguredMigrationLock({ seedEnv: "billing-service" }),
+    ).toEqual({ migrationLockSeed: "billing-service" });
+    expect(
+      resolveConfiguredMigrationLock({ seed: "billing-service" }),
+    ).toEqual({ migrationLockSeed: "billing-service" });
   });
 
   test("returns empty options when nothing is configured", () => {
     expect(resolveConfiguredMigrationLock()).toEqual({});
     expect(resolveConfiguredMigrationLock({ lockIdEnv: "" })).toEqual({});
+    expect(resolveConfiguredMigrationLock({ seedEnv: "" })).toEqual({});
   });
 });

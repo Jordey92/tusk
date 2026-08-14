@@ -280,12 +280,11 @@ const statementTimeout = (): number | undefined => {
 const databasePort = (): number => parseDatabasePort(process.env.DB_PORT);
 
 const createDatabaseConfig = (
-  args: Record<string, JsonValue> = {},
-  migrationsPath: string = defaultMigrationsPath
+  args: Record<string, JsonValue> = {}
 ): PostgresClientConfig => {
   const lockOptions = resolveConfiguredMigrationLock({
-    migrationsPath,
     lockIdEnv: process.env.TUSK_MIGRATION_LOCK_ID,
+    seedEnv: process.env.TUSK_MIGRATION_LOCK_SEED,
   });
   const databaseUrl = optionalStringArg(args, "databaseUrl") ??
     process.env.DATABASE_URL;
@@ -313,11 +312,11 @@ const createDatabaseConfig = (
 
 const withAdapter = async <T>(
   args: Record<string, JsonValue>,
-  migrationsPath: string,
+  _migrationsPath: string,
   callback: (adapter: DatabaseAdapter) => Promise<T>
 ): Promise<T> => {
   const database = await createManagedPostgresAdapter(
-    createDatabaseConfig(args, migrationsPath)
+    createDatabaseConfig(args)
   );
 
   try {
