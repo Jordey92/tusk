@@ -1,3 +1,6 @@
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
+
 export const unitTestRoots = [
   "core",
   "utils",
@@ -19,16 +22,6 @@ export const unitTestIgnorePatterns = [
   "plugins/elysia.test.ts",
 ] as const;
 
-export const unitTestArgs = (extra: string[] = []): string[] => [
-  "test",
-  ...unitTestRoots,
-  ...unitTestIgnorePatterns.flatMap((pattern) => [
-    "--path-ignore-patterns",
-    pattern,
-  ]),
-  ...extra,
-];
-
 const ignoreSet = new Set<string>(unitTestIgnorePatterns);
 
 export const isUnitTestFile = (relativePath: string): boolean => {
@@ -45,3 +38,28 @@ export const isUnitTestFile = (relativePath: string): boolean => {
     (root) => normalized === root || normalized.startsWith(`${root}/`)
   );
 };
+
+const collectTestFiles = (directory: string, prefix: string): string[] => {
+  const files: string[] = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) {
+      files.push(...collectTestFiles(join(directory, entry.name), relative));
+    } else if (entry.isFile() && entry.name.endsWith(".test.ts")) {
+      files.push(relative.replaceAll("\\", "/"));
+    }
+  }
+  return files;
+};
+
+export const listUnitTestFiles = (): string[] =>
+  unitTestRoots
+    .flatMap((root) => collectTestFiles(root, root))
+    .filter(isUnitTestFile)
+    .sort();
+
+export const unitTestArgs = (extra: string[] = []): string[] => [
+  "test",
+  ...listUnitTestFiles(),
+  ...extra,
+];
