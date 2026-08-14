@@ -78,10 +78,11 @@ Environment variables:
   TUSK_SCHEMA     Schema for tusk init --from-db (default: public)
 
 Project config (optional, cwd):
-  tusk.config.json|.ts|.js|.mjs
+  tusk.config.json|.mjs|.js|.cjs
                   migrationsPath, driver, statementTimeoutMs, schema
-                  Environment variables override file values. Do not store
-                  database credentials in the project config file.
+                  TypeScript tusk.config.ts loads under Bun; on Node use JSON
+                  or .mjs. Environment variables override file values. Do not
+                  store database credentials in the project config file.
 
 Examples:
   tusk create add_user_table

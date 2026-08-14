@@ -1,5 +1,6 @@
 import { access, readFile } from "fs/promises";
-import { isAbsolute, resolve } from "path";
+import { createRequire } from "module";
+import { extname, isAbsolute, resolve } from "path";
 import { pathToFileURL } from "url";
 import { createConfigurationError } from "../utils/errors.js";
 
@@ -18,13 +19,21 @@ type LoadProjectFileConfigOptions = {
   readTextFile?: (path: string) => Promise<string>;
   fileExists?: (path: string) => Promise<boolean>;
   importModule?: (specifier: string) => Promise<unknown>;
+  requireModule?: (absolutePath: string) => unknown;
+  /** Override runtime detection (tests). */
+  runtime?: "bun" | "node";
 };
 
+/**
+ * Portable formats first. `.ts` is last and only loads under Bun.
+ * On Node use `tusk.config.json` or `tusk.config.mjs` (or CJS `tusk.config.js`).
+ */
 const CONFIG_FILENAMES = [
   "tusk.config.json",
-  "tusk.config.ts",
-  "tusk.config.js",
   "tusk.config.mjs",
+  "tusk.config.js",
+  "tusk.config.cjs",
+  "tusk.config.ts",
 ] as const;
 
 const ALLOWED_KEYS = new Set([
@@ -46,6 +55,14 @@ const defaultFileExists = async (path: string) => {
 };
 
 const defaultImportModule = (specifier: string) => import(specifier);
+
+const defaultRequireModule = (absolutePath: string) => {
+  const require = createRequire(import.meta.url);
+  return require(absolutePath);
+};
+
+const detectRuntime = (): "bun" | "node" =>
+  process.versions.bun ? "bun" : "node";
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -186,18 +203,62 @@ const loadJsonConfig = async (
   return parseProjectFileConfig(parsed, absolutePath);
 };
 
+const typescriptConfigUnsupportedMessage = (absolutePath: string) =>
+  `${absolutePath}: TypeScript project config is supported when running Tusk under Bun. ` +
+  `On Node, use tusk.config.json or tusk.config.mjs instead.`;
+
 const loadModuleConfig = async (
   absolutePath: string,
-  importModule: (specifier: string) => Promise<unknown>
+  options: {
+    importModule: (specifier: string) => Promise<unknown>;
+    requireModule: (absolutePath: string) => unknown;
+    runtime: "bun" | "node";
+  }
 ): Promise<TuskProjectFileConfig> => {
+  const extension = extname(absolutePath);
+
+  if (extension === ".ts" && options.runtime !== "bun") {
+    throw createConfigurationError(
+      typescriptConfigUnsupportedMessage(absolutePath),
+      { path: absolutePath, runtime: options.runtime }
+    );
+  }
+
+  if (extension === ".js" || extension === ".cjs") {
+    try {
+      const required = options.requireModule(absolutePath);
+      return parseProjectFileConfig(
+        unwrapModuleExport(required),
+        absolutePath
+      );
+    } catch {
+      // Fall through to dynamic import for ESM .js files.
+    }
+  }
+
   let moduleExport: unknown;
   try {
-    moduleExport = await importModule(pathToFileURL(absolutePath).href);
+    moduleExport = await options.importModule(pathToFileURL(absolutePath).href);
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (extension === ".ts") {
+      throw createConfigurationError(
+        typescriptConfigUnsupportedMessage(absolutePath),
+        { path: absolutePath, cause: message }
+      );
+    }
+
+    if (extension === ".js" || extension === ".cjs") {
+      throw createConfigurationError(
+        `Failed to load ${absolutePath}: ${message}. ` +
+          `Use tusk.config.json or tusk.config.mjs for portable Node support ` +
+          `(CommonJS projects need module.exports in .js, or use .mjs / .json).`,
+        { path: absolutePath }
+      );
+    }
+
     throw createConfigurationError(
-      `Failed to load ${absolutePath}: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      `Failed to load ${absolutePath}: ${message}`,
       { path: absolutePath }
     );
   }
@@ -215,7 +276,7 @@ type LoadedProjectFileConfig = {
 
 /**
  * Load the first project config file found in `cwd`.
- * Search order: tusk.config.json, .ts, .js, .mjs.
+ * Search order: tusk.config.json, .mjs, .js, .cjs, .ts.
  */
 export const loadProjectFileConfig = async (
   options: LoadProjectFileConfigOptions = {}
@@ -224,6 +285,8 @@ export const loadProjectFileConfig = async (
   const readTextFile = options.readTextFile ?? defaultReadTextFile;
   const fileExists = options.fileExists ?? defaultFileExists;
   const importModule = options.importModule ?? defaultImportModule;
+  const requireModule = options.requireModule ?? defaultRequireModule;
+  const runtime = options.runtime ?? detectRuntime();
 
   for (const filename of CONFIG_FILENAMES) {
     const absolutePath = resolve(cwd, filename);
@@ -233,7 +296,11 @@ export const loadProjectFileConfig = async (
 
     const config = filename.endsWith(".json")
       ? await loadJsonConfig(absolutePath, readTextFile)
-      : await loadModuleConfig(absolutePath, importModule);
+      : await loadModuleConfig(absolutePath, {
+          importModule,
+          requireModule,
+          runtime,
+        });
 
     return { path: absolutePath, config };
   }

@@ -98,6 +98,7 @@ export type ProjectInitPayload = InitProjectResult;
 
 export interface InitialMigrationPayload extends InitMigrationResult {
   migrationsPath: string;
+  schema: string;
   fromDb: true;
 }
 

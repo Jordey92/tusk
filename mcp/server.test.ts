@@ -53,6 +53,57 @@ describe("MCP server", () => {
     ).toBe(false);
   });
 
+  test("omits migrationsPath schema defaults so tusk.config.json can apply", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "tusk-mcp-config-"));
+    const migrationsDir = join(workspace, "from-config");
+
+    try {
+      await writeFile(
+        join(workspace, "tusk.config.json"),
+        JSON.stringify({ migrationsPath: migrationsDir })
+      );
+
+      const listResponse = await sendRequest(
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/list",
+        },
+        {},
+        { cwd: workspace }
+      );
+      const tools = listResponse.result.tools as Array<{
+        name: string;
+        inputSchema: { properties: Record<string, { default?: unknown }> };
+      }>;
+
+      for (const tool of tools) {
+        expect(tool.inputSchema.properties.migrationsPath?.default).toBeUndefined();
+      }
+
+      const createResponse = await callTool(
+        "tusk_create_migration",
+        { name: "widgets" },
+        { MIGRATIONS_PATH: "" },
+        { cwd: workspace }
+      );
+
+      expect(createResponse.result.isError).toBe(false);
+      const created = JSON.parse(createResponse.result.content[0]!.text) as {
+        upFile: string;
+        downFile: string;
+      };
+      expect(created.upFile).toContain(migrationsDir);
+      expect(created.downFile).toContain(migrationsDir);
+
+      const files = await readdir(migrationsDir);
+      expect(files.some((name) => name.endsWith("_widgets.up.sql"))).toBe(true);
+      expect(files.some((name) => name.endsWith("_widgets.down.sql"))).toBe(true);
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+    }
+  });
+
   test("rejects invalid explicit rollback counts", async () => {
     const response = await callTool("tusk_plan_down", { count: 0 });
 

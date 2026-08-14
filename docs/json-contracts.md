@@ -62,7 +62,7 @@ Plain `init` returns `ok`, `command`, `migrationsPath`, `absolutePath`, and
 `created`.
 
 `init --from-db` returns `ok`, `command`, `upFile`, `downFile`, `tableCount`,
-`checksum`, `markedAsExecuted`, `migrationsPath`, and `fromDb`.
+`checksum`, `markedAsExecuted`, `migrationsPath`, `schema`, and `fromDb`.
 
 ### Applied `up` and `down`
 

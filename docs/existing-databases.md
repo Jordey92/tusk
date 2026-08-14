@@ -5,7 +5,8 @@ already exists. It does not replay the generated SQL against that database.
 
 The command:
 
-1. Introspects `public`.
+1. Introspects the selected schema (`public` by default, or `schema` /
+   `TUSK_SCHEMA`).
 2. Writes `0000000000000_initial.up.sql` and its matching down file.
 3. Records the up file in `_migrations` as already applied.
 

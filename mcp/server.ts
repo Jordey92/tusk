@@ -119,8 +119,6 @@ interface JsonRpcErrorMessage {
 
 type JsonRpcMessage = JsonRpcSuccessMessage | JsonRpcErrorMessage;
 
-const defaultMigrationsPath = "./migrations";
-
 const tools: ToolDefinition[] = [
   {
     name: "tusk_validate",
@@ -128,7 +126,7 @@ const tools: ToolDefinition[] = [
     inputSchema: {
       type: "object",
       properties: {
-        migrationsPath: { type: "string", default: defaultMigrationsPath },
+        migrationsPath: { type: "string" },
         checkDatabase: { type: "boolean", default: false },
         databaseUrl: { type: "string" },
       },
@@ -140,7 +138,7 @@ const tools: ToolDefinition[] = [
     inputSchema: {
       type: "object",
       properties: {
-        migrationsPath: { type: "string", default: defaultMigrationsPath },
+        migrationsPath: { type: "string" },
         databaseUrl: { type: "string" },
       },
     },
@@ -151,7 +149,7 @@ const tools: ToolDefinition[] = [
     inputSchema: {
       type: "object",
       properties: {
-        migrationsPath: { type: "string", default: defaultMigrationsPath },
+        migrationsPath: { type: "string" },
         databaseUrl: { type: "string" },
       },
     },
@@ -162,7 +160,7 @@ const tools: ToolDefinition[] = [
     inputSchema: {
       type: "object",
       properties: {
-        migrationsPath: { type: "string", default: defaultMigrationsPath },
+        migrationsPath: { type: "string" },
         databaseUrl: { type: "string" },
         count: { type: "number", minimum: 1 },
         allowBaselineRollback: { type: "boolean", default: false },
@@ -175,7 +173,7 @@ const tools: ToolDefinition[] = [
     inputSchema: {
       type: "object",
       properties: {
-        migrationsPath: { type: "string", default: defaultMigrationsPath },
+        migrationsPath: { type: "string" },
         name: { type: "string" },
       },
       required: ["name"],

@@ -26,6 +26,8 @@ describe("renderHelp", () => {
     expect(output).toContain("tusk doctor --json");
     expect(output).toContain("TUSK_MIGRATION_LOCK_ID");
     expect(output).toContain("tusk.config.json");
+    expect(output).toContain("TypeScript tusk.config.ts loads under Bun");
+    expect(output).toContain("on Node use JSON");
   });
 });
 

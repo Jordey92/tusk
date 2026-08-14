@@ -95,11 +95,15 @@ describe("loadProjectFileConfig", () => {
     });
   });
 
-  test("prefers json over ts when both exist", async () => {
+  test("prefers json over mjs and ts when multiple exist", async () => {
     const cwd = await withTempDir();
     await writeFile(
       join(cwd, "tusk.config.json"),
       JSON.stringify({ migrationsPath: "from-json" })
+    );
+    await writeFile(
+      join(cwd, "tusk.config.mjs"),
+      `export default { migrationsPath: "from-mjs" };\n`
     );
     await writeFile(
       join(cwd, "tusk.config.ts"),
@@ -110,7 +114,7 @@ describe("loadProjectFileConfig", () => {
     expect(loaded.config.migrationsPath).toBe("from-json");
   });
 
-  test("loads a TypeScript module config", async () => {
+  test("loads a TypeScript module config under Bun", async () => {
     const cwd = await withTempDir();
     const configPath = join(cwd, "tusk.config.ts");
     await writeFile(
@@ -118,12 +122,134 @@ describe("loadProjectFileConfig", () => {
       `export default { migrationsPath: "ts-migrations", driver: "postgres" as const };\n`
     );
 
-    const loaded = await loadProjectFileConfig({ cwd });
+    const loaded = await loadProjectFileConfig({ cwd, runtime: "bun" });
     expect(loaded.path).toBe(resolve(configPath));
     expect(loaded.config).toEqual({
       migrationsPath: "ts-migrations",
       driver: "postgres",
     });
+  });
+
+  test("rejects TypeScript project config under Node with an actionable error", async () => {
+    const cwd = await withTempDir();
+    const configPath = join(cwd, "tusk.config.ts");
+    await writeFile(
+      configPath,
+      `export default { migrationsPath: "ts-migrations" };\n`
+    );
+
+    await expect(
+      loadProjectFileConfig({ cwd, runtime: "node" })
+    ).rejects.toThrow(/TypeScript project config is supported when running Tusk under Bun/);
+  });
+
+  test("loads CommonJS tusk.config.js via require", async () => {
+    const cwd = await withTempDir();
+    const configPath = join(cwd, "tusk.config.js");
+    await writeFile(
+      configPath,
+      `module.exports = { migrationsPath: "js-migrations", driver: "postgres" };\n`
+    );
+
+    const loaded = await loadProjectFileConfig({ cwd });
+    expect(loaded.path).toBe(resolve(configPath));
+    expect(loaded.config).toEqual({
+      migrationsPath: "js-migrations",
+      driver: "postgres",
+    });
+  });
+
+  test("loads tusk.config.mjs via dynamic import", async () => {
+    const cwd = await withTempDir();
+    const configPath = join(cwd, "tusk.config.mjs");
+    await writeFile(
+      configPath,
+      `export default { migrationsPath: "mjs-migrations", driver: "pg" };\n`
+    );
+
+    const loaded = await loadProjectFileConfig({ cwd });
+    expect(loaded.path).toBe(resolve(configPath));
+    expect(loaded.config).toEqual({
+      migrationsPath: "mjs-migrations",
+      driver: "pg",
+    });
+  });
+
+  test("Node CLI reads tusk.config.json from a CommonJS project", async () => {
+    const { spawnSync } = await import("node:child_process");
+    const { existsSync } = await import("node:fs");
+    const cliJs = resolve("dist/cli.js");
+    if (!existsSync(cliJs)) {
+      const build = spawnSync("bun", ["run", "build"], {
+        encoding: "utf8",
+        cwd: resolve("."),
+      });
+      expect(build.status).toBe(0);
+    }
+
+    const cwd = await withTempDir();
+    await writeFile(
+      join(cwd, "package.json"),
+      JSON.stringify({ name: "cjs-app", private: true })
+    );
+    await writeFile(
+      join(cwd, "tusk.config.json"),
+      JSON.stringify({ migrationsPath: "configured-migrations" })
+    );
+
+    const env = { ...process.env };
+    delete env.MIGRATIONS_PATH;
+
+    const result = spawnSync("node", [cliJs, "init", "--json"], {
+      cwd,
+      encoding: "utf8",
+      env,
+    });
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: true,
+      command: "init",
+      created: true,
+      migrationsPath: resolve(cwd, "configured-migrations"),
+    });
+  });
+
+  test("Node CLI rejects TypeScript project config from a CommonJS project", async () => {
+    const { spawnSync } = await import("node:child_process");
+    const { existsSync } = await import("node:fs");
+    const cliJs = resolve("dist/cli.js");
+    if (!existsSync(cliJs)) {
+      const build = spawnSync("bun", ["run", "build"], {
+        encoding: "utf8",
+        cwd: resolve("."),
+      });
+      expect(build.status).toBe(0);
+    }
+
+    const cwd = await withTempDir();
+    await writeFile(
+      join(cwd, "package.json"),
+      JSON.stringify({ name: "cjs-app", private: true })
+    );
+    await writeFile(
+      join(cwd, "tusk.config.ts"),
+      `export default { migrationsPath: "ts-migrations", driver: "postgres" as const };\n`
+    );
+
+    const env = { ...process.env };
+    delete env.MIGRATIONS_PATH;
+
+    const result = spawnSync("node", [cliJs, "init", "--json"], {
+      cwd,
+      encoding: "utf8",
+      env,
+    });
+
+    expect(result.status).toBe(1);
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(output).toMatch(/TypeScript project config is supported when running Tusk under Bun/);
+    expect(output).toMatch(/tusk\.config\.json or tusk\.config\.mjs/);
   });
 
   test("rejects invalid JSON", async () => {

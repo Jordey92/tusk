@@ -151,8 +151,10 @@ provides a verified Elysia plugin at `@bydey/tusk/elysia`, which requires Node.j
 Individual `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD`
 variables can be used instead of `DATABASE_URL`.
 
-Optional project defaults can live in `tusk.config.json` (also `.ts` / `.js` /
-`.mjs`) in the working directory:
+Optional project defaults can live in `tusk.config.json` in the working
+directory (also `tusk.config.mjs`, or CommonJS `tusk.config.js` /
+`tusk.config.cjs`). TypeScript `tusk.config.ts` loads when the CLI runs under
+Bun; on Node use JSON or `.mjs` instead.
 
 ```json
 {
