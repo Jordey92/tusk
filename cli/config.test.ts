@@ -98,8 +98,10 @@ describe("loadDatabaseConfig", () => {
     process.env.DATABASE_URL = "postgresql://user:password@localhost:5432/app";
     process.env.TUSK_DRIVER = "postgres";
     process.env.TUSK_STATEMENT_TIMEOUT_MS = "60000";
+    delete process.env.TUSK_MIGRATION_LOCK_ID;
+    delete process.env.TUSK_MIGRATION_LOCK_SEED;
 
-    expect(loadDatabaseConfig()).toEqual({
+    expect(loadDatabaseConfig({ migrationsPath: "./migrations" })).toEqual({
       connectionString: "postgresql://user:password@localhost:5432/app",
       driver: "postgres",
       statementTimeoutMs: 60000,
@@ -115,8 +117,10 @@ describe("loadDatabaseConfig", () => {
     process.env.DB_PASSWORD = "secret";
     delete process.env.TUSK_DRIVER;
     delete process.env.TUSK_STATEMENT_TIMEOUT_MS;
+    delete process.env.TUSK_MIGRATION_LOCK_ID;
+    delete process.env.TUSK_MIGRATION_LOCK_SEED;
 
-    expect(loadDatabaseConfig()).toEqual({
+    expect(loadDatabaseConfig({ migrationsPath: "/app/migrations" })).toEqual({
       host: "db.internal",
       port: 5433,
       database: "app",
@@ -134,6 +138,8 @@ describe("loadDatabaseConfig", () => {
     process.env.DB_NAME = "app";
     process.env.DB_USER = "user";
     process.env.DB_PASSWORD = "secret";
+    delete process.env.TUSK_MIGRATION_LOCK_ID;
+    delete process.env.TUSK_MIGRATION_LOCK_SEED;
 
     expect(loadDatabaseConfig()).toMatchObject({
       host: "localhost",
@@ -153,5 +159,42 @@ describe("loadDatabaseConfig", () => {
     expect(() => loadDatabaseConfig()).toThrow(
       /Missing required database configuration: DB_NAME, DB_USER, DB_PASSWORD/
     );
+  });
+
+  test("uses TUSK_MIGRATION_LOCK_ID when set", () => {
+    process.env.DATABASE_URL = "postgresql://user:password@localhost:5432/app";
+    process.env.TUSK_MIGRATION_LOCK_ID = "999001";
+    delete process.env.TUSK_MIGRATION_LOCK_SEED;
+    delete process.env.TUSK_DRIVER;
+    delete process.env.TUSK_STATEMENT_TIMEOUT_MS;
+
+    expect(loadDatabaseConfig({ migrationsPath: "./migrations" })).toEqual({
+      connectionString: "postgresql://user:password@localhost:5432/app",
+      driver: undefined,
+      statementTimeoutMs: 300000,
+      migrationLockId: 999001,
+    });
+  });
+
+  test("uses TUSK_MIGRATION_LOCK_SEED when set", () => {
+    process.env.DATABASE_URL = "postgresql://user:password@localhost:5432/app";
+    delete process.env.TUSK_MIGRATION_LOCK_ID;
+    process.env.TUSK_MIGRATION_LOCK_SEED = "billing-service";
+    delete process.env.TUSK_DRIVER;
+    delete process.env.TUSK_STATEMENT_TIMEOUT_MS;
+
+    expect(loadDatabaseConfig()).toEqual({
+      connectionString: "postgresql://user:password@localhost:5432/app",
+      driver: undefined,
+      statementTimeoutMs: 300000,
+      migrationLockSeed: "billing-service",
+    });
+  });
+
+  test("rejects an invalid TUSK_MIGRATION_LOCK_ID", () => {
+    process.env.DATABASE_URL = "postgresql://user:password@localhost:5432/app";
+    process.env.TUSK_MIGRATION_LOCK_ID = "nope";
+
+    expect(() => loadDatabaseConfig()).toThrow(/Invalid migrationLockId/);
   });
 });

@@ -3,6 +3,7 @@ import { createRequire } from "module";
 import { createPgAdapter } from "../adapters/pg.js";
 import { runUp } from "../core/run-migrations.js";
 import type { ConnectionConfig } from "../types/migrations.js";
+import { resolveConfiguredMigrationLock } from "../utils/migration-lock-id.js";
 
 /**
  * Connection settings accepted by the Elysia migration plugin.
@@ -15,6 +16,8 @@ export interface ElysiaMigrateConfig {
   migrationsPath?: string;
   runOnStartup?: boolean;
   statementTimeoutMs?: number;
+  migrationLockId?: number;
+  migrationLockSeed?: string;
 }
 
 interface PoolHandle {
@@ -60,10 +63,16 @@ export const createPoolHandle = (config: ElysiaMigrateConfig): PoolHandle => {
 export const migrate = (config: ElysiaMigrateConfig = {}) => {
   const { Elysia } = requireElysia("elysia") as typeof import("elysia");
   const { pool, ownsPool } = createPoolHandle(config);
+  const migrationsPath = config.migrationsPath || "./migrations";
+  const envLock = resolveConfiguredMigrationLock({
+    lockIdEnv: process.env.TUSK_MIGRATION_LOCK_ID,
+    seedEnv: process.env.TUSK_MIGRATION_LOCK_SEED,
+  });
   const adapter = createPgAdapter(pool, {
     statementTimeoutMs: config.statementTimeoutMs,
+    migrationLockId: config.migrationLockId ?? envLock.migrationLockId,
+    migrationLockSeed: config.migrationLockSeed ?? envLock.migrationLockSeed,
   });
-  const migrationsPath = config.migrationsPath || "./migrations";
   const runOnStartup = config.runOnStartup ?? true;
 
   return new Elysia({ name: "migrate" })

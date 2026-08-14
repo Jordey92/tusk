@@ -143,10 +143,20 @@
         "testCommand": ["bun", "test", "adapters/postgres-client.test.ts"]
       },
       {
+        "file": "utils/migration-lock-id.ts",
+        "testCommand": [
+          "bun",
+          "test",
+          "utils/migration-lock-id.test.ts",
+          "adapters/pg/locking.test.ts"
+        ]
+      },
+      {
         "file": "adapters/pg/locking.ts",
         "testCommand": [
           "bun",
           "test",
+          "utils/migration-lock-id.test.ts",
           "adapters/pg/locking.test.ts",
           "core/doctor.test.ts",
           "core/migration-lock.test.ts"

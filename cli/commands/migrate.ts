@@ -25,7 +25,7 @@ export const runDatabaseCommand = async (
   migrationsPath: string,
   parsedArgs: ParsedCommandArgs
 ): Promise<number> => {
-  const database = await createDatabaseConnection();
+  const database = await createDatabaseConnection({ migrationsPath });
   const adapter = database.adapter;
 
   try {

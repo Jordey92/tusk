@@ -62,6 +62,18 @@ export interface DatabaseAdapterOptions {
    * Use 0 to keep the database/session default.
    */
   statementTimeoutMs?: number;
+  /**
+   * Explicit PostgreSQL advisory lock key for migration runs.
+   * When omitted, Tusk derives a stable key from migrationLockSeed when set,
+   * otherwise the shared library default (123456789).
+   */
+  migrationLockId?: number;
+  /**
+   * Opt-in identity used to derive migrationLockId when migrationLockId is
+   * omitted. Leave unset to keep the shared default so CLI and programmatic
+   * runners serialize on the same history.
+   */
+  migrationLockSeed?: string;
 }
 
 /**

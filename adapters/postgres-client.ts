@@ -17,6 +17,8 @@ export interface PostgresClientConfig extends ConnectionConfig {
   connectionString?: string;
   driver?: SupportedPostgresDriver;
   statementTimeoutMs?: number;
+  migrationLockId?: number;
+  migrationLockSeed?: string;
 }
 
 export interface ManagedPostgresAdapter {
@@ -198,8 +200,18 @@ export const createManagedPostgresAdapter = async (
 ): Promise<ManagedPostgresAdapter> => {
   const importModule = options.importModule ?? defaultImportModule;
   const preferredDriver = options.preferredDriver ?? config.driver;
-  const adapterOptions = { statementTimeoutMs: config.statementTimeoutMs };
-  const { driver: _driver, statementTimeoutMs: _statementTimeoutMs, ...connectionConfig } = config;
+  const adapterOptions = {
+    statementTimeoutMs: config.statementTimeoutMs,
+    migrationLockId: config.migrationLockId,
+    migrationLockSeed: config.migrationLockSeed,
+  };
+  const {
+    driver: _driver,
+    statementTimeoutMs: _statementTimeoutMs,
+    migrationLockId: _migrationLockId,
+    migrationLockSeed: _migrationLockSeed,
+    ...connectionConfig
+  } = config;
   const PgPool = preferredDriver === "postgres"
     ? undefined
     : await resolvePgPoolConstructor(importModule);

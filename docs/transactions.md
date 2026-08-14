@@ -45,3 +45,27 @@ const adapter = createPgAdapter(pool, { statementTimeoutMs: 60_000 });
 Use `tusk up --dry-run` before applying a batch. If a statement times out, fix
 the SQL or choose a deliberate limit; do not repeatedly raise the timeout
 without understanding the blocked query.
+
+## Advisory Lock Identity
+
+By default every runner — CLI, MCP, Elysia, and `createPgAdapter(pool)` — uses
+the shared advisory lock id `123456789`. That keeps the documented mixed path
+(`tusk up` alongside `runUp(createPgAdapter(pool), "./migrations")`) serialized.
+
+Opt into a different key when apps share one database but must not block each
+other, or when you need a fixed key across hosts:
+
+```dotenv
+TUSK_MIGRATION_LOCK_ID=424242
+# or derive from a stable seed:
+TUSK_MIGRATION_LOCK_SEED=billing-service
+```
+
+Programmatic adapters accept the same knobs:
+
+```ts
+const adapter = createPgAdapter(pool, {
+  migrationLockId: 424242,
+  // or: migrationLockSeed: "billing-service",
+});
+```

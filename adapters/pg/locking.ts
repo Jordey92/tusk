@@ -5,8 +5,9 @@ import type {
 } from "../../types/migrations.js";
 import { logger } from "../../utils/logger.js";
 import { createMigrationLockedError } from "../../utils/errors.js";
-
-const MIGRATION_LOCK_ID = 123456789;
+import {
+  resolveMigrationLockId,
+} from "../../utils/migration-lock-id.js";
 
 interface LockRow extends QueryResultRow {
   acquired: boolean;
@@ -16,7 +17,19 @@ interface UnlockRow extends QueryResultRow {
   unlocked: boolean;
 }
 
-export const createLockingMethods = (pool: ConnectionPool) => {
+interface LockingMethodsOptions {
+  migrationLockId?: number;
+  migrationLockSeed?: string;
+}
+
+export const createLockingMethods = (
+  pool: ConnectionPool,
+  options: LockingMethodsOptions = {}
+) => {
+  const migrationLockId = resolveMigrationLockId({
+    lockId: options.migrationLockId,
+    seed: options.migrationLockSeed,
+  });
   let lockClient: ConnectionClient | null = null;
   let releasePromise: Promise<void> | null = null;
 
@@ -29,31 +42,36 @@ export const createLockingMethods = (pool: ConnectionPool) => {
         );
       }
 
-      logger.debug("Attempting to acquire migration lock");
+      logger.debug("Attempting to acquire migration lock", {
+        migrationLockId,
+      });
       const client = await pool.connect();
       let lockAcquired = false;
 
       try {
         const result = await client.query<LockRow>(
           "SELECT pg_try_advisory_lock($1) as acquired",
-          [MIGRATION_LOCK_ID]
+          [migrationLockId]
         );
 
         const lockResult = result.rows[0];
         if (!lockResult || !lockResult.acquired) {
           logger.warn(
-            "Migration lock acquisition failed - another process is running migrations"
+            "Migration lock acquisition failed - another process is running migrations",
+            { migrationLockId }
           );
           throw createMigrationLockedError(
             "Another migration process is currently running. " +
               "Please wait for it to complete before running migrations again.",
-            { scope: "database" }
+            { scope: "database", migrationLockId }
           );
         }
 
         lockClient = client;
         lockAcquired = true;
-        logger.info("Migration lock acquired successfully");
+        logger.info("Migration lock acquired successfully", {
+          migrationLockId,
+        });
       } finally {
         if (!lockAcquired) {
           client.release();
@@ -63,7 +81,7 @@ export const createLockingMethods = (pool: ConnectionPool) => {
 
     // Stop routing new work to the dedicated client as soon as release starts,
     // while retaining it internally so lock acquisition remains blocked.
-    getActiveLockClient: () => releasePromise ? null : lockClient,
+    getActiveLockClient: () => (releasePromise ? null : lockClient),
 
     releaseMigrationLock: async () => {
       if (releasePromise) {
@@ -76,7 +94,7 @@ export const createLockingMethods = (pool: ConnectionPool) => {
         return;
       }
 
-      logger.debug("Releasing migration lock");
+      logger.debug("Releasing migration lock", { migrationLockId });
       const client = lockClient;
 
       try {
@@ -86,16 +104,18 @@ export const createLockingMethods = (pool: ConnectionPool) => {
           try {
             const result = await client.query<UnlockRow>(
               "SELECT pg_advisory_unlock($1) AS unlocked",
-              [MIGRATION_LOCK_ID]
+              [migrationLockId]
             );
             if (!result.rows[0]?.unlocked) {
               throw createMigrationLockedError(
                 "The database connection did not retain the advisory lock session. " +
                   "Use a direct or session-pooled PostgreSQL endpoint instead of a transaction pooler.",
-                { scope: "database", phase: "release" }
+                { scope: "database", phase: "release", migrationLockId }
               );
             }
-            logger.debug("Migration lock released successfully");
+            logger.debug("Migration lock released successfully", {
+              migrationLockId,
+            });
           } finally {
             lockClient = null;
             client.release();

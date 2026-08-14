@@ -96,7 +96,10 @@ checksums in `_migrations`; see the [metadata table contract](./docs/metadata-ta
 
 Each file and its metadata update run in one transaction. Earlier files remain
 committed if a later migration fails. A session advisory lock prevents two
-runners from changing the same migration history concurrently.
+runners from changing the same migration history concurrently. The shared
+default lock id is `123456789`; set `TUSK_MIGRATION_LOCK_ID` /
+`TUSK_MIGRATION_LOCK_SEED` or pass `migrationLockId` / `migrationLockSeed` when
+you need a different key.
 
 `tusk down` rolls back one migration by default. Wider rollback requires an
 explicit count or `--all`. Tusk resolves every required down file before it
@@ -140,6 +143,8 @@ provides a verified Elysia plugin at `@bydey/tusk/elysia`, which requires Node.j
 | `MIGRATIONS_PATH` | `./migrations` | Migration directory |
 | `TUSK_DRIVER` | Automatic; `pg` preferred | Driver override: `pg` or `postgres` |
 | `TUSK_STATEMENT_TIMEOUT_MS` | `300000` | Statement timeout inside each migration transaction; `0` keeps the database default |
+| `TUSK_MIGRATION_LOCK_ID` | `123456789` | Explicit PostgreSQL advisory lock key |
+| `TUSK_MIGRATION_LOCK_SEED` | - | Opt-in seed used to derive a lock key when `TUSK_MIGRATION_LOCK_ID` is unset |
 | `LOG_LEVEL` | `warn` | `debug`, `info`, `warn`, or `error` |
 
 Individual `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD`
