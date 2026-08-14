@@ -64,6 +64,60 @@
         "testCommand": ["bun", "test", "core/doctor.test.ts"]
       },
       {
+        "file": "core/doctor/engine.ts",
+        "testCommand": [
+          "bun",
+          "test",
+          "core/doctor/engine.test.ts",
+          "core/doctor.test.ts"
+        ]
+      },
+      {
+        "file": "core/doctor/summary.ts",
+        "testCommand": [
+          "bun",
+          "test",
+          "core/doctor/summary.test.ts",
+          "core/doctor.test.ts"
+        ]
+      },
+      {
+        "file": "core/doctor/project.ts",
+        "testCommand": ["bun", "test", "core/doctor.test.ts"]
+      },
+      {
+        "file": "core/doctor/migration-state.ts",
+        "testCommand": ["bun", "test", "core/doctor.test.ts"]
+      },
+      {
+        "file": "core/doctor/database.ts",
+        "testCommand": ["bun", "test", "core/doctor.test.ts"]
+      },
+      {
+        "file": "cli/run.ts",
+        "testCommand": ["bun", "test", "cli/run.test.ts"]
+      },
+      {
+        "file": "cli/database.ts",
+        "testCommand": ["bun", "test", "cli/database.test.ts"]
+      },
+      {
+        "file": "cli/config.ts",
+        "testCommand": ["bun", "test", "cli/config.test.ts"]
+      },
+      {
+        "file": "cli/help.ts",
+        "testCommand": ["bun", "test", "cli/help.test.ts", "cli/run.test.ts"]
+      },
+      {
+        "file": "cli/print.ts",
+        "testCommand": ["bun", "test", "cli/print.test.ts"]
+      },
+      {
+        "file": "cli/rollback-target.ts",
+        "testCommand": ["bun", "test", "cli/rollback-target.test.ts"]
+      },
+      {
         "file": "core/init-migration.ts",
         "testCommand": ["bun", "test", "core/init-migration.test.ts"]
       },

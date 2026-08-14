@@ -52,6 +52,24 @@ describe("printStatus", () => {
     printStatus(status, true);
     expect(logs).toEqual(["1 executed, 1 pending"]);
   });
+
+  test("omits empty executed and pending sections", () => {
+    captureLogs();
+    printStatus(
+      {
+        executed: [],
+        pending: [],
+        summary: { executed: 0, pending: 0 },
+      },
+      false
+    );
+
+    const output = logs.join("\n");
+    expect(output).toContain("Migration Status:");
+    expect(output).not.toContain("\nExecuted:");
+    expect(output).not.toContain("\nPending:");
+    expect(output).toContain("Total: 0 executed, 0 pending");
+  });
 });
 
 describe("printPlan", () => {
@@ -108,6 +126,45 @@ describe("printPlan", () => {
     expect(output).toContain("Requested 5 rollback(s), but only 1");
     expect(output).toContain("Rollback of: 1_create.up.sql");
   });
+
+  test("does not claim a partial rollback when counts match", () => {
+    captureLogs();
+    const plan: MigrationPlan = {
+      direction: "down",
+      migrations: [
+        {
+          direction: "down",
+          filename: "1_create.down.sql",
+          timestamp: "1",
+          rollbackOf: "1_create.up.sql",
+          sql: "DROP TABLE widgets;",
+        },
+      ],
+      summary: {
+        planned: 1,
+        total: 1,
+        rollbackTarget: {
+          mode: "count",
+          requestedCount: 1,
+          availableRollbackCount: 1,
+        },
+      },
+    };
+
+    printPlan(plan);
+    expect(logs.join("\n")).not.toContain("Requested 1 rollback(s), but only");
+  });
+
+  test("omits the trailing separator when the plan is empty", () => {
+    captureLogs();
+    printPlan({
+      direction: "up",
+      migrations: [],
+      summary: { planned: 0, total: 0, alreadyExecuted: 0 },
+    });
+
+    expect(logs.join("\n")).toBe("Dry run: 0 migration(s) would execute");
+  });
 });
 
 describe("printDownResult", () => {
@@ -134,6 +191,20 @@ describe("printDownResult", () => {
     });
     expect(logs[0]).toContain("Requested 3 rollback(s)");
     expect(logs[0]).toContain("Rolled back 1 migration(s)");
+  });
+
+  test("uses the exact rollback count message when request matches availability", () => {
+    captureLogs();
+    printDownResult({
+      executed: 2,
+      pending: 0,
+      rollbackTarget: {
+        mode: "count",
+        requestedCount: 2,
+        availableRollbackCount: 2,
+      },
+    });
+    expect(logs).toEqual(["✓ Rolled back 2 migration(s)"]);
   });
 
   test("reports a full rollback count", () => {

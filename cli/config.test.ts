@@ -34,6 +34,23 @@ describe("parseIntegerEnvironment", () => {
     expect(
       parseIntegerEnvironment("DB_PORT", 5432, { minimum: 1, maximum: 65535 })
     ).toBe(5433);
+
+    process.env.DB_PORT = "1";
+    expect(
+      parseIntegerEnvironment("DB_PORT", 5432, { minimum: 1, maximum: 65535 })
+    ).toBe(1);
+
+    process.env.DB_PORT = "65535";
+    expect(
+      parseIntegerEnvironment("DB_PORT", 5432, { minimum: 1, maximum: 65535 })
+    ).toBe(65535);
+
+    process.env.TUSK_STATEMENT_TIMEOUT_MS = "0";
+    expect(
+      parseIntegerEnvironment("TUSK_STATEMENT_TIMEOUT_MS", 300000, {
+        minimum: 0,
+      })
+    ).toBe(0);
   });
 
   test("rejects non-integers and out-of-range values", () => {
@@ -43,6 +60,11 @@ describe("parseIntegerEnvironment", () => {
     ).toThrow(/DB_PORT must be an integer/);
 
     process.env.DB_PORT = "0";
+    expect(() =>
+      parseIntegerEnvironment("DB_PORT", 5432, { minimum: 1, maximum: 65535 })
+    ).toThrow(/DB_PORT must be an integer/);
+
+    process.env.DB_PORT = "65536";
     expect(() =>
       parseIntegerEnvironment("DB_PORT", 5432, { minimum: 1, maximum: 65535 })
     ).toThrow(/DB_PORT must be an integer/);

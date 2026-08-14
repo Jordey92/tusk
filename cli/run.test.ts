@@ -8,12 +8,20 @@ const logs: string[] = [];
 const errors: string[] = [];
 const originalLog = console.log;
 const originalError = console.error;
+const originalEnv = { ...process.env };
 
-afterEach(() => {
+afterEach(async () => {
   logs.length = 0;
   errors.length = 0;
   console.log = originalLog;
   console.error = originalError;
+
+  for (const key of Object.keys(process.env)) {
+    if (!(key in originalEnv)) {
+      delete process.env[key];
+    }
+  }
+  Object.assign(process.env, originalEnv);
 });
 
 const captureOutput = () => {
@@ -23,6 +31,17 @@ const captureOutput = () => {
   console.error = (...args: unknown[]) => {
     errors.push(args.map(String).join(" "));
   };
+};
+
+const withWorkspace = async (
+  run: (workspace: string) => Promise<void>
+) => {
+  const workspace = await mkdtemp(join(tmpdir(), "tusk-run-cli-"));
+  try {
+    await run(workspace);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
 };
 
 describe("runCli", () => {
@@ -47,11 +66,32 @@ describe("runCli", () => {
     expect(errors.join("\n")).toContain("Unknown help topic");
   });
 
+  test("prints global help for bare help command", async () => {
+    captureOutput();
+    const code = await runCli(["node", "tusk", "help"]);
+    expect(code).toBe(0);
+    expect(logs.join("\n")).toContain("Usage: tusk <command> [options]");
+  });
+
+  test("prints the version without extra arguments", async () => {
+    captureOutput();
+    const code = await runCli(["node", "tusk", "version"]);
+    expect(code).toBe(0);
+    expect(logs.join("\n")).toMatch(/^tusk v\d+\.\d+\.\d+/);
+  });
+
+  test("rejects version when extra arguments are present", async () => {
+    captureOutput();
+    const code = await runCli(["node", "tusk", "version", "extra"]);
+    expect(code).toBe(1);
+    expect(errors.join("\n")).toContain(
+      "version does not accept additional arguments"
+    );
+  });
+
   test("awaits command failures so --json errors stay on stdout", async () => {
     captureOutput();
-    const workspace = await mkdtemp(join(tmpdir(), "tusk-run-create-json-"));
-
-    try {
+    await withWorkspace(async (workspace) => {
       const code = await runCli(
         ["node", "tusk", "create", "../../../escaped", "--json"],
         workspace
@@ -63,8 +103,83 @@ describe("runCli", () => {
         command: "create",
         error: { code: "VALIDATION_ERROR" },
       });
-    } finally {
-      await rm(workspace, { recursive: true, force: true });
-    }
+    });
+  });
+
+  test("dispatches validate and returns machine-readable output", async () => {
+    captureOutput();
+    await withWorkspace(async (workspace) => {
+      const code = await runCli(
+        ["node", "tusk", "validate", "--json"],
+        workspace
+      );
+      expect(code).toBe(0);
+      expect(JSON.parse(logs.join(""))).toMatchObject({
+        ok: true,
+        command: "validate",
+      });
+    });
+  });
+
+  test("dispatches doctor and returns machine-readable output", async () => {
+    captureOutput();
+    await withWorkspace(async (workspace) => {
+      delete process.env.DATABASE_URL;
+      delete process.env.DB_NAME;
+      delete process.env.DB_USER;
+      delete process.env.DB_PASSWORD;
+
+      const code = await runCli(
+        ["node", "tusk", "doctor", "--json"],
+        workspace
+      );
+      expect(code).toBe(1);
+      expect(JSON.parse(logs.join(""))).toMatchObject({
+        ok: false,
+        command: "doctor",
+        result: "fail",
+      });
+    });
+  });
+
+  test("dispatches init and creates the migrations directory", async () => {
+    captureOutput();
+    await withWorkspace(async (workspace) => {
+      const migrationsPath = join(workspace, "migrations");
+      const code = await runCli(
+        ["node", "tusk", "init", "--json"],
+        migrationsPath
+      );
+      expect(code).toBe(0);
+      expect(JSON.parse(logs.join(""))).toMatchObject({
+        ok: true,
+        command: "init",
+        created: true,
+      });
+    });
+  });
+
+  test("dispatches up, down, and status config failures through JSON", async () => {
+    captureOutput();
+    await withWorkspace(async (workspace) => {
+      delete process.env.DATABASE_URL;
+      delete process.env.DB_NAME;
+      delete process.env.DB_USER;
+      delete process.env.DB_PASSWORD;
+
+      for (const command of ["up", "down", "status"] as const) {
+        logs.length = 0;
+        const code = await runCli(
+          ["node", "tusk", command, "--json"],
+          workspace
+        );
+        expect(code).toBe(1);
+        expect(JSON.parse(logs.join(""))).toMatchObject({
+          ok: false,
+          command,
+          error: { code: "CONFIGURATION_ERROR" },
+        });
+      }
+    });
   });
 });

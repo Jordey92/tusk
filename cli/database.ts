@@ -5,14 +5,36 @@ import {
 } from "../adapters/postgres-client.js";
 import { loadDatabaseConfig, loadDriverPreference } from "./config.js";
 
-export const createDatabaseConnection = async (): Promise<ManagedPostgresAdapter> => {
-  const config = loadDatabaseConfig();
-  return createManagedPostgresAdapter(config);
+export interface DatabaseModuleDeps {
+  resolvePostgresClientDriver: typeof resolvePostgresClientDriver;
+  createManagedPostgresAdapter: typeof createManagedPostgresAdapter;
+  loadDatabaseConfig: typeof loadDatabaseConfig;
+  loadDriverPreference: typeof loadDriverPreference;
+}
+
+const defaultDeps: DatabaseModuleDeps = {
+  resolvePostgresClientDriver,
+  createManagedPostgresAdapter,
+  loadDatabaseConfig,
+  loadDriverPreference,
 };
 
-const createDriverNotFoundDoctorInput = (error: unknown) => {
+export const createDatabaseConnection = async (
+  deps: Pick<
+    DatabaseModuleDeps,
+    "createManagedPostgresAdapter" | "loadDatabaseConfig"
+  > = defaultDeps
+): Promise<ManagedPostgresAdapter> => {
+  const config = deps.loadDatabaseConfig();
+  return deps.createManagedPostgresAdapter(config);
+};
+
+const createDriverNotFoundDoctorInput = (
+  error: unknown,
+  loadConfig: DatabaseModuleDeps["loadDatabaseConfig"]
+) => {
   try {
-    loadDatabaseConfig();
+    loadConfig();
     return {
       database: {
         state: "driver_missing" as const,
@@ -33,19 +55,21 @@ const createDriverNotFoundDoctorInput = (error: unknown) => {
   }
 };
 
-export const createDoctorDatabaseInput = async () => {
+export const createDoctorDatabaseInput = async (
+  deps: DatabaseModuleDeps = defaultDeps
+) => {
   try {
-    await resolvePostgresClientDriver({
-      preferredDriver: loadDriverPreference(),
+    await deps.resolvePostgresClientDriver({
+      preferredDriver: deps.loadDriverPreference(),
     });
   } catch (error) {
-    return createDriverNotFoundDoctorInput(error);
+    return createDriverNotFoundDoctorInput(error, deps.loadDatabaseConfig);
   }
 
   let config;
 
   try {
-    config = loadDatabaseConfig();
+    config = deps.loadDatabaseConfig();
   } catch (error) {
     return {
       database: {
@@ -57,7 +81,7 @@ export const createDoctorDatabaseInput = async () => {
   }
 
   try {
-    const database = await createManagedPostgresAdapter(config);
+    const database = await deps.createManagedPostgresAdapter(config);
     return {
       database: {
         state: "configured" as const,
