@@ -31,7 +31,7 @@ export const runInitCommand = async (
   }
 
   logger.info("Generating initial migration from database");
-  const database = await createDatabaseConnection();
+  const database = await createDatabaseConnection({ migrationsPath });
   const adapter = database.adapter;
 
   try {

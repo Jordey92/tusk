@@ -70,6 +70,9 @@ Environment variables:
   TUSK_DRIVER     Explicit client driver: pg or postgres
   TUSK_STATEMENT_TIMEOUT_MS
                   Per-migration timeout in milliseconds (0 keeps DB default)
+  TUSK_MIGRATION_LOCK_ID
+                  Explicit PostgreSQL advisory lock key (default: derived from
+                  the resolved MIGRATIONS_PATH)
 
 Examples:
   tusk create add_user_table

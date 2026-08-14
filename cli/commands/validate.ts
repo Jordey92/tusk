@@ -12,7 +12,7 @@ export const runValidateCommand = async (
   parsedArgs: ParsedCommandArgs
 ): Promise<number> => {
   if (parsedArgs.checkDatabase) {
-    const database = await createDatabaseConnection();
+    const database = await createDatabaseConnection({ migrationsPath });
 
     try {
       const result = await validateMigrations(migrationsPath, {

@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { QueryParam } from "../../types/migrations.js";
+import {
+  DEFAULT_MIGRATION_LOCK_ID,
+  deriveMigrationLockId,
+} from "../../utils/migration-lock-id";
 import { createLockingMethods } from "./locking";
 
 describe("createLockingMethods", () => {
@@ -32,17 +36,66 @@ describe("createLockingMethods", () => {
       {
         target: "client",
         sql: "SELECT pg_try_advisory_lock($1) as acquired",
-        params: [123456789],
+        params: [DEFAULT_MIGRATION_LOCK_ID],
       },
       {
         target: "client",
         sql: "SELECT pg_advisory_unlock($1) AS unlocked",
-        params: [123456789],
+        params: [DEFAULT_MIGRATION_LOCK_ID],
       },
       {
         target: "client",
         sql: "release",
       },
+    ]);
+  });
+
+  test("uses an explicit migration lock id when provided", async () => {
+    const paramsSeen: QueryParam[][] = [];
+    const client = {
+      query: async (sql: string, params?: QueryParam[]) => {
+        if (params) paramsSeen.push(params);
+        if (sql.includes("pg_try_advisory_lock")) {
+          return { rows: [{ acquired: true }] };
+        }
+        return { rows: [{ unlocked: true }] };
+      },
+      release: () => {},
+    };
+
+    const locking = createLockingMethods(
+      { connect: async () => client },
+      { migrationLockId: 42 }
+    );
+
+    await locking.acquireMigrationLock();
+    await locking.releaseMigrationLock();
+    expect(paramsSeen).toEqual([[42], [42]]);
+  });
+
+  test("derives a lock id from a migrations identity seed", async () => {
+    const paramsSeen: QueryParam[][] = [];
+    const client = {
+      query: async (sql: string, params?: QueryParam[]) => {
+        if (params) paramsSeen.push(params);
+        if (sql.includes("pg_try_advisory_lock")) {
+          return { rows: [{ acquired: true }] };
+        }
+        return { rows: [{ unlocked: true }] };
+      },
+      release: () => {},
+    };
+
+    const locking = createLockingMethods(
+      { connect: async () => client },
+      { migrationLockSeed: "/apps/widgets/migrations" }
+    );
+
+    await locking.acquireMigrationLock();
+    await locking.releaseMigrationLock();
+    expect(paramsSeen).toEqual([
+      [deriveMigrationLockId("/apps/widgets/migrations")],
+      [deriveMigrationLockId("/apps/widgets/migrations")],
     ]);
   });
 

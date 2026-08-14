@@ -19,7 +19,10 @@ export const createPgAdapter = (
   pool: ConnectionPool,
   options: DatabaseAdapterOptions = {}
 ): DatabaseAdapter => {
-  const lockingMethods = createLockingMethods(pool);
+  const lockingMethods = createLockingMethods(pool, {
+    migrationLockId: options.migrationLockId,
+    migrationLockSeed: options.migrationLockSeed,
+  });
   const getActiveClient = lockingMethods.getActiveLockClient;
   const executeQuery = createExecuteQuery(pool, getActiveClient);
   const transaction = createTransaction(pool, getActiveClient, options);

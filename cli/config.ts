@@ -1,7 +1,13 @@
 import type { PostgresClientConfig, SupportedPostgresDriver } from "../adapters/postgres-client.js";
 import { createConfigurationError } from "../utils/errors.js";
+import { resolveConfiguredMigrationLock } from "../utils/migration-lock-id.js";
 
 type DatabaseConfig = PostgresClientConfig;
+
+export type LoadDatabaseConfigOptions = {
+  /** Migrations directory used to derive the advisory lock seed. */
+  migrationsPath?: string;
+};
 
 export const parseIntegerEnvironment = (
   name: string,
@@ -36,6 +42,23 @@ export const loadDriverPreference = (): SupportedPostgresDriver | undefined => {
   );
 };
 
+const loadMigrationLockOptions = (migrationsPath?: string) => {
+  try {
+    return resolveConfiguredMigrationLock({
+      migrationsPath,
+      lockIdEnv: process.env.TUSK_MIGRATION_LOCK_ID,
+    });
+  } catch (error) {
+    throw createConfigurationError(
+      error instanceof Error ? error.message : String(error),
+      {
+        name: "TUSK_MIGRATION_LOCK_ID",
+        value: process.env.TUSK_MIGRATION_LOCK_ID,
+      }
+    );
+  }
+};
+
 const validateDatabaseConfig = (config: DatabaseConfig) => {
   if (config.connectionString) {
     return;
@@ -55,7 +78,9 @@ const validateDatabaseConfig = (config: DatabaseConfig) => {
   }
 };
 
-export const loadDatabaseConfig = (): DatabaseConfig => {
+export const loadDatabaseConfig = (
+  options: LoadDatabaseConfigOptions = {}
+): DatabaseConfig => {
   const runtimeOptions = {
     driver: loadDriverPreference(),
     statementTimeoutMs: parseIntegerEnvironment(
@@ -63,6 +88,7 @@ export const loadDatabaseConfig = (): DatabaseConfig => {
       300000,
       { minimum: 0 }
     ),
+    ...loadMigrationLockOptions(options.migrationsPath),
   };
 
   if (process.env.DATABASE_URL) {

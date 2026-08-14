@@ -24,6 +24,7 @@ describe("renderHelp", () => {
     expect(output).toContain("Usage: tusk <command> [options]");
     expect(output).toContain("tusk create add_user_table");
     expect(output).toContain("tusk doctor --json");
+    expect(output).toContain("TUSK_MIGRATION_LOCK_ID");
   });
 });
 

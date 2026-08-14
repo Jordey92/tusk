@@ -19,6 +19,7 @@ import {
 } from "../core/validate-migrations.js";
 import type { MigrationStatusPayload } from "../types/cli.js";
 import type { DatabaseAdapter } from "../types/migrations.js";
+import { resolveConfiguredMigrationLock } from "../utils/migration-lock-id.js";
 import { getPackageVersion } from "../utils/version.js";
 import { parseDatabasePort } from "./database-port.js";
 
@@ -279,8 +280,13 @@ const statementTimeout = (): number | undefined => {
 const databasePort = (): number => parseDatabasePort(process.env.DB_PORT);
 
 const createDatabaseConfig = (
-  args: Record<string, JsonValue> = {}
+  args: Record<string, JsonValue> = {},
+  migrationsPath: string = defaultMigrationsPath
 ): PostgresClientConfig => {
+  const lockOptions = resolveConfiguredMigrationLock({
+    migrationsPath,
+    lockIdEnv: process.env.TUSK_MIGRATION_LOCK_ID,
+  });
   const databaseUrl = optionalStringArg(args, "databaseUrl") ??
     process.env.DATABASE_URL;
 
@@ -289,6 +295,7 @@ const createDatabaseConfig = (
       connectionString: databaseUrl,
       driver: driverPreference(),
       statementTimeoutMs: statementTimeout(),
+      ...lockOptions,
     };
   }
 
@@ -300,15 +307,17 @@ const createDatabaseConfig = (
     password: process.env.DB_PASSWORD,
     driver: driverPreference(),
     statementTimeoutMs: statementTimeout(),
+    ...lockOptions,
   };
 };
 
 const withAdapter = async <T>(
   args: Record<string, JsonValue>,
+  migrationsPath: string,
   callback: (adapter: DatabaseAdapter) => Promise<T>
 ): Promise<T> => {
   const database = await createManagedPostgresAdapter(
-    createDatabaseConfig(args)
+    createDatabaseConfig(args, migrationsPath)
   );
 
   try {
@@ -335,7 +344,7 @@ const callTool = async (
       return await validateMigrations(migrationsPath);
     }
 
-    return await withAdapter(args, (adapter) =>
+    return await withAdapter(args, migrationsPath, (adapter) =>
       validateMigrations(migrationsPath, {
         adapter,
         checkDatabase: true,
@@ -344,13 +353,13 @@ const callTool = async (
   }
 
   if (name === "tusk_status") {
-    return await withAdapter(args, (adapter) =>
+    return await withAdapter(args, migrationsPath, (adapter) =>
       getMigrationStatus(adapter, migrationsPath)
     );
   }
 
   if (name === "tusk_plan_up") {
-    return await withAdapter(args, (adapter) =>
+    return await withAdapter(args, migrationsPath, (adapter) =>
       createUpPlan(adapter, migrationsPath)
     );
   }
@@ -363,7 +372,7 @@ const callTool = async (
       false
     );
 
-    return await withAdapter(args, (adapter) =>
+    return await withAdapter(args, migrationsPath, (adapter) =>
       createDownPlan(adapter, migrationsPath, {
         count,
         allowBaselineRollback,

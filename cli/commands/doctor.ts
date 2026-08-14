@@ -12,7 +12,7 @@ export const runDoctorCommand = async (
   parsedArgs: ParsedCommandArgs,
   tuskVersion: string
 ): Promise<number> => {
-  const doctorDatabase = await createDoctorDatabaseInput();
+  const doctorDatabase = await createDoctorDatabaseInput({ migrationsPath });
 
   try {
     const report = await runDoctor({

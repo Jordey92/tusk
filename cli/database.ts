@@ -12,6 +12,10 @@ export interface DatabaseModuleDeps {
   loadDriverPreference: typeof loadDriverPreference;
 }
 
+export type DatabaseConnectionOptions = {
+  migrationsPath?: string;
+};
+
 const defaultDeps: DatabaseModuleDeps = {
   resolvePostgresClientDriver,
   createManagedPostgresAdapter,
@@ -20,21 +24,25 @@ const defaultDeps: DatabaseModuleDeps = {
 };
 
 export const createDatabaseConnection = async (
+  options: DatabaseConnectionOptions = {},
   deps: Pick<
     DatabaseModuleDeps,
     "createManagedPostgresAdapter" | "loadDatabaseConfig"
   > = defaultDeps
 ): Promise<ManagedPostgresAdapter> => {
-  const config = deps.loadDatabaseConfig();
+  const config = deps.loadDatabaseConfig({
+    migrationsPath: options.migrationsPath,
+  });
   return deps.createManagedPostgresAdapter(config);
 };
 
 const createDriverNotFoundDoctorInput = (
   error: unknown,
-  loadConfig: DatabaseModuleDeps["loadDatabaseConfig"]
+  loadConfig: DatabaseModuleDeps["loadDatabaseConfig"],
+  migrationsPath?: string
 ) => {
   try {
-    loadConfig();
+    loadConfig({ migrationsPath });
     return {
       database: {
         state: "driver_missing" as const,
@@ -56,6 +64,7 @@ const createDriverNotFoundDoctorInput = (
 };
 
 export const createDoctorDatabaseInput = async (
+  options: DatabaseConnectionOptions = {},
   deps: DatabaseModuleDeps = defaultDeps
 ) => {
   try {
@@ -63,13 +72,19 @@ export const createDoctorDatabaseInput = async (
       preferredDriver: deps.loadDriverPreference(),
     });
   } catch (error) {
-    return createDriverNotFoundDoctorInput(error, deps.loadDatabaseConfig);
+    return createDriverNotFoundDoctorInput(
+      error,
+      deps.loadDatabaseConfig,
+      options.migrationsPath
+    );
   }
 
   let config;
 
   try {
-    config = deps.loadDatabaseConfig();
+    config = deps.loadDatabaseConfig({
+      migrationsPath: options.migrationsPath,
+    });
   } catch (error) {
     return {
       database: {
