@@ -75,6 +75,13 @@ Environment variables:
   TUSK_MIGRATION_LOCK_SEED
                   Opt-in seed used to derive a lock key when TUSK_MIGRATION_LOCK_ID
                   is unset
+  TUSK_SCHEMA     Schema for tusk init --from-db (default: public)
+
+Project config (optional, cwd):
+  tusk.config.json|.ts|.js|.mjs
+                  migrationsPath, driver, statementTimeoutMs, schema
+                  Environment variables override file values. Do not store
+                  database credentials in the project config file.
 
 Examples:
   tusk create add_user_table

@@ -4,15 +4,23 @@ import {
   writeJson,
 } from "../../utils/cli-output.js";
 import type { ParsedCommandArgs } from "../../utils/cli-parser.js";
-import { createDoctorDatabaseInput } from "../database.js";
+import {
+  createDoctorDatabaseInput,
+} from "../database.js";
+import type { TuskProjectFileConfig } from "../project-config.js";
 import { printDoctor } from "../print.js";
+
+type DoctorCommandOptions = {
+  projectConfig?: TuskProjectFileConfig;
+};
 
 export const runDoctorCommand = async (
   migrationsPath: string,
   parsedArgs: ParsedCommandArgs,
-  tuskVersion: string
+  tuskVersion: string,
+  options: DoctorCommandOptions = {}
 ): Promise<number> => {
-  const doctorDatabase = await createDoctorDatabaseInput({ migrationsPath });
+  const doctorDatabase = await createDoctorDatabaseInput(options);
 
   try {
     const report = await runDoctor({

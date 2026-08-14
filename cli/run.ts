@@ -21,12 +21,16 @@ import { runInitCommand } from "./commands/init.js";
 import { runDatabaseCommand } from "./commands/migrate.js";
 import { runValidateCommand } from "./commands/validate.js";
 import { renderHelp, renderVersion, showCommandHelp } from "./help.js";
+import {
+  loadProjectFileConfig,
+  resolveProjectSettings,
+} from "./project-config.js";
 
 const getVersion = async () => getPackageVersion(getCurrentDir());
 
 export const runCli = async (
   argv: string[] = process.argv,
-  migrationsPath = process.env.MIGRATIONS_PATH || "./migrations"
+  migrationsPathOverride?: string
 ): Promise<number> => {
   const command = argv[2];
   const rawArgs = argv.slice(3);
@@ -74,6 +78,13 @@ export const runCli = async (
       return 0;
     }
 
+    const loadedProjectConfig = await loadProjectFileConfig();
+    const projectSettings = resolveProjectSettings(loadedProjectConfig, {
+      migrationsPathOverride,
+    });
+    const migrationsPath = projectSettings.migrationsPath;
+    const projectConfig = loadedProjectConfig.config;
+
     const parsedArgs = parseCommandArgs(command, rawArgs);
 
     validateCommand(command, parsedArgs);
@@ -82,6 +93,8 @@ export const runCli = async (
       arg: parsedArgs.createName ?? parsedArgs.downCount,
       rawArgs,
       migrationsPath,
+      configPath: projectSettings.configPath,
+      schema: projectSettings.schema,
     });
 
     if (command === "create") {
@@ -89,19 +102,25 @@ export const runCli = async (
     }
 
     if (command === "validate") {
-      return await runValidateCommand(migrationsPath, parsedArgs);
+      return await runValidateCommand(migrationsPath, parsedArgs, {
+        projectConfig,
+      });
     }
 
     if (command === "doctor") {
       return await runDoctorCommand(
         migrationsPath,
         parsedArgs,
-        await getVersion()
+        await getVersion(),
+        { projectConfig }
       );
     }
 
     if (command === "init") {
-      const exitCode = await runInitCommand(migrationsPath, parsedArgs);
+      const exitCode = await runInitCommand(migrationsPath, parsedArgs, {
+        projectConfig,
+        schema: projectSettings.schema,
+      });
       logger.info("Migration tool completed successfully");
       return exitCode;
     }
@@ -110,7 +129,8 @@ export const runCli = async (
       const exitCode = await runDatabaseCommand(
         command,
         migrationsPath,
-        parsedArgs
+        parsedArgs,
+        { projectConfig }
       );
       logger.info("Migration tool completed successfully");
       return exitCode;

@@ -11,6 +11,7 @@ import {
 import type { ParsedCommandArgs } from "../../utils/cli-parser.js";
 import { logger } from "../../utils/logger.js";
 import { createDatabaseConnection } from "../database.js";
+import type { TuskProjectFileConfig } from "../project-config.js";
 import {
   printDownResult,
   printPlan,
@@ -20,12 +21,17 @@ import { getCliRollbackTarget } from "../rollback-target.js";
 
 type DatabaseCommand = "up" | "down" | "status";
 
+type DatabaseCommandOptions = {
+  projectConfig?: TuskProjectFileConfig;
+};
+
 export const runDatabaseCommand = async (
   command: DatabaseCommand,
   migrationsPath: string,
-  parsedArgs: ParsedCommandArgs
+  parsedArgs: ParsedCommandArgs,
+  options: DatabaseCommandOptions = {}
 ): Promise<number> => {
-  const database = await createDatabaseConnection({ migrationsPath });
+  const database = await createDatabaseConnection(options);
   const adapter = database.adapter;
 
   try {

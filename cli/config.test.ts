@@ -197,4 +197,46 @@ describe("loadDatabaseConfig", () => {
 
     expect(() => loadDatabaseConfig()).toThrow(/Invalid migrationLockId/);
   });
+
+  test("uses project file defaults when env overrides are unset", () => {
+    process.env.DATABASE_URL = "postgresql://user:password@localhost:5432/app";
+    delete process.env.TUSK_DRIVER;
+    delete process.env.TUSK_STATEMENT_TIMEOUT_MS;
+    delete process.env.TUSK_MIGRATION_LOCK_ID;
+    delete process.env.TUSK_MIGRATION_LOCK_SEED;
+
+    expect(
+      loadDatabaseConfig({
+        projectConfig: {
+          driver: "postgres",
+          statementTimeoutMs: 45000,
+        },
+      })
+    ).toEqual({
+      connectionString: "postgresql://user:password@localhost:5432/app",
+      driver: "postgres",
+      statementTimeoutMs: 45000,
+    });
+  });
+
+  test("keeps environment variables above project file defaults", () => {
+    process.env.DATABASE_URL = "postgresql://user:password@localhost:5432/app";
+    process.env.TUSK_DRIVER = "pg";
+    process.env.TUSK_STATEMENT_TIMEOUT_MS = "10";
+    delete process.env.TUSK_MIGRATION_LOCK_ID;
+    delete process.env.TUSK_MIGRATION_LOCK_SEED;
+
+    expect(
+      loadDatabaseConfig({
+        projectConfig: {
+          driver: "postgres",
+          statementTimeoutMs: 45000,
+        },
+      })
+    ).toEqual({
+      connectionString: "postgresql://user:password@localhost:5432/app",
+      driver: "pg",
+      statementTimeoutMs: 10,
+    });
+  });
 });

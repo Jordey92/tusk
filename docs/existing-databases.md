@@ -42,9 +42,11 @@ schema contains unsupported features, including:
 - Partitioned or inherited tables
 - Independently managed sequences
 
-The CLI adopts `public`; the programmatic API can select one schema at a time.
-Objects outside the selected schema are not included. Do not edit an adopted
-up file after Tusk records it, because that creates checksum drift.
+The CLI adopts `public` by default. Set `schema` in `tusk.config.*` or
+`TUSK_SCHEMA` to introspect a different schema; the programmatic API can also
+pass one schema at a time. Objects outside the selected schema are not
+included. Do not edit an adopted up file after Tusk records it, because that
+creates checksum drift.
 
 ## Hosted PostgreSQL
 

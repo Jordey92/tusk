@@ -1,12 +1,14 @@
 import type { PostgresClientConfig, SupportedPostgresDriver } from "../adapters/postgres-client.js";
 import { createConfigurationError } from "../utils/errors.js";
 import { resolveConfiguredMigrationLock } from "../utils/migration-lock-id.js";
+import type { TuskProjectFileConfig } from "./project-config.js";
 
 type DatabaseConfig = PostgresClientConfig;
 
 type LoadDatabaseConfigOptions = {
   /** Unused for lock identity; kept for call-site compatibility. */
   migrationsPath?: string;
+  projectConfig?: TuskProjectFileConfig;
 };
 
 export const parseIntegerEnvironment = (
@@ -32,8 +34,10 @@ export const parseIntegerEnvironment = (
   return value;
 };
 
-export const loadDriverPreference = (): SupportedPostgresDriver | undefined => {
-  const driver = process.env.TUSK_DRIVER;
+export const loadDriverPreference = (
+  fileDriver?: SupportedPostgresDriver
+): SupportedPostgresDriver | undefined => {
+  const driver = process.env.TUSK_DRIVER || fileDriver;
   if (!driver) return undefined;
   if (driver === "pg" || driver === "postgres") return driver;
   throw createConfigurationError(
@@ -82,11 +86,12 @@ const validateDatabaseConfig = (config: DatabaseConfig) => {
 export const loadDatabaseConfig = (
   options: LoadDatabaseConfigOptions = {}
 ): DatabaseConfig => {
+  const projectConfig = options.projectConfig ?? {};
   const runtimeOptions = {
-    driver: loadDriverPreference(),
+    driver: loadDriverPreference(projectConfig.driver),
     statementTimeoutMs: parseIntegerEnvironment(
       "TUSK_STATEMENT_TIMEOUT_MS",
-      300000,
+      projectConfig.statementTimeoutMs ?? 300000,
       { minimum: 0 }
     ),
     ...loadMigrationLockOptions(),
