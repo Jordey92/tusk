@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { runCli } from "./run";
 
 const logs: string[] = [];
@@ -42,5 +45,26 @@ describe("runCli", () => {
     const code = await runCli(["node", "tusk", "help", "nope"]);
     expect(code).toBe(1);
     expect(errors.join("\n")).toContain("Unknown help topic");
+  });
+
+  test("awaits command failures so --json errors stay on stdout", async () => {
+    captureOutput();
+    const workspace = await mkdtemp(join(tmpdir(), "tusk-run-create-json-"));
+
+    try {
+      const code = await runCli(
+        ["node", "tusk", "create", "../../../escaped", "--json"],
+        workspace
+      );
+      expect(code).toBe(1);
+      expect(errors).toEqual([]);
+      expect(JSON.parse(logs.join(""))).toMatchObject({
+        ok: false,
+        command: "create",
+        error: { code: "VALIDATION_ERROR" },
+      });
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+    }
   });
 });

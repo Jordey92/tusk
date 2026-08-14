@@ -85,15 +85,19 @@ export const runCli = async (
     });
 
     if (command === "create") {
-      return runCreateCommand(migrationsPath, parsedArgs);
+      return await runCreateCommand(migrationsPath, parsedArgs);
     }
 
     if (command === "validate") {
-      return runValidateCommand(migrationsPath, parsedArgs);
+      return await runValidateCommand(migrationsPath, parsedArgs);
     }
 
     if (command === "doctor") {
-      return runDoctorCommand(migrationsPath, parsedArgs, await getVersion());
+      return await runDoctorCommand(
+        migrationsPath,
+        parsedArgs,
+        await getVersion()
+      );
     }
 
     if (command === "init") {
