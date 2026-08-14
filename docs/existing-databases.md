@@ -5,8 +5,8 @@ already exists. It does not replay the generated SQL against that database.
 
 The command:
 
-1. Introspects the selected schema (`public` by default, or `schema` /
-   `TUSK_SCHEMA`).
+1. Introspects the selected schema (`public` by default, or `--schema` /
+   `TUSK_SCHEMA` / file `schema`).
 2. Writes `0000000000000_initial.up.sql` and its matching down file.
 3. Records the up file in `_migrations` as already applied.
 
@@ -43,11 +43,12 @@ schema contains unsupported features, including:
 - Partitioned or inherited tables
 - Independently managed sequences
 
-The CLI adopts `public` by default. Set `schema` in `tusk.config.*` or
-`TUSK_SCHEMA` to introspect a different schema; the programmatic API can also
-pass one schema at a time. Objects outside the selected schema are not
-included. Do not edit an adopted up file after Tusk records it, because that
-creates checksum drift.
+The CLI adopts `public` by default. Pass `--schema <name>`, or set `schema` in
+`tusk.config.*` or `TUSK_SCHEMA`, to introspect a different schema. Precedence
+is `--schema` > `TUSK_SCHEMA` > file `schema` > `public`. The programmatic API
+can also pass one schema at a time. Objects outside the selected schema are
+not included. Do not edit an adopted up file after Tusk records it, because
+that creates checksum drift.
 
 ## Hosted PostgreSQL
 

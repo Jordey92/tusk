@@ -311,6 +311,8 @@ export const loadProjectFileConfig = async (
 type ResolveProjectSettingsOptions = {
   /** Explicit migrations path (for example tests calling runCli). Wins over env/file. */
   migrationsPathOverride?: string;
+  /** Explicit schema for `tusk init --from-db`. Wins over env/file. */
+  schemaOverride?: string;
   env?: NodeJS.ProcessEnv;
 };
 
@@ -361,7 +363,11 @@ export const resolveProjectSettings = (
   }
 
   const envSchema = envValue(env, "TUSK_SCHEMA");
-  const schema = envSchema ?? file.schema ?? "public";
+  const schemaOverride =
+    options.schemaOverride !== undefined && options.schemaOverride !== ""
+      ? options.schemaOverride
+      : undefined;
+  const schema = schemaOverride ?? envSchema ?? file.schema ?? "public";
 
   return {
     migrationsPath,

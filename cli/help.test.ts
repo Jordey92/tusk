@@ -28,12 +28,15 @@ describe("renderHelp", () => {
     expect(output).toContain("tusk.config.json");
     expect(output).toContain("TypeScript tusk.config.ts loads under Bun");
     expect(output).toContain("on Node use JSON");
+    expect(output).toContain("--schema");
+    expect(output).toContain("tusk init --from-db --schema billing");
   });
 });
 
 describe("getCommandHelp", () => {
   test("returns usage for known commands", () => {
     expect(getCommandHelp("create")).toContain("tusk create <name>");
+    expect(getCommandHelp("init")).toContain("--schema <name>");
     expect(getCommandHelp("down")).toContain("--allow-baseline-rollback");
     expect(getCommandHelp("unknown")).toBeUndefined();
   });
