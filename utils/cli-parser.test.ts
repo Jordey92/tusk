@@ -144,6 +144,52 @@ describe("CLI parser", () => {
     });
   });
 
+  test("parses init --schema as a following token or inline value", () => {
+    expect(
+      parseAndValidate("init", ["--from-db", "--schema", "billing"])
+    ).toMatchObject({
+      initFromDb: true,
+      schema: "billing",
+    });
+    expect(
+      parseAndValidate("init", ["--schema=app", "--from-db", "--json"])
+    ).toMatchObject({
+      initFromDb: true,
+      json: true,
+      schema: "app",
+    });
+  });
+
+  test("rejects invalid init --schema usage", () => {
+    expectValidationError(
+      () => parseCommandArgs("init", ["--from-db", "--schema"]),
+      "--schema requires a schema name"
+    );
+    expectValidationError(
+      () => parseCommandArgs("init", ["--from-db", "--schema="]),
+      "--schema requires a schema name"
+    );
+    expectValidationError(
+      () => parseCommandArgs("init", ["--from-db", "--schema", "--json"]),
+      "--schema requires a schema name"
+    );
+    expectValidationError(
+      () =>
+        parseCommandArgs("init", [
+          "--from-db",
+          "--schema",
+          "one",
+          "--schema",
+          "two",
+        ]),
+      "at most one --schema option"
+    );
+    expectValidationError(
+      () => validateCommand("init", parseCommandArgs("init", ["--schema", "app"])),
+      "--schema requires --from-db"
+    );
+  });
+
   test("rejects invalid command combinations", () => {
     expectValidationError(
       () => validateCommand("create", parseCommandArgs("create", [])),

@@ -78,16 +78,16 @@ export const runCli = async (
       return 0;
     }
 
+    const parsedArgs = parseCommandArgs(command, rawArgs);
+    validateCommand(command, parsedArgs);
+
     const loadedProjectConfig = await loadProjectFileConfig();
     const projectSettings = resolveProjectSettings(loadedProjectConfig, {
       migrationsPathOverride,
+      schemaOverride: command === "init" ? parsedArgs.schema : undefined,
     });
     const migrationsPath = projectSettings.migrationsPath;
     const projectConfig = loadedProjectConfig.config;
-
-    const parsedArgs = parseCommandArgs(command, rawArgs);
-
-    validateCommand(command, parsedArgs);
     logger.info("Starting tusk migration tool", {
       command,
       arg: parsedArgs.createName ?? parsedArgs.downCount,

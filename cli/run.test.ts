@@ -142,6 +142,24 @@ describe("runCli", () => {
     });
   });
 
+  test("rejects init --schema without --from-db", async () => {
+    captureOutput();
+    const code = await runCli([
+      "node",
+      "tusk",
+      "init",
+      "--schema",
+      "billing",
+      "--json",
+    ]);
+    expect(code).toBe(1);
+    expect(JSON.parse(logs.join(""))).toMatchObject({
+      ok: false,
+      command: "init",
+      error: { code: "VALIDATION_ERROR" },
+    });
+  });
+
   test("dispatches init and creates the migrations directory", async () => {
     captureOutput();
     await withWorkspace(async (workspace) => {

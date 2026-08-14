@@ -109,8 +109,10 @@ starts the rollback batch.
 
 Use `tusk init --from-db` only when adopting a schema that already exists. It
 creates and records a protected baseline instead of replaying that schema.
-Test this against a disposable copy first; baseline generation intentionally
-rejects PostgreSQL features it cannot reproduce safely.
+Pass `--schema <name>` (or `TUSK_SCHEMA` / file `schema`) to adopt a
+non-`public` schema. Test this against a disposable copy first; baseline
+generation intentionally rejects PostgreSQL features it cannot reproduce
+safely.
 
 See [Existing database adoption](./docs/existing-databases.md) before using it.
 
@@ -145,7 +147,7 @@ provides a verified Elysia plugin at `@bydey/tusk/elysia`, which requires Node.j
 | `TUSK_STATEMENT_TIMEOUT_MS` | `300000` | Statement timeout inside each migration transaction; `0` keeps the database default |
 | `TUSK_MIGRATION_LOCK_ID` | `123456789` | Explicit PostgreSQL advisory lock key |
 | `TUSK_MIGRATION_LOCK_SEED` | - | Opt-in seed used to derive a lock key when `TUSK_MIGRATION_LOCK_ID` is unset |
-| `TUSK_SCHEMA` | `public` | Schema introspected by `tusk init --from-db` |
+| `TUSK_SCHEMA` | `public` | Schema introspected by `tusk init --from-db` (`--schema` overrides this) |
 | `LOG_LEVEL` | `warn` | `debug`, `info`, `warn`, or `error` |
 
 Individual `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD`
@@ -165,8 +167,9 @@ Bun; on Node use JSON or `.mjs` instead.
 }
 ```
 
-Environment variables override file values. Keep connection secrets in the
-environment, not the config file.
+`tusk init --from-db --schema` overrides `TUSK_SCHEMA` and file `schema`.
+Environment variables override other file values. Keep connection secrets in
+the environment, not the config file.
 
 See [Transactions and timeouts](./docs/transactions.md) before changing the
 statement timeout or running unusual PostgreSQL DDL.

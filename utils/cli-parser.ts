@@ -15,6 +15,7 @@ export interface ParsedCommandArgs {
   initFromDb: boolean;
   createName?: string;
   downCount?: string;
+  schema?: string;
   status: StatusOptions;
 }
 
@@ -142,11 +143,74 @@ const parseUpArgs = (rawArgs: string[]): ParsedCommandArgs => {
   return parsed;
 };
 
+const isOptionToken = (value: string) => value.startsWith("-");
+
+const readRequiredOptionValue = (
+  args: string[],
+  index: number,
+  option: string,
+  command: string
+): string => {
+  const value = args[index + 1];
+  if (value === undefined || isOptionToken(value)) {
+    throw createValidationError(`${option} requires a schema name`, {
+      command,
+      arg: option,
+    });
+  }
+
+  const trimmed = value.trim();
+  if (trimmed === "") {
+    throw createValidationError(`${option} requires a schema name`, {
+      command,
+      arg: option,
+    });
+  }
+
+  return trimmed;
+};
+
+const readInlineOptionValue = (
+  arg: string,
+  option: string,
+  command: string
+): string => {
+  const value = arg.slice(`${option}=`.length).trim();
+  if (value === "") {
+    throw createValidationError(`${option} requires a schema name`, {
+      command,
+      arg: option,
+    });
+  }
+
+  return value;
+};
+
+const assignInitSchema = (
+  parsed: ParsedCommandArgs,
+  schema: string,
+  rawArgs: string[]
+) => {
+  if (parsed.schema !== undefined) {
+    throw createValidationError(
+      "Init command accepts at most one --schema option",
+      { command: "init", args: rawArgs }
+    );
+  }
+
+  parsed.schema = schema;
+};
+
 const parseInitArgs = (rawArgs: string[]): ParsedCommandArgs => {
   const command = "init";
   const parsed = emptyParsedCommandArgs();
 
-  for (const rawArg of rawArgs) {
+  for (let index = 0; index < rawArgs.length; index += 1) {
+    const rawArg = rawArgs[index];
+    if (rawArg === undefined) {
+      continue;
+    }
+
     if (rawArg === "--json") {
       parsed.json = true;
       continue;
@@ -157,8 +221,27 @@ const parseInitArgs = (rawArgs: string[]): ParsedCommandArgs => {
       continue;
     }
 
+    if (rawArg === "--schema") {
+      assignInitSchema(
+        parsed,
+        readRequiredOptionValue(rawArgs, index, "--schema", command),
+        rawArgs
+      );
+      index += 1;
+      continue;
+    }
+
+    if (rawArg.startsWith("--schema=")) {
+      assignInitSchema(
+        parsed,
+        readInlineOptionValue(rawArg, "--schema", command),
+        rawArgs
+      );
+      continue;
+    }
+
     throw createValidationError(
-      `Unknown init option: ${rawArg}. Valid options: --from-db, --json`,
+      `Unknown init option: ${rawArg}. Valid options: --from-db, --json, --schema`,
       { command, arg: rawArg }
     );
   }
@@ -320,6 +403,13 @@ export const validateCommand = (
   if (command === "status" && parsedArgs.status.json && parsedArgs.status.quiet) {
     throw createValidationError(
       "Status options --json and --quiet cannot be combined",
+      { command }
+    );
+  }
+
+  if (command === "init" && parsedArgs.schema && !parsedArgs.initFromDb) {
+    throw createValidationError(
+      "Init option --schema requires --from-db",
       { command }
     );
   }

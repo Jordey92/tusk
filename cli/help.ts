@@ -1,7 +1,7 @@
 const commandHelp: Record<string, string> = {
   create:
     "Usage: tusk create <name> [--json]\n\nCreate a paired timestamped .up.sql and .down.sql migration.",
-  init: "Usage: tusk init [--from-db] [--json]\n\nCreate the migrations directory, or adopt a supported existing schema with --from-db.",
+  init: "Usage: tusk init [--from-db] [--schema <name>] [--json]\n\nCreate the migrations directory, or adopt a supported existing schema with --from-db.",
   up: "Usage: tusk up [--dry-run] [--json]\n\nValidate and apply all pending migrations.",
   down: "Usage: tusk down [count | --all] [--dry-run] [--json] [--allow-baseline-rollback]\n\nRoll back one migration by default. Adopted baselines require the explicit safety override.",
   status:
@@ -39,6 +39,7 @@ Options:
   --help, -h      Show this help message
   init:
     --from-db     Adopt an existing database schema as an applied baseline
+    --schema      Schema to introspect with --from-db (overrides TUSK_SCHEMA)
     --json        Output machine-readable init data
   status:
     --exit-code   Exit 1 when migrations are pending, 0 when clean
@@ -75,19 +76,21 @@ Environment variables:
   TUSK_MIGRATION_LOCK_SEED
                   Opt-in seed used to derive a lock key when TUSK_MIGRATION_LOCK_ID
                   is unset
-  TUSK_SCHEMA     Schema for tusk init --from-db (default: public)
+  TUSK_SCHEMA     Schema for tusk init --from-db (default: public; --schema wins)
 
 Project config (optional, cwd):
   tusk.config.json|.mjs|.js|.cjs
                   migrationsPath, driver, statementTimeoutMs, schema
                   TypeScript tusk.config.ts loads under Bun; on Node use JSON
-                  or .mjs. Environment variables override file values. Do not
-                  store database credentials in the project config file.
+                  or .mjs. CLI --schema and environment variables override file
+                  values. Do not store database credentials in the project
+                  config file.
 
 Examples:
   tusk create add_user_table
   tusk init
   tusk init --from-db
+  tusk init --from-db --schema billing
   tusk up
   tusk down
   tusk down 3

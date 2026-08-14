@@ -321,6 +321,33 @@ describe("resolveProjectSettings", () => {
     });
   });
 
+  test("lets an explicit schema override env and file", () => {
+    expect(
+      resolveProjectSettings(
+        {
+          path: "/app/tusk.config.json",
+          config: { schema: "file_schema" },
+        },
+        {
+          schemaOverride: "cli_schema",
+          env: { TUSK_SCHEMA: "env_schema" },
+        }
+      ).schema
+    ).toBe("cli_schema");
+  });
+
+  test("ignores an empty schema override", () => {
+    expect(
+      resolveProjectSettings(
+        { path: null, config: { schema: "file_schema" } },
+        {
+          schemaOverride: "",
+          env: { TUSK_SCHEMA: "env_schema" },
+        }
+      ).schema
+    ).toBe("env_schema");
+  });
+
   test("lets an explicit migrations path override env and file", () => {
     expect(
       resolveProjectSettings(
