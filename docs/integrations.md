@@ -51,7 +51,8 @@ migration one observable owner.
 
 ## Elysia Plugin
 
-Elysia is the verified framework integration:
+Elysia is the verified framework integration. Prefer the CLI deploy step above
+and disable startup migrations in production:
 
 ```bash
 bun add @bydey/tusk elysia pg
@@ -66,15 +67,34 @@ new Elysia()
     migrate({
       connectionString: process.env.DATABASE_URL,
       migrationsPath: "./migrations",
+      runOnStartup: false,
     }),
   )
   .listen(3000);
 ```
 
-The plugin runs pending migrations before startup by default and decorates the
-app with its pool and adapter. Pass an existing `pg` pool when the application
-already owns one, or set `runOnStartup: false` when deployment handles
-migrations separately.
+`runOnStartup` still defaults to `true` for compatibility. When that default is
+left implicit, the plugin logs a warning and recommends this deploy-step path.
+Set `runOnStartup: true` only when a dedicated migrate job is unavailable.
+
+Pass an existing `pg` pool or postgres.js `sql` client when the application
+already owns one. The plugin decorates the app with `db.adapter` plus `db.pool`
+or `db.sql`. Even a successful startup migration runs after the HTTP port is
+already open. On failure the plugin stops the server, logs a formatted
+`TuskError`, and rethrows.
+
+```ts
+import postgres from "postgres";
+import { migrate } from "@bydey/tusk/elysia";
+
+const sql = postgres(process.env.DATABASE_URL!);
+
+migrate({
+  sql,
+  migrationsPath: "./migrations",
+  runOnStartup: false,
+});
+```
 
 ## Production Rules
 
