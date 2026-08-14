@@ -4,9 +4,9 @@ This file is the working contract for agents modifying this repository.
 
 ## Project Map
 
-- `cli.ts` contains the Tusk command-line entrypoint.
+- `cli.ts` is the thin Tusk command-line entrypoint; command wiring lives under `cli/`.
 - `index.ts` exports the public package API.
-- `core/` contains migration creation, reading, execution, rollback planning, validation, and state tracking.
+- `core/` contains migration creation, reading, execution, rollback planning, validation, and state tracking. Doctor checks are split under `core/doctor/`.
 - `adapters/` contains database adapters. PostgreSQL support is split between `adapters/pg.ts`, `adapters/postgresjs.ts`, and `adapters/pg/*`.
 - `plugins/` contains framework integrations.
 - `types/` contains exported TypeScript contracts.

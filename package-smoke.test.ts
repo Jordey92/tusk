@@ -18,12 +18,17 @@ import {
   type CliCommandResult,
 } from "./utils/cli-smoke";
 import { sendMcpRequestToCommand } from "./mcp/test-utils/server";
-import { runTestSubprocess } from "./test-utils/subprocess";
+import {
+  runTestSubprocess,
+  TestSubprocessTimeoutError,
+} from "./test-utils/subprocess";
 
 const repoRoot = process.cwd();
 const packageSmokeDatabaseUrl = process.env.TUSK_SMOKE_DATABASE_URL;
 const skipPackageBuild = process.env.TUSK_PACKAGE_SMOKE_SKIP_BUILD === "1";
 const suppliedPackageTarball = process.env.TUSK_PACKAGE_SMOKE_TARBALL;
+const defaultCommandTimeoutMs = 60_000;
+const windowsPackageInstallTimeoutMs = 120_000;
 
 interface PackageJson {
   name: string;
@@ -158,11 +163,32 @@ const platformCommand = (
   };
 };
 
+const packageInstallTimeoutMs = (platform = process.platform) =>
+  platform === "win32" ? windowsPackageInstallTimeoutMs : defaultCommandTimeoutMs;
+
+const packageInstallRetries = (platform = process.platform) =>
+  platform === "win32" ? 1 : 0;
+
+const runAll = async <T>(
+  tasks: Array<() => Promise<T>>,
+  platform = process.platform
+): Promise<T[]> => {
+  if (platform === "win32") {
+    const results: T[] = [];
+    for (const task of tasks) {
+      results.push(await task());
+    }
+    return results;
+  }
+
+  return Promise.all(tasks.map((task) => task()));
+};
+
 const runCommand = async (
   cmd: string[],
   cwd: string,
   envOverrides: Record<string, string> = {},
-  timeoutMs = 60_000,
+  timeoutMs = defaultCommandTimeoutMs,
 ): Promise<CliCommandResult> => {
   const prepared = platformCommand(cmd);
   return runTestSubprocess(prepared.command, {
@@ -174,6 +200,32 @@ const runCommand = async (
     timeoutMs,
     windowsVerbatimArguments: prepared.windowsVerbatimArguments,
   });
+};
+
+const runCommandWithTimeoutRetries = async (
+  cmd: string[],
+  cwd: string,
+  envOverrides: Record<string, string> = {},
+  timeoutMs = defaultCommandTimeoutMs,
+  retries = 0,
+): Promise<CliCommandResult> => {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await runCommand(cmd, cwd, envOverrides, timeoutMs);
+    } catch (error) {
+      if (
+        !(error instanceof TestSubprocessTimeoutError) ||
+        attempt >= retries
+      ) {
+        throw error;
+      }
+      attempt += 1;
+      console.warn(
+        `Timed-out command retry ${attempt}/${retries}: ${cmd.join(" ")}`
+      );
+    }
+  }
 };
 
 const expectSuccess = (result: CliCommandResult) => {
@@ -193,7 +245,7 @@ const createConsumerProject = async (
     JSON.stringify({ name: `tusk-consumer-${name}`, private: true, type: "module" })
   );
 
-  const installResult = await runCommand(
+  const installResult = await runCommandWithTimeoutRetries(
     [
       "npm",
       "install",
@@ -205,7 +257,10 @@ const createConsumerProject = async (
       "@types/node@^24.0.0",
       ...dependencies,
     ],
-    directory
+    directory,
+    {},
+    packageInstallTimeoutMs(),
+    packageInstallRetries()
   );
   expectSuccess(installResult);
 
@@ -387,6 +442,34 @@ describe("package smoke command portability", () => {
       await rm(workspace, { recursive: true, force: true });
     }
   });
+
+  test("uses a longer Windows npm install budget and serializes consumer setup", async () => {
+    expect(packageInstallTimeoutMs("win32")).toBe(windowsPackageInstallTimeoutMs);
+    expect(packageInstallTimeoutMs("linux")).toBe(defaultCommandTimeoutMs);
+    expect(packageInstallRetries("win32")).toBe(1);
+    expect(packageInstallRetries("linux")).toBe(0);
+
+    const order: string[] = [];
+    const windowsResult = await runAll(
+      [
+        async () => {
+          order.push("a-start");
+          await Promise.resolve();
+          order.push("a-end");
+          return "a";
+        },
+        async () => {
+          order.push("b-start");
+          await Promise.resolve();
+          order.push("b-end");
+          return "b";
+        },
+      ],
+      "win32"
+    );
+    expect(windowsResult).toEqual(["a", "b"]);
+    expect(order).toEqual(["a-start", "a-end", "b-start", "b-end"]);
+  });
 });
 
 describe("package smoke test", () => {
@@ -467,20 +550,23 @@ describe("package smoke test", () => {
     ));
 
     const [rootProject, pgProject, postgresProject, elysiaProject] =
-      await Promise.all([
-        createConsumerProject(tempRoot, "root", tarball),
-        createConsumerProject(tempRoot, "pg", tarball, [
-          "pg@^8.16.3",
-          "@types/pg@^8.15.5",
-        ]),
-        createConsumerProject(tempRoot, "postgres", tarball, [
-          "postgres@^3.4.7",
-        ]),
-        createConsumerProject(tempRoot, "elysia", tarball, [
-          "elysia@^1.4.27",
-          "pg@^8.16.3",
-          "@types/pg@^8.15.5",
-        ]),
+      await runAll([
+        () => createConsumerProject(tempRoot, "root", tarball),
+        () =>
+          createConsumerProject(tempRoot, "pg", tarball, [
+            "pg@^8.16.3",
+            "@types/pg@^8.15.5",
+          ]),
+        () =>
+          createConsumerProject(tempRoot, "postgres", tarball, [
+            "postgres@^3.4.7",
+          ]),
+        () =>
+          createConsumerProject(tempRoot, "elysia", tarball, [
+            "elysia@^1.4.27",
+            "pg@^8.16.3",
+            "@types/pg@^8.15.5",
+          ]),
       ]);
 
     const baseCommandEnv = {
