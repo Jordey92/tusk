@@ -121,6 +121,6 @@
     }
   },
   "dependencies": {
-    "dotenv": "^17.2.3"
+    "dotenv": "^18.0.0"
   }
 }
